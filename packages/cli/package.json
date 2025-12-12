@@ -1,0 +1,15 @@
+{
+  "name": "@controlpath/cli",
+  "version": "0.1.0",
+  "description": "Control Path CLI tool (Deno runtime)",
+  "scripts": {
+    "build": "deno task build",
+    "test": "deno task test",
+    "lint": "deno task lint",
+    "format:check": "deno task format:check"
+  },
+  "devDependencies": {
+    "@controlpath/compiler": "workspace:*"
+  }
+}
+

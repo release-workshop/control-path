@@ -1,0 +1,26 @@
+{
+  "name": "@controlpath/compiler",
+  "version": "0.1.0",
+  "description": "Control Path AST compiler",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
+  },
+  "dependencies": {
+    "ajv": "^8.12.0",
+    "js-yaml": "^4.1.0",
+    "msgpackr": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "eslint": "^8.50.0"
+  }
+}
+

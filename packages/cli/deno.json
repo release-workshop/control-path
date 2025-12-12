@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window"]
+  },
+  "imports": {
+    "@controlpath/compiler": "../compiler/src/index.ts"
+  },
+  "tasks": {
+    "build": "deno compile --allow-read --allow-write --allow-net --output dist/controlpath src/index.ts",
+    "test": "deno test --allow-read --allow-write",
+    "lint": "deno lint src",
+    "format:check": "deno fmt --check src"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": true,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
+
