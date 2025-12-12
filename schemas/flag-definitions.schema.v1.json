@@ -1,0 +1,112 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://controlpath.dev/schemas/flag-definitions.schema.v1.json",
+  "title": "Control Path Flag Definitions Schema",
+  "description": "Schema for flag definitions YAML file",
+  "type": "object",
+  "required": ["flags"],
+  "properties": {
+    "context": {
+      "type": "object",
+      "description": "Optional context schema extensions. Allows adding custom properties to context objects (user, device, application, etc.) using simple key/type syntax.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": ["string", "number", "boolean", "object", "array"],
+            "description": "Type definition for top-level property (e.g., 'custom_property': 'string')"
+          },
+          {
+            "type": "object",
+            "description": "Nested object extension (e.g., user, device, application)",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": ["string", "number", "boolean", "object", "array"],
+                  "description": "Type definition for property (e.g., 'age?: number' or 'department: string')"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "flags": {
+      "type": "array",
+      "description": "Array of flag definitions",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "defaultValue"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Flag name (must be unique, valid identifier)",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the flag"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["boolean", "multivariate"],
+            "description": "Flag type: 'boolean' for on/off flags, 'multivariate' for flags with multiple variations"
+          },
+          "defaultValue": {
+            "description": "Default value when no rules match. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "boolean" },
+              { "type": "number" }
+            ]
+          },
+          "variations": {
+            "type": "array",
+            "description": "Required for multivariate flags. Array of possible variation values.",
+            "items": {
+              "type": "object",
+              "required": ["name", "value"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Variation name (must be unique within flag)",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                },
+                "value": {
+                  "description": "Variation value",
+                  "oneOf": [
+                    { "type": "string" },
+                    { "type": "boolean" },
+                    { "type": "number" }
+                  ]
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Human-readable description of this variation"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "kind": {
+            "type": "string",
+            "description": "Optional flag kind/category"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Extensible metadata object",
+            "additionalProperties": true
+          },
+          "lifecycle": {
+            "type": "object",
+            "description": "Lifecycle information",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}
