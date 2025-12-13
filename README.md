@@ -2,6 +2,19 @@
 
 Git-native feature flags with type-safe SDKs.
 
+## ⚠️ Development Status
+
+**⚠️ WARNING: This project is currently under active development and is NOT ready for production use.**
+
+- The API and features are subject to change
+- Breaking changes may occur without notice
+- Documentation may be incomplete
+- Some features may not be fully implemented or tested
+
+**Do not use this software in production environments.** Use at your own risk.
+
+**DISCLAIMER OF LIABILITY:** This software is provided "AS IS" without warranty of any kind. Release Workshop Ltd and its contributors shall not be liable for any damages, losses, or liabilities arising from the use of this software, including but not limited to direct, indirect, incidental, special, consequential, or punitive damages. By using this software, you agree that Release Workshop Ltd is not responsible for any issues, bugs, data loss, security vulnerabilities, or other problems that may occur.
+
 ## Development Setup
 
 This is a monorepo managed with **pnpm** and **Turborepo**.
