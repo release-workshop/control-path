@@ -10,10 +10,9 @@
 // For Deno, use the deno.ts file which has import assertions
 
 // Use require for Node.js compatibility (CommonJS)
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const definitionsSchema = require('./flag-definitions.schema.v1.json');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const deploymentSchema = require('./flag-deployment.schema.v1.json');
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const definitionsSchema: unknown = require('./flag-definitions.schema.v1.json');
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+const deploymentSchema: unknown = require('./flag-deployment.schema.v1.json');
 
 export { definitionsSchema, deploymentSchema };
-

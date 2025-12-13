@@ -11,11 +11,16 @@ import { Validator } from '@controlpath/compiler';
 // Import embedded schemas (bundled with CLI, no disk access needed)
 // These JSON files are bundled into the CLI binary at compile time
 // Using Deno-compatible import with JSON import assertions
-import definitionsSchema from '../../compiler/src/schemas/flag-definitions.schema.v1.json' with { type: 'json' };
-import deploymentSchema from '../../compiler/src/schemas/flag-deployment.schema.v1.json' with { type: 'json' };
+import definitionsSchema from '../../compiler/src/schemas/flag-definitions.schema.v1.json' with {
+  type: 'json',
+};
+import deploymentSchema from '../../compiler/src/schemas/flag-deployment.schema.v1.json' with {
+  type: 'json',
+};
 
 // Create validator with embedded schemas (bundled, no disk access)
-const validator = new Validator({
+// TODO: Use validator when implementing CLI commands
+const _validator = new Validator({
   definitions: definitionsSchema,
   deployment: deploymentSchema,
 });

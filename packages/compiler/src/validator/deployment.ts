@@ -12,14 +12,15 @@ import { ValidationResult, ValidationError, convertAjvErrors } from '../validato
  */
 export function validateDeployment(
   ajv: Ajv,
-  schema: any,
+  schema: unknown,
   filePath: string,
-  data: any
+  data: unknown
 ): ValidationResult {
   // Compile schema if not already compiled
   let validate: ValidateFunction;
   try {
-    validate = ajv.compile(schema);
+    // Schema is expected to be a valid JSON schema object
+    validate = ajv.compile(schema as Record<string, unknown>);
   } catch (error) {
     return {
       valid: false,
@@ -40,10 +41,10 @@ export function validateDeployment(
 
   // Always run additional validation for deployment-specific rules (even if schema passes)
   const additionalErrors = validateDeploymentSpecificRules(filePath, data);
-  
+
   // Combine all errors
   const allErrors = [...schemaErrors, ...additionalErrors];
-  
+
   return {
     valid: allErrors.length === 0,
     errors: allErrors,
@@ -51,36 +52,57 @@ export function validateDeployment(
 }
 
 /**
+ * Type guard to check if value is a record/object.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Type guard to check if value is a variation object.
+ */
+function isVariation(value: unknown): value is { weight?: number } {
+  return isRecord(value);
+}
+
+/**
+ * Type guard to check if value is a rollout object.
+ */
+function isRollout(value: unknown): value is { percentage?: number } {
+  return isRecord(value);
+}
+
+/**
  * Validate deployment-specific business rules that aren't covered by JSON schema.
  */
-function validateDeploymentSpecificRules(filePath: string, data: any): ValidationError[] {
+function validateDeploymentSpecificRules(filePath: string, data: unknown): ValidationError[] {
   const errors: ValidationError[] = [];
 
-  if (!data || typeof data !== 'object') {
+  if (!isRecord(data)) {
     return errors;
   }
 
-  if (!data.rules || typeof data.rules !== 'object') {
+  if (!isRecord(data.rules)) {
     return errors;
   }
 
   // Validate rule structure
   for (const [flagName, flagRules] of Object.entries(data.rules)) {
-    if (!flagRules || typeof flagRules !== 'object') {
+    if (!isRecord(flagRules)) {
       continue;
     }
 
-    const rules = (flagRules as any).rules;
+    const rules = flagRules.rules;
     if (Array.isArray(rules)) {
-      rules.forEach((rule: any, ruleIndex: number) => {
-        if (!rule || typeof rule !== 'object') {
+      rules.forEach((rule: unknown, ruleIndex: number) => {
+        if (!isRecord(rule)) {
           return;
         }
 
         // Validate that rule has at least one of: serve, variations, rollout
         const hasServe = 'serve' in rule;
         const hasVariations = 'variations' in rule && Array.isArray(rule.variations);
-        const hasRollout = 'rollout' in rule && typeof rule.rollout === 'object';
+        const hasRollout = 'rollout' in rule && isRollout(rule.rollout);
 
         if (!hasServe && !hasVariations && !hasRollout) {
           errors.push({
@@ -94,10 +116,11 @@ function validateDeploymentSpecificRules(filePath: string, data: any): Validatio
         // Validate variations array if present
         if (hasVariations && Array.isArray(rule.variations)) {
           const totalWeight = rule.variations.reduce(
-            (sum: number, v: any) => sum + (typeof v.weight === 'number' ? v.weight : 0),
+            (sum: number, v: unknown) =>
+              sum + (isVariation(v) && typeof v.weight === 'number' ? v.weight : 0),
             0
           );
-          
+
           if (totalWeight > 100) {
             errors.push({
               file: filePath,
@@ -109,7 +132,7 @@ function validateDeploymentSpecificRules(filePath: string, data: any): Validatio
         }
 
         // Validate rollout if present
-        if (hasRollout && rule.rollout) {
+        if (hasRollout && rule.rollout && isRollout(rule.rollout)) {
           const percentage = rule.rollout.percentage;
           if (typeof percentage === 'number' && (percentage < 0 || percentage > 100)) {
             errors.push({
@@ -126,4 +149,3 @@ function validateDeploymentSpecificRules(filePath: string, data: any): Validatio
 
   return errors;
 }
-

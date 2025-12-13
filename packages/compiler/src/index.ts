@@ -11,6 +11,25 @@ export { Validator, ValidationResult, ValidationError, convertAjvErrors } from '
 export { validateDefinitions } from './validator/definitions';
 export { validateDeployment } from './validator/deployment';
 
+// Export parsers
+export {
+  parseDefinitions,
+  parseDefinitionsFromString,
+  parseDeployment,
+  parseDeploymentFromString,
+  type FlagDefinitions,
+  type FlagDefinition,
+  type FlagType,
+  type FlagValue,
+  type FlagVariation,
+  type ContextSchema,
+  type Deployment,
+  type DeploymentRule,
+  type FlagRules,
+  type SegmentDefinition,
+  type ParseError,
+} from './parser';
+
 // Export embedded schemas for CLI bundling (Node.js/CommonJS)
 // Note: For Deno, import JSON files directly with import assertions
 export { definitionsSchema, deploymentSchema } from './schemas/index';

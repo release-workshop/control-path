@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "lint": "eslint src",
+    "lint": "eslint src --max-warnings 0",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
   },
   "dependencies": {

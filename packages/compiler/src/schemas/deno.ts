@@ -11,4 +11,3 @@ import definitionsSchema from './flag-definitions.schema.v1.json' with { type: '
 import deploymentSchema from './flag-deployment.schema.v1.json' with { type: 'json' };
 
 export { definitionsSchema, deploymentSchema };
-
