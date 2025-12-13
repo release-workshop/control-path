@@ -93,6 +93,7 @@ Write clear, descriptive commit messages:
 - Reference issues and pull requests liberally after the first line
 
 Example:
+
 ```
 Add support for semver comparison in expressions
 
@@ -143,6 +144,7 @@ control-path/
 ## Licensing
 
 For information about licensing, see:
+
 - [LICENSE](LICENSE) - Elastic License 2.0 (applies to entire repository)
 - [LICENSE-LAYER1.md](LICENSE-LAYER1.md) - Additional licensing information for Layer 1 Runtime SDK
 
@@ -174,4 +176,3 @@ Instead, please report them via our [Security Policy](SECURITY.md).
 ---
 
 Thank you for contributing to Control Path!
-

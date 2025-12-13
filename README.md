@@ -30,7 +30,8 @@ This is a monorepo managed with **pnpm** and **Turborepo**.
   - Required for package management and workspace resolution
 - **Turborepo** (installed automatically via pnpm, or install globally with `npm install -g turbo`)
 
-**Note**: 
+**Note**:
+
 - The project requires Node.js 24 LTS for the compiler package and build tooling
 - The CLI tool runs on Deno runtime (not Node.js)
 - The preinstall hook will verify you're using the correct versions
@@ -42,6 +43,7 @@ This is a monorepo managed with **pnpm** and **Turborepo**.
 This project uses [Turborepo](https://turbo.build/) for build orchestration. **Always use Turborepo commands** (`turbo run <task>`) instead of pnpm scripts for the best experience.
 
 **Turborepo provides:**
+
 - **Parallel execution** - Tasks run in parallel across packages for faster builds
 - **Intelligent caching** - Skips tasks when inputs haven't changed
 - **Task dependencies** - Ensures correct execution order (lint → build → test)
@@ -49,12 +51,14 @@ This project uses [Turborepo](https://turbo.build/) for build orchestration. **A
 - **Remote caching** - Share cache across team and CI/CD (optional)
 
 **Recommended Commands (use these directly):**
+
 - `turbo run build` - Build all packages ⚡ (faster than `pnpm build`)
 - `turbo run test` - Run all tests ⚡ (faster than `pnpm test`)
 - `turbo run lint` - Lint all packages ⚡ (faster than `pnpm lint`)
 - `turbo run format:check` - Check formatting ⚡ (faster than `pnpm format:check`)
 
 **Why use Turborepo directly?**
+
 - Better caching - Turborepo caches results and skips unchanged work
 - Parallel execution - Tasks run in parallel across packages
 - Faster builds - Only rebuilds what changed
@@ -65,6 +69,7 @@ All build, test, lint, and format:check commands should be run through Turborepo
 ### Important: Requirements
 
 **This project requires:**
+
 - **Node.js 24 LTS** or higher - Required for compiler package and build tooling
 - **Deno** - Required for CLI tool runtime (CLI runs on Deno, not Node.js)
 - **pnpm as the package manager** - Using npm or yarn will fail during installation
@@ -140,6 +145,7 @@ Turborepo orchestrates the build pipeline with the following task dependencies:
 4. **Test** - Test execution (depends on build completing)
 
 **Task Execution Order:**
+
 ```
 lint ──┐
        ├──> build ──> test
@@ -147,6 +153,7 @@ format:check ──┘
 ```
 
 This ensures:
+
 - Code quality checks run before building
 - Formatting is verified before compilation
 - Tests only run after successful builds
@@ -206,4 +213,3 @@ For more details, see the [LICENSE](LICENSE) file and [CONTRIBUTING.md](CONTRIBU
 ### Contributing
 
 We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. By contributing, you agree to our [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md), which grants Release Workshop Ltd ownership of your contributions.
-

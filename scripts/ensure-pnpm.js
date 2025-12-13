@@ -51,7 +51,9 @@ const nodeVersion = process.version;
 const nodeMajorVersion = parseInt(nodeVersion.slice(1).split('.')[0], 10);
 
 if (nodeMajorVersion < 24) {
-  console.error(`\n❌ Error: Node.js ${nodeVersion} is installed, but Node.js 24 LTS or higher is required.`);
+  console.error(
+    `\n❌ Error: Node.js ${nodeVersion} is installed, but Node.js 24 LTS or higher is required.`
+  );
   console.error('\nPlease install Node.js LTS:');
   console.error('  - Using nvm: nvm install --lts && nvm use --lts');
   console.error('  - Or download from: https://nodejs.org/\n');
@@ -72,7 +74,7 @@ try {
 try {
   const version = execSync('pnpm --version', { encoding: 'utf-8' }).trim();
   const majorVersion = parseInt(version.split('.')[0], 10);
-  
+
   if (majorVersion < 8) {
     console.error(`\n❌ Error: pnpm version ${version} is installed, but version 8+ is required.`);
     console.error('\nPlease update pnpm:');
@@ -88,7 +90,7 @@ try {
 try {
   execSync('deno --version', { stdio: 'ignore' });
   const denoVersion = execSync('deno --version', { encoding: 'utf-8' }).trim().split('\n')[0];
-  
+
   // Success
   if (process.env.npm_config_user_agent) {
     console.log(`✓ Node.js ${nodeVersion} (LTS)`);
@@ -104,4 +106,3 @@ try {
     console.warn('   Install with: curl -fsSL https://deno.land/install.sh | sh');
   }
 }
-

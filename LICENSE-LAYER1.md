@@ -16,6 +16,7 @@ The Layer 1 Runtime SDK (`@controlpath/runtime`) is licensed under the **Elastic
 ### Usage Rights
 
 You may:
+
 - ✅ Use the Layer 1 SDK as a dependency in your projects
 - ✅ Use the Layer 1 SDK to build and run your applications
 - ✅ Modify the Layer 1 SDK for your own use (subject to license terms)
@@ -25,6 +26,7 @@ You may:
 **You may NOT redistribute the Layer 1 SDK separately** (e.g., as a standalone package, republished to npm, etc.). The Layer 1 SDK is owned and distributed by Release Workshop Ltd.
 
 However, you may:
+
 - ✅ Include the Layer 1 SDK as a dependency in your application
 - ✅ Distribute your application that includes the Layer 1 SDK as a dependency
 - ✅ Use the Layer 1 SDK in your commercial products
@@ -51,4 +53,3 @@ If you have questions about licensing or redistribution rights, please contact R
 ---
 
 **Copyright © 2024-2025 Release Workshop Ltd. All rights reserved.**
-

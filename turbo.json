@@ -12,9 +12,7 @@
       "outputs": ["dist/**", "packages/cli/dist/**"]
     },
     "test": {
-      "dependsOn": ["build"],
       "outputs": ["coverage/**"]
     }
   }
 }
-

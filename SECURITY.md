@@ -4,9 +4,9 @@
 
 We provide security updates for the following versions of Control Path:
 
-| Version | Supported          |
-| ------- | ------------------ |
-| Latest  | :white_check_mark: |
+| Version  | Supported          |
+| -------- | ------------------ |
+| Latest   | :white_check_mark: |
 | < Latest | :x:                |
 
 ## Reporting a Vulnerability
@@ -80,4 +80,3 @@ For security-related questions or concerns, please contact [INSERT SECURITY EMAI
 ---
 
 **Thank you for helping keep Control Path and its users safe!**
-
