@@ -32,3 +32,19 @@ export {
 } from './parser';
 
 export { definitionsSchema, deploymentSchema } from './schemas/index';
+
+export {
+  type Artifact,
+  type Rule,
+  type Variation,
+  type Expression,
+  RuleType,
+  ExpressionType,
+  BinaryOp,
+  LogicalOp,
+  FuncCode,
+  isArtifact,
+  isRule,
+  isVariation,
+  isExpression,
+} from './ast';
