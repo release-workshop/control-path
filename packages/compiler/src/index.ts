@@ -4,14 +4,15 @@
  * See the LICENSE file in the project root for details.
  */
 
-// Control Path AST Compiler
-// Main entry point for the compiler package
+/**
+ * Control Path AST Compiler
+ * Main entry point for the compiler package
+ */
 
 export { Validator, ValidationResult, ValidationError, convertAjvErrors } from './validator';
 export { validateDefinitions } from './validator/definitions';
 export { validateDeployment } from './validator/deployment';
 
-// Export parsers
 export {
   parseDefinitions,
   parseDefinitionsFromString,
@@ -30,6 +31,4 @@ export {
   type ParseError,
 } from './parser';
 
-// Export embedded schemas for CLI bundling (Node.js/CommonJS)
-// Note: For Deno, import JSON files directly with import assertions
 export { definitionsSchema, deploymentSchema } from './schemas/index';

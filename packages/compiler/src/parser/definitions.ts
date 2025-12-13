@@ -30,23 +30,22 @@ export function parseDefinitions(filePath: string): FlagDefinitions {
  * @throws {ParseError} If content cannot be parsed
  */
 export function parseDefinitionsFromString(content: string, filePath: string): FlagDefinitions {
-  const parsed = parseYamlOrJson(content, filePath);
+  const parsedData = parseYamlOrJson(content, filePath);
 
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (!parsedData || typeof parsedData !== 'object' || Array.isArray(parsedData)) {
     throw new ParseError('Invalid flag definitions: expected an object', filePath);
   }
 
-  const obj = parsed as Record<string, unknown>;
+  const definitionsObject = parsedData as Record<string, unknown>;
 
-  // Validate required fields
-  if (!('flags' in obj)) {
+  if (!('flags' in definitionsObject)) {
     throw new ParseError('Invalid flag definitions: missing required field "flags"', filePath);
   }
 
-  if (!Array.isArray(obj.flags)) {
+  if (!Array.isArray(definitionsObject.flags)) {
     throw new ParseError('Invalid flag definitions: "flags" must be an array', filePath);
   }
 
-  // Type assertion - validation should be done by schema validator
-  return obj as unknown as FlagDefinitions;
+  // Type assertion - full validation should be done by schema validator
+  return definitionsObject as unknown as FlagDefinitions;
 }

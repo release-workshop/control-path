@@ -5,24 +5,27 @@
  */
 
 import Ajv, { ErrorObject } from 'ajv';
-// Use node: prefix for Deno compatibility (also works in Node.js)
-// These are only used in loadSchemas() which is skipped when embedded schemas are provided
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { validateDefinitions } from './validator/definitions';
 import { validateDeployment } from './validator/deployment';
+import { convertAjvError } from './validator/error-utils';
 
-// Try to load ajv-formats if available (optional dependency)
-let addFormats: ((ajv: Ajv) => Ajv) | null = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
-  const ajvFormats: { default?: (ajv: Ajv) => Ajv; (ajv: Ajv): Ajv } = require('ajv-formats') as {
-    default?: (ajv: Ajv) => Ajv;
-    (ajv: Ajv): Ajv;
-  };
-  addFormats = ajvFormats.default || ajvFormats;
-} catch {
-  // ajv-formats not available, skip format validation
+/**
+ * Try to load ajv-formats if available (optional dependency).
+ * This enables format validation for JSON schemas.
+ */
+function loadAjvFormats(): ((ajv: Ajv) => Ajv) | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment
+    const ajvFormats: { default?: (ajv: Ajv) => Ajv; (ajv: Ajv): Ajv } = require('ajv-formats') as {
+      default?: (ajv: Ajv) => Ajv;
+      (ajv: Ajv): Ajv;
+    };
+    return ajvFormats.default || ajvFormats;
+  } catch {
+    return null;
+  }
 }
 
 export interface ValidationError {
@@ -60,12 +63,12 @@ export class Validator {
       verbose: true,
       strict: false,
     });
-    // Add format validation if ajv-formats is available
-    if (addFormats) {
-      addFormats(this.ajv);
+
+    const ajvFormats = loadAjvFormats();
+    if (ajvFormats) {
+      ajvFormats(this.ajv);
     }
 
-    // Load schemas (from embedded or disk)
     if (embeddedSchemas?.definitions && embeddedSchemas?.deployment) {
       this.definitionsSchema = embeddedSchemas.definitions;
       this.deploymentSchema = embeddedSchemas.deployment;
@@ -75,62 +78,90 @@ export class Validator {
   }
 
   private loadSchemas(): void {
-    // Load schemas from the schemas directory in the monorepo root
-    // Try multiple possible paths to handle both development and compiled builds
-    // Note: This method is only called when embedded schemas are not provided
-    // In Deno/CLI context, embedded schemas should always be provided
+    const schemasDir = this.findSchemaDirectory();
+    const definitionsSchemaPath = path.join(schemasDir, 'flag-definitions.schema.v1.json');
+    const deploymentSchemaPath = path.join(schemasDir, 'flag-deployment.schema.v1.json');
 
-    // Get __dirname equivalent (Node.js only - Deno should use embedded schemas)
-    // This require() is necessary for Node.js compatibility and is only used when embedded schemas are not provided
+    this.validateSchemaFilesExist(definitionsSchemaPath, deploymentSchemaPath);
+    this.definitionsSchema = this.loadSchemaFile(definitionsSchemaPath);
+    this.deploymentSchema = this.loadSchemaFile(deploymentSchemaPath);
+  }
+
+  /**
+   * Find the schema directory by trying multiple possible paths.
+   * Handles both development and compiled builds.
+   */
+  private findSchemaDirectory(): string {
+    const possiblePaths = this.getPossibleSchemaPaths();
+
+    for (const possiblePath of possiblePaths) {
+      const testPath = path.join(possiblePath, 'flag-definitions.schema.v1.json');
+      if (fs.existsSync(testPath)) {
+        return possiblePath;
+      }
+    }
+
+    throw new Error(
+      `Schema directory not found. Tried: ${possiblePaths.join(', ')}. ` +
+        `Please ensure schemas are in the monorepo root at schemas/`
+    );
+  }
+
+  /**
+   * Get possible paths to the schema directory.
+   * Tries paths relative to compiled output, source, package root, and current working directory.
+   */
+  private getPossibleSchemaPaths(): string[] {
+    const currentDir = this.getCurrentDirectory();
+    const cwd = this.getCurrentWorkingDirectory();
+
+    return [
+      path.resolve(currentDir, '../../../../schemas'), // From compiled output (dist/)
+      path.resolve(currentDir, '../../../schemas'), // From source (src/)
+      path.resolve(currentDir, '../../schemas'), // From package root
+      path.resolve(cwd, 'schemas'), // Absolute path fallback
+    ];
+  }
+
+  /**
+   * Get the current directory (__dirname equivalent).
+   * Node.js only - Deno should use embedded schemas.
+   */
+  private getCurrentDirectory(): string {
     // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-require-imports
     const pathModule: { dirname: (path: string) => string } | undefined =
       typeof require !== 'undefined'
         ? // eslint-disable-next-line @typescript-eslint/no-var-requires
           (require('path') as { dirname: (path: string) => string })
         : undefined;
-    const __dirname = pathModule ? pathModule.dirname(__filename || '.') : '.';
+    return pathModule ? pathModule.dirname(__filename || '.') : '.';
+  }
 
-    const cwd = typeof process !== 'undefined' && process.cwd ? process.cwd() : '.';
+  /**
+   * Get the current working directory.
+   */
+  private getCurrentWorkingDirectory(): string {
+    return typeof process !== 'undefined' && process.cwd ? process.cwd() : '.';
+  }
 
-    const possiblePaths = [
-      // From compiled output (dist/)
-      path.resolve(__dirname, '../../../../schemas'),
-      // From source (src/)
-      path.resolve(__dirname, '../../../schemas'),
-      // From package root
-      path.resolve(__dirname, '../../schemas'),
-      // Absolute path fallback
-      path.resolve(cwd, 'schemas'),
-    ];
-
-    let schemasDir: string | null = null;
-    for (const possiblePath of possiblePaths) {
-      const testPath = path.join(possiblePath, 'flag-definitions.schema.v1.json');
-      if (fs.existsSync(testPath)) {
-        schemasDir = possiblePath;
-        break;
-      }
+  /**
+   * Validate that both schema files exist.
+   */
+  private validateSchemaFilesExist(definitionsPath: string, deploymentPath: string): void {
+    if (!fs.existsSync(definitionsPath)) {
+      throw new Error(`Schema file not found: ${definitionsPath}`);
     }
-
-    if (!schemasDir) {
-      throw new Error(
-        `Schema directory not found. Tried: ${possiblePaths.join(', ')}. ` +
-          `Please ensure schemas are in the monorepo root at schemas/`
-      );
+    if (!fs.existsSync(deploymentPath)) {
+      throw new Error(`Schema file not found: ${deploymentPath}`);
     }
+  }
 
-    const definitionsSchemaPath = path.join(schemasDir, 'flag-definitions.schema.v1.json');
-    const deploymentSchemaPath = path.join(schemasDir, 'flag-deployment.schema.v1.json');
-
-    if (!fs.existsSync(definitionsSchemaPath)) {
-      throw new Error(`Schema file not found: ${definitionsSchemaPath}`);
-    }
-    if (!fs.existsSync(deploymentSchemaPath)) {
-      throw new Error(`Schema file not found: ${deploymentSchemaPath}`);
-    }
-
-    this.definitionsSchema = JSON.parse(fs.readFileSync(definitionsSchemaPath, 'utf-8'));
-    this.deploymentSchema = JSON.parse(fs.readFileSync(deploymentSchemaPath, 'utf-8'));
+  /**
+   * Load and parse a schema file.
+   */
+  private loadSchemaFile(filePath: string): unknown {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return JSON.parse(content);
   }
 
   /**
@@ -155,30 +186,35 @@ export class Validator {
       return '';
     }
 
-    const lines: string[] = [];
-    lines.push('✗ Validation failed\n');
+    const errorLines: string[] = ['✗ Validation failed\n'];
 
     for (const error of errors) {
-      const location =
-        error.line !== undefined
-          ? `${error.file}:${error.line}${error.column !== undefined ? `:${error.column}` : ''}`
-          : error.file;
-
-      lines.push(location);
-      lines.push(`  Error: ${error.message}`);
+      errorLines.push(this.formatErrorLocation(error));
+      errorLines.push(`  Error: ${error.message}`);
 
       if (error.path) {
-        lines.push(`  Path: ${error.path}`);
+        errorLines.push(`  Path: ${error.path}`);
       }
 
       if (error.suggestion) {
-        lines.push(`  Suggestion: ${error.suggestion}`);
+        errorLines.push(`  Suggestion: ${error.suggestion}`);
       }
 
-      lines.push('');
+      errorLines.push('');
     }
 
-    return lines.join('\n');
+    return errorLines.join('\n');
+  }
+
+  /**
+   * Format error location with file path and optional line/column.
+   */
+  private formatErrorLocation(error: ValidationError): string {
+    if (error.line !== undefined) {
+      const column = error.column !== undefined ? `:${error.column}` : '';
+      return `${error.file}:${error.line}${column}`;
+    }
+    return error.file;
   }
 }
 
@@ -193,54 +229,5 @@ export function convertAjvErrors(
     return [];
   }
 
-  return ajvErrors.map((error) => {
-    const instancePath = error.instancePath || error.schemaPath || '';
-    const message = error.message || 'Validation error';
-
-    // Try to extract line/column from error params if available
-    let line: number | undefined;
-    let column: number | undefined;
-
-    if (error.params) {
-      // AJV sometimes includes line/column in params
-      if (typeof error.params.line === 'number') {
-        line = error.params.line;
-      }
-      if (typeof error.params.column === 'number') {
-        column = error.params.column;
-      }
-    }
-
-    // Generate suggestion based on error type
-    let suggestion: string | undefined;
-    if (error.keyword === 'required') {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-      const missing = error.params?.missingProperty as string | undefined;
-      if (missing) {
-        suggestion = `Add missing required field '${missing}'`;
-      }
-    } else if (error.keyword === 'type') {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-      const expected = error.params?.type as string | undefined;
-      if (expected) {
-        suggestion = `Expected type '${expected}'`;
-      }
-    } else if (error.keyword === 'enum') {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-      const allowed = error.params?.allowedValues as unknown[] | undefined;
-      if (allowed && Array.isArray(allowed)) {
-        const allowedStrings = allowed.map((v) => String(v));
-        suggestion = `Allowed values: ${allowedStrings.join(', ')}`;
-      }
-    }
-
-    return {
-      file: filePath,
-      line,
-      column,
-      message,
-      path: instancePath || undefined,
-      suggestion,
-    };
-  });
+  return ajvErrors.map((error) => convertAjvError(filePath, error));
 }

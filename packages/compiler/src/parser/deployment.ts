@@ -30,31 +30,34 @@ export function parseDeployment(filePath: string): Deployment {
  * @throws {ParseError} If content cannot be parsed
  */
 export function parseDeploymentFromString(content: string, filePath: string): Deployment {
-  const parsed = parseYamlOrJson(content, filePath);
+  const parsedData = parseYamlOrJson(content, filePath);
 
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  if (!parsedData || typeof parsedData !== 'object' || Array.isArray(parsedData)) {
     throw new ParseError('Invalid deployment: expected an object', filePath);
   }
 
-  const obj = parsed as Record<string, unknown>;
+  const deploymentObject = parsedData as Record<string, unknown>;
 
-  // Validate required fields
-  if (!('environment' in obj)) {
+  if (!('environment' in deploymentObject)) {
     throw new ParseError('Invalid deployment: missing required field "environment"', filePath);
   }
 
-  if (typeof obj.environment !== 'string') {
+  if (typeof deploymentObject.environment !== 'string') {
     throw new ParseError('Invalid deployment: "environment" must be a string', filePath);
   }
 
-  if (!('rules' in obj)) {
+  if (!('rules' in deploymentObject)) {
     throw new ParseError('Invalid deployment: missing required field "rules"', filePath);
   }
 
-  if (!obj.rules || typeof obj.rules !== 'object' || Array.isArray(obj.rules)) {
+  if (
+    !deploymentObject.rules ||
+    typeof deploymentObject.rules !== 'object' ||
+    Array.isArray(deploymentObject.rules)
+  ) {
     throw new ParseError('Invalid deployment: "rules" must be an object', filePath);
   }
 
-  // Type assertion - validation should be done by schema validator
-  return obj as unknown as Deployment;
+  // Type assertion - full validation should be done by schema validator
+  return deploymentObject as unknown as Deployment;
 }

@@ -4,8 +4,11 @@
  * See the LICENSE file in the project root for details.
  */
 
-import Ajv, { ValidateFunction } from 'ajv';
-import { ValidationResult, ValidationError, convertAjvErrors } from '../validator';
+import Ajv from 'ajv';
+import { ValidationResult, ValidationError } from '../validator';
+import { validateWithSchema } from './common';
+import { isRecord, isVariation, isRollout, isDeployment } from './type-guards';
+import { MAX_PERCENTAGE, MIN_PERCENTAGE } from './constants';
 
 /**
  * Validate deployment file against the deployment schema.
@@ -16,77 +19,19 @@ export function validateDeployment(
   filePath: string,
   data: unknown
 ): ValidationResult {
-  // Compile schema if not already compiled
-  let validate: ValidateFunction;
-  try {
-    // Schema is expected to be a valid JSON schema object
-    validate = ajv.compile(schema as Record<string, unknown>);
-  } catch (error) {
-    return {
-      valid: false,
-      errors: [
-        {
-          file: filePath,
-          message: `Failed to compile schema: ${error instanceof Error ? error.message : String(error)}`,
-        },
-      ],
-    };
-  }
-
-  // Validate data
-  const valid = validate(data);
-
-  // Convert AJV errors to our format
-  const schemaErrors = valid ? [] : convertAjvErrors(filePath, validate.errors);
-
-  // Always run additional validation for deployment-specific rules (even if schema passes)
-  const additionalErrors = validateDeploymentSpecificRules(filePath, data);
-
-  // Combine all errors
-  const allErrors = [...schemaErrors, ...additionalErrors];
-
-  return {
-    valid: allErrors.length === 0,
-    errors: allErrors,
-  };
-}
-
-/**
- * Type guard to check if value is a record/object.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-/**
- * Type guard to check if value is a variation object.
- */
-function isVariation(value: unknown): value is { weight?: number } {
-  return isRecord(value);
-}
-
-/**
- * Type guard to check if value is a rollout object.
- */
-function isRollout(value: unknown): value is { percentage?: number } {
-  return isRecord(value);
+  return validateWithSchema(ajv, schema, filePath, data, validateDeploymentSpecificRules);
 }
 
 /**
  * Validate deployment-specific business rules that aren't covered by JSON schema.
  */
 function validateDeploymentSpecificRules(filePath: string, data: unknown): ValidationError[] {
+  if (!isDeployment(data)) {
+    return [];
+  }
+
   const errors: ValidationError[] = [];
 
-  if (!isRecord(data)) {
-    return errors;
-  }
-
-  if (!isRecord(data.rules)) {
-    return errors;
-  }
-
-  // Validate rule structure
   for (const [flagName, flagRules] of Object.entries(data.rules)) {
     if (!isRecord(flagRules)) {
       continue;
@@ -99,53 +44,103 @@ function validateDeploymentSpecificRules(filePath: string, data: unknown): Valid
           return;
         }
 
-        // Validate that rule has at least one of: serve, variations, rollout
-        const hasServe = 'serve' in rule;
-        const hasVariations = 'variations' in rule && Array.isArray(rule.variations);
-        const hasRollout = 'rollout' in rule && isRollout(rule.rollout);
-
-        if (!hasServe && !hasVariations && !hasRollout) {
-          errors.push({
-            file: filePath,
-            message: `Rule in flag '${flagName}' must have 'serve', 'variations', or 'rollout'`,
-            path: `/rules/${flagName}/rules/${ruleIndex}`,
-            suggestion: `Add 'serve', 'variations', or 'rollout' to this rule.`,
-          });
-        }
-
-        // Validate variations array if present
-        if (hasVariations && Array.isArray(rule.variations)) {
-          const totalWeight = rule.variations.reduce(
-            (sum: number, v: unknown) =>
-              sum + (isVariation(v) && typeof v.weight === 'number' ? v.weight : 0),
-            0
-          );
-
-          if (totalWeight > 100) {
-            errors.push({
-              file: filePath,
-              message: `Variation weights for flag '${flagName}' exceed 100% (total: ${totalWeight}%)`,
-              path: `/rules/${flagName}/rules/${ruleIndex}/variations`,
-              suggestion: `Adjust weights so they sum to 100% or less.`,
-            });
-          }
-        }
-
-        // Validate rollout if present
-        if (hasRollout && rule.rollout && isRollout(rule.rollout)) {
-          const percentage = rule.rollout.percentage;
-          if (typeof percentage === 'number' && (percentage < 0 || percentage > 100)) {
-            errors.push({
-              file: filePath,
-              message: `Rollout percentage for flag '${flagName}' must be between 0 and 100`,
-              path: `/rules/${flagName}/rules/${ruleIndex}/rollout/percentage`,
-              suggestion: `Set percentage between 0 and 100.`,
-            });
-          }
-        }
+        errors.push(...validateRuleStructure(filePath, flagName, rule, ruleIndex));
+        errors.push(...validateVariationWeights(filePath, flagName, rule, ruleIndex));
+        errors.push(...validateRolloutPercentage(filePath, flagName, rule, ruleIndex));
       });
     }
   }
 
   return errors;
+}
+
+/**
+ * Validate that a rule has at least one of: serve, variations, or rollout.
+ */
+function validateRuleStructure(
+  filePath: string,
+  flagName: string,
+  rule: Record<string, unknown>,
+  ruleIndex: number
+): ValidationError[] {
+  const hasServe = 'serve' in rule;
+  const hasVariations = 'variations' in rule && Array.isArray(rule.variations);
+  const hasRollout = 'rollout' in rule && isRollout(rule.rollout);
+
+  if (!hasServe && !hasVariations && !hasRollout) {
+    return [
+      {
+        file: filePath,
+        message: `Rule in flag '${flagName}' must have 'serve', 'variations', or 'rollout'`,
+        path: `/rules/${flagName}/rules/${ruleIndex}`,
+        suggestion: `Add 'serve', 'variations', or 'rollout' to this rule.`,
+      },
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Validate that variation weights don't exceed 100%.
+ */
+function validateVariationWeights(
+  filePath: string,
+  flagName: string,
+  rule: Record<string, unknown>,
+  ruleIndex: number
+): ValidationError[] {
+  if (!('variations' in rule) || !Array.isArray(rule.variations)) {
+    return [];
+  }
+
+  const totalWeight = rule.variations.reduce(
+    (sum: number, variation: unknown) =>
+      sum + (isVariation(variation) && typeof variation.weight === 'number' ? variation.weight : 0),
+    0
+  );
+
+  if (totalWeight > MAX_PERCENTAGE) {
+    return [
+      {
+        file: filePath,
+        message: `Variation weights for flag '${flagName}' exceed ${MAX_PERCENTAGE}% (total: ${totalWeight}%)`,
+        path: `/rules/${flagName}/rules/${ruleIndex}/variations`,
+        suggestion: `Adjust weights so they sum to ${MAX_PERCENTAGE}% or less.`,
+      },
+    ];
+  }
+
+  return [];
+}
+
+/**
+ * Validate that rollout percentage is between 0 and 100.
+ */
+function validateRolloutPercentage(
+  filePath: string,
+  flagName: string,
+  rule: Record<string, unknown>,
+  ruleIndex: number
+): ValidationError[] {
+  if (!('rollout' in rule) || !isRollout(rule.rollout)) {
+    return [];
+  }
+
+  const percentage = rule.rollout.percentage;
+  if (
+    typeof percentage === 'number' &&
+    (percentage < MIN_PERCENTAGE || percentage > MAX_PERCENTAGE)
+  ) {
+    return [
+      {
+        file: filePath,
+        message: `Rollout percentage for flag '${flagName}' must be between ${MIN_PERCENTAGE} and ${MAX_PERCENTAGE}`,
+        path: `/rules/${flagName}/rules/${ruleIndex}/rollout/percentage`,
+        suggestion: `Set percentage between ${MIN_PERCENTAGE} and ${MAX_PERCENTAGE}.`,
+      },
+    ];
+  }
+
+  return [];
 }
