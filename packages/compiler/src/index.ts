@@ -48,3 +48,7 @@ export {
   isVariation,
   isExpression,
 } from './ast';
+
+export { compile, serialize, compileAndSerialize } from './compiler';
+export { parseExpression } from './compiler/expressions';
+export { StringTable } from './compiler/string-table';
