@@ -26,9 +26,7 @@ describe('compile', () => {
       const deployment: Deployment = {
         environment: 'production',
         rules: {
-          new_dashboard: {
-            default: 'OFF',
-          },
+          new_dashboard: {},
         },
       };
 
@@ -37,7 +35,11 @@ describe('compile', () => {
       expect(artifact.v).toBe('1.0');
       expect(artifact.env).toBe('production');
       expect(artifact.flags).toHaveLength(1);
-      expect(artifact.flags[0]).toEqual([]); // No rules
+      expect(artifact.flags[0]).toHaveLength(1); // default rule appended
+      const defaultRule = artifact.flags[0][0];
+      expect(defaultRule[0]).toBe(RuleType.SERVE);
+      expect(defaultRule[1]).toBeUndefined();
+      expect(artifact.strs[defaultRule[2] as number]).toBe('OFF');
     });
 
     it('should include format version and environment', () => {
@@ -54,9 +56,7 @@ describe('compile', () => {
       const deployment: Deployment = {
         environment: 'staging',
         rules: {
-          test_flag: {
-            default: false,
-          },
+          test_flag: {},
         },
       };
 
@@ -78,9 +78,9 @@ describe('compile', () => {
       const deployment: Deployment = {
         environment: 'production',
         rules: {
-          flag3: { default: false },
-          flag1: { default: false },
-          flag2: { default: false },
+          flag3: {},
+          flag1: {},
+          flag2: {},
         },
       };
 
@@ -88,9 +88,9 @@ describe('compile', () => {
 
       expect(artifact.flags).toHaveLength(3);
       // Flags should be in definition order, not deployment order
-      expect(artifact.flags[0]).toEqual([]); // flag1
-      expect(artifact.flags[1]).toEqual([]); // flag2
-      expect(artifact.flags[2]).toEqual([]); // flag3
+      expect(artifact.flags[0]).toHaveLength(1); // flag1 default
+      expect(artifact.flags[1]).toHaveLength(1); // flag2 default
+      expect(artifact.flags[2]).toHaveLength(1); // flag3 default
     });
   });
 
@@ -110,7 +110,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: 'OFF',
             rules: [
               {
                 name: 'Enable for all',
@@ -123,12 +122,15 @@ describe('compile', () => {
 
       const artifact = compile(deployment, definitions);
 
-      expect(artifact.flags[0]).toHaveLength(1);
+      expect(artifact.flags[0]).toHaveLength(2);
       const rule = artifact.flags[0][0];
       expect(rule[0]).toBe(RuleType.SERVE);
       expect(rule[1]).toBeUndefined(); // No when clause
       expect(typeof rule[2]).toBe('number'); // Value index
       expect(artifact.strs[rule[2] as number]).toBe('ON');
+      const defaultRule = artifact.flags[0][1];
+      expect(defaultRule[0]).toBe(RuleType.SERVE);
+      expect(artifact.strs[defaultRule[2] as number]).toBe('OFF');
     });
 
     it('should compile serve rule with when clause', () => {
@@ -146,7 +148,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: 'OFF',
             rules: [
               {
                 name: 'Enable for admins',
@@ -160,12 +161,15 @@ describe('compile', () => {
 
       const artifact = compile(deployment, definitions);
 
-      expect(artifact.flags[0]).toHaveLength(1);
+      expect(artifact.flags[0]).toHaveLength(2);
       const rule = artifact.flags[0][0];
       expect(rule[0]).toBe(RuleType.SERVE);
       expect(rule[1]).toBeDefined(); // Has when clause
       expect(rule[1]![0]).toBe(ExpressionType.BINARY_OP);
       expect(artifact.strs[rule[2] as number]).toBe('ON');
+      const defaultRule = artifact.flags[0][1];
+      expect(defaultRule[0]).toBe(RuleType.SERVE);
+      expect(artifact.strs[defaultRule[2] as number]).toBe('OFF');
     });
 
     it('should normalize boolean values for boolean flags', () => {
@@ -183,7 +187,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           enable_feature: {
-            default: false,
             rules: [
               {
                 serve: true,
@@ -198,9 +201,10 @@ describe('compile', () => {
 
       const artifact = compile(deployment, definitions);
 
-      expect(artifact.flags[0]).toHaveLength(2);
+      expect(artifact.flags[0]).toHaveLength(3);
       expect(artifact.strs[artifact.flags[0][0][2] as number]).toBe('ON');
       expect(artifact.strs[artifact.flags[0][1][2] as number]).toBe('OFF');
+      expect(artifact.strs[artifact.flags[0][2][2] as number]).toBe('OFF');
     });
   });
 
@@ -225,7 +229,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           button_color: {
-            default: 'blue',
             rules: [
               {
                 variations: [
@@ -241,7 +244,7 @@ describe('compile', () => {
 
       const artifact = compile(deployment, definitions);
 
-      expect(artifact.flags[0]).toHaveLength(1);
+      expect(artifact.flags[0]).toHaveLength(2);
       const rule = artifact.flags[0][0];
       expect(rule[0]).toBe(RuleType.VARIATIONS);
       expect(Array.isArray(rule[2])).toBe(true);
@@ -250,6 +253,9 @@ describe('compile', () => {
       expect(variations[0][1]).toBe(50);
       expect(variations[1][1]).toBe(30);
       expect(variations[2][1]).toBe(20);
+      const defaultRule = artifact.flags[0][1];
+      expect(defaultRule[0]).toBe(RuleType.SERVE);
+      expect(artifact.strs[defaultRule[2] as number]).toBe('blue');
     });
 
     it('should throw error if variation not found', () => {
@@ -268,7 +274,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           button_color: {
-            default: 'blue',
             rules: [
               {
                 variations: [{ variation: 'invalid', weight: 100 }],
@@ -278,9 +283,7 @@ describe('compile', () => {
         },
       };
 
-      expect(() => compile(deployment, definitions)).toThrow(
-        'Variation "invalid" not found'
-      );
+      expect(() => compile(deployment, definitions)).toThrow('Variation "invalid" not found');
     });
   });
 
@@ -300,7 +303,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: 'OFF',
             rules: [
               {
                 rollout: {
@@ -315,11 +317,14 @@ describe('compile', () => {
 
       const artifact = compile(deployment, definitions);
 
-      expect(artifact.flags[0]).toHaveLength(1);
+      expect(artifact.flags[0]).toHaveLength(2);
       const rule = artifact.flags[0][0];
       expect(rule[0]).toBe(RuleType.ROLLOUT);
       const payload = rule[2] as [number, number];
       expect(payload[1]).toBe(10);
+      const defaultRule = artifact.flags[0][1];
+      expect(defaultRule[0]).toBe(RuleType.SERVE);
+      expect(artifact.strs[defaultRule[2] as number]).toBe('OFF');
     });
 
     it('should clamp percentage to 0-100', () => {
@@ -337,7 +342,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: 'OFF',
             rules: [
               {
                 rollout: {
@@ -354,6 +358,9 @@ describe('compile', () => {
       const rule = artifact.flags[0][0];
       const payload = rule[2] as [number, number];
       expect(payload[1]).toBe(100);
+      const defaultRule = artifact.flags[0][1];
+      expect(defaultRule[0]).toBe(RuleType.SERVE);
+      expect(artifact.strs[defaultRule[2] as number]).toBe('OFF');
     });
   });
 
@@ -372,9 +379,7 @@ describe('compile', () => {
       const deployment: Deployment = {
         environment: 'production',
         rules: {
-          new_dashboard: {
-            default: 'OFF',
-          },
+          new_dashboard: {},
         },
         segments: {
           beta_users: {
@@ -406,9 +411,7 @@ describe('compile', () => {
       const deployment: Deployment = {
         environment: 'production',
         rules: {
-          test_flag: {
-            default: false,
-          },
+          test_flag: {},
         },
       };
 
@@ -434,7 +437,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: 'OFF',
             rules: [
               {
                 when: "user.role == 'admin'",
@@ -473,11 +475,9 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           flag1: {
-            default: 'OFF',
             rules: [{ serve: 'ON' }],
           },
           flag2: {
-            default: 'OFF',
             rules: [{ serve: 'ON' }],
           },
         },
@@ -486,9 +486,7 @@ describe('compile', () => {
       const artifact = compile(deployment, definitions);
 
       // 'ON' should only appear once in string table
-      const onIndices = artifact.strs
-        .map((s, i) => (s === 'ON' ? i : -1))
-        .filter((i) => i !== -1);
+      const onIndices = artifact.strs.map((s, i) => (s === 'ON' ? i : -1)).filter((i) => i !== -1);
       expect(onIndices.length).toBe(1);
     });
   });
@@ -508,9 +506,7 @@ describe('compile', () => {
       const deployment: Deployment = {
         environment: 'production',
         rules: {
-          missing_flag: {
-            default: false,
-          },
+          missing_flag: {},
         },
       };
 
@@ -534,7 +530,6 @@ describe('compile', () => {
         environment: 'production',
         rules: {
           boolean_flag: {
-            default: false,
             rules: [
               {
                 variations: [{ variation: 'ON', weight: 100 }],
@@ -544,9 +539,7 @@ describe('compile', () => {
         },
       };
 
-      expect(() => compile(deployment, definitions)).toThrow(
-        'does not have variations defined'
-      );
+      expect(() => compile(deployment, definitions)).toThrow('does not have variations defined');
     });
   });
 });
@@ -575,7 +568,12 @@ describe('serialize', () => {
         [
           [
             RuleType.SERVE,
-            [ExpressionType.BINARY_OP, BinaryOp.EQ, [ExpressionType.PROPERTY, 2], [ExpressionType.LITERAL, 3]],
+            [
+              ExpressionType.BINARY_OP,
+              BinaryOp.EQ,
+              [ExpressionType.PROPERTY, 2],
+              [ExpressionType.LITERAL, 3],
+            ],
             0,
           ],
         ],
@@ -608,7 +606,6 @@ describe('compileAndSerialize', () => {
       environment: 'production',
       rules: {
         new_dashboard: {
-          default: 'OFF',
           rules: [
             {
               serve: 'ON',

@@ -60,7 +60,6 @@ export interface DeploymentRule {
 }
 
 export interface FlagRules {
-  default: FlagValue;
   rules?: DeploymentRule[];
 }
 

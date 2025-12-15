@@ -16,12 +16,7 @@
       "patternProperties": {
         "^[a-z][a-z0-9_]*$": {
           "type": "object",
-          "required": ["default"],
           "properties": {
-            "default": {
-              "description": "Default value when no rules match. Must match flag type.",
-              "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
-            },
             "rules": {
               "type": "array",
               "description": "Array of targeting rules evaluated in order",

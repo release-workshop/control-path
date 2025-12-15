@@ -16,7 +16,6 @@ describe('parseDeployment', () => {
 environment: production
 rules:
   new_dashboard:
-    default: OFF
     rules:
       - name: "Enable for admins"
         when: "user.role == 'admin'"
@@ -34,7 +33,6 @@ rules:
     expect(result.environment).toBe('production');
     expect(result.rules).toBeDefined();
     expect(result.rules.new_dashboard).toBeDefined();
-    expect(result.rules.new_dashboard.default).toBe('OFF');
     expect(result.rules.new_dashboard.rules).toHaveLength(2);
     expect(result.rules.new_dashboard.rules?.[0].name).toBe('Enable for admins');
     expect(result.rules.new_dashboard.rules?.[0].serve).toBe('ON');
@@ -45,9 +43,7 @@ rules:
     const json = JSON.stringify({
       environment: 'staging',
       rules: {
-        test_flag: {
-          default: false,
-        },
+        test_flag: {},
       },
     });
 
@@ -56,7 +52,6 @@ rules:
     expect(result).toBeDefined();
     expect(result.environment).toBe('staging');
     expect(result.rules.test_flag).toBeDefined();
-    expect(result.rules.test_flag.default).toBe(false);
   });
 
   it('should parse deployment with variations', () => {
@@ -64,7 +59,6 @@ rules:
 environment: production
 rules:
   theme:
-    default: light
     rules:
       - name: "Theme distribution"
         variations:
@@ -89,7 +83,6 @@ rules:
 environment: production
 rules:
   test_flag:
-    default: false
 segments:
   beta_users:
     when: "user.role == 'beta'"
@@ -129,7 +122,6 @@ rules:
     const yaml = `
 rules:
   test_flag:
-    default: false
 `;
 
     expect(() => {
@@ -152,7 +144,6 @@ environment: production
 environment: 123
 rules:
   test_flag:
-    default: false
 `;
 
     expect(() => {
@@ -180,7 +171,6 @@ rules: not_an_object
 environment: production
 rules:
   test_flag:
-    default: false
 `;
 
     fs.writeFileSync(testFile, yaml);

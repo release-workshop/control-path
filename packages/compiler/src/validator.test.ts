@@ -149,7 +149,6 @@ describe('Validator', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: false,
             rules: [
               {
                 name: 'Admin Users',
@@ -182,7 +181,6 @@ describe('Validator', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: false,
             rules: [
               {
                 name: 'Invalid Rule',
@@ -211,7 +209,6 @@ describe('Validator', () => {
         environment: 'production',
         rules: {
           multivariate_flag: {
-            default: 'variation_a',
             rules: [
               {
                 variations: [
@@ -234,7 +231,6 @@ describe('Validator', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: false,
             rules: [
               {
                 rollout: {
@@ -257,7 +253,6 @@ describe('Validator', () => {
         environment: 'production',
         rules: {
           multivariate_flag: {
-            default: 'variation_a',
             rules: [
               {
                 variations: [
@@ -280,7 +275,6 @@ describe('Validator', () => {
         environment: 'production',
         rules: {
           new_dashboard: {
-            default: false,
             rules: [
               {
                 rollout: {

@@ -185,21 +185,27 @@ describe('parseExpression', () => {
     });
 
     it('should handle operator precedence (AND before OR)', () => {
-      const expr = parseExpression("user.role == 'admin' OR user.role == 'moderator' AND user.active == true");
+      const expr = parseExpression(
+        "user.role == 'admin' OR user.role == 'moderator' AND user.active == true"
+      );
       // Should be: (admin) OR ((moderator) AND (active))
       expect(expr[0]).toBe(ExpressionType.LOGICAL_OP);
       expect(expr[1]).toBe(LogicalOp.OR);
     });
 
     it('should handle complex logical expressions', () => {
-      const expr = parseExpression("user.role == 'admin' AND user.subscription_tier == 'premium' OR device.type == 'mobile'");
+      const expr = parseExpression(
+        "user.role == 'admin' AND user.subscription_tier == 'premium' OR device.type == 'mobile'"
+      );
       expect(expr[0]).toBe(ExpressionType.LOGICAL_OP);
     });
   });
 
   describe('Parentheses', () => {
     it('should handle parentheses for grouping', () => {
-      const expr = parseExpression("(user.role == 'admin' OR user.role == 'moderator') AND user.active == true");
+      const expr = parseExpression(
+        "(user.role == 'admin' OR user.role == 'moderator') AND user.active == true"
+      );
       expect(expr[0]).toBe(ExpressionType.LOGICAL_OP);
       expect(expr[1]).toBe(LogicalOp.AND);
     });

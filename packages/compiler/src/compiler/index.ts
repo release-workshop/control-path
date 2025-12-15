@@ -65,6 +65,13 @@ export function compile(deployment: Deployment, definitions: FlagDefinitions): A
     flags[flagIndex] = rules;
   }
 
+  // Append default serve rule for every flag using its definition defaultValue.
+  definitions.flags.forEach((flagDef, flagIndex) => {
+    const defaultValue = normalizeValue(flagDef.defaultValue, flagDef);
+    const defaultIndex = stringTable.add(String(defaultValue));
+    flags[flagIndex].push([RuleType.SERVE, undefined, defaultIndex]);
+  });
+
   // Build artifact
   const artifact: Artifact = {
     v: '1.0',

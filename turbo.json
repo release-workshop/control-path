@@ -12,7 +12,7 @@
       "outputs": ["dist/**", "packages/cli/dist/**"]
     },
     "test": {
-      "outputs": ["coverage/**"]
+      "outputs": []
     }
   }
 }

@@ -16,12 +16,7 @@
       "patternProperties": {
         "^[a-z][a-z0-9_]*$": {
           "type": "object",
-          "required": ["default"],
           "properties": {
-            "default": {
-              "description": "Default value when no rules match. Must match flag type.",
-              "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
-            },
             "rules": {
               "type": "array",
               "description": "Array of targeting rules evaluated in order",
@@ -38,7 +33,11 @@
                   },
                   "serve": {
                     "description": "Value to serve when rule matches. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
-                    "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
+                    "oneOf": [
+                      { "type": "string" },
+                      { "type": "boolean" },
+                      { "type": "number" }
+                    ]
                   },
                   "variations": {
                     "type": "array",
@@ -115,3 +114,4 @@
   },
   "additionalProperties": false
 }
+
