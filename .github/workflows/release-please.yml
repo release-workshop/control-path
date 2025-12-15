@@ -1,0 +1,24 @@
+name: Release PR (release-please)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-please:
+    name: Run release-please
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Release PR and tags
+        uses: google-github-actions/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+

@@ -1,0 +1,90 @@
+name: Auto-merge validation
+
+on:
+  push:
+    branches:
+      - "validation/**"
+
+jobs:
+  validate-and-merge:
+    name: Validate change and auto-merge into main
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compute affected tests with TIA
+        id: tia
+        run: |
+          node scripts/tia-runner.js --base main
+
+      - name: Run targeted tests with coverage
+        working-directory: packages/compiler
+        run: |
+          if [ -z "${{ steps.tia.outputs.affected_tests }}" ]; then
+            echo "No specific affected tests were found by TIA; running full test suite."
+            pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov
+          else
+            echo "Running affected tests from TIA: ${{ steps.tia.outputs.affected_tests }}"
+            pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov ${{ steps.tia.outputs.affected_tests }}
+          fi
+
+      - name: Enforce 100% differential coverage
+        env:
+          DIFF_COVERAGE_LCOV: packages/compiler/coverage/lcov.info
+          DIFF_COVERAGE_BASE: main
+        run: |
+          node scripts/enforce-diff-coverage.js
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit
+
+      - name: Auto-merge validation branch into main
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+          script: |
+            const ref = context.ref.replace('refs/heads/', '');
+            const base = 'main';
+            core.info(`Attempting to merge ${ref} into ${base}...`);
+
+            try {
+              const result = await github.rest.repos.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base,
+                head: ref,
+                commit_message: `Auto-merge ${ref} into ${base}`
+              });
+
+              core.info(`Merge successful: ${result.data.sha}`);
+            } catch (error) {
+              core.setFailed(`Auto-merge failed: ${error.message}`);
+            }
+
+
