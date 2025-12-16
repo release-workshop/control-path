@@ -1,0 +1,21 @@
+# Block direct pushes to main branch
+# Use 'git pushmain' instead to go through validation → auto-merge workflow
+
+protected_branch='main'
+
+while read local_ref local_sha remote_ref remote_sha
+do
+  if [ "$remote_ref" = "refs/heads/$protected_branch" ]; then
+    echo "❌ Error: Direct pushes to '$protected_branch' are not allowed."
+    echo ""
+    echo "To integrate your changes, use:"
+    echo "  git pushmain"
+    echo ""
+    echo "This will push to a validation branch, run CI checks, and"
+    echo "automatically merge into main if all checks pass."
+    exit 1
+  fi
+done
+
+exit 0
+
