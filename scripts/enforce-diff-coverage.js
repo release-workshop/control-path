@@ -34,8 +34,26 @@ function getBaseRef() {
   return process.env.DIFF_COVERAGE_BASE || 'main';
 }
 
-function getDiffHunks(baseRef) {
-  const output = run(`git diff --unified=0 ${baseRef}...HEAD`);
+function resolveBaseRef(baseRef) {
+  // Check if baseRef exists as a local branch or tag
+  try {
+    execSync(`git rev-parse --verify ${baseRef}`, { encoding: 'utf-8', stdio: 'ignore' });
+    return baseRef;
+  } catch (e) {
+    // If not, try origin/baseRef (e.g., origin/main)
+    try {
+      const remoteRef = `origin/${baseRef}`;
+      execSync(`git rev-parse --verify ${remoteRef}`, { encoding: 'utf-8', stdio: 'ignore' });
+      return remoteRef;
+    } catch (e2) {
+      // If that also fails, return the original and let git diff fail with a clearer error
+      return baseRef;
+    }
+  }
+}
+
+function getDiffHunks(resolvedRef) {
+  const output = run(`git diff --unified=0 ${resolvedRef}...HEAD`);
   return output.split('\n');
 }
 
@@ -130,11 +148,12 @@ function main() {
   }
 
   const baseRef = getBaseRef();
+  const resolvedRef = resolveBaseRef(baseRef);
 
-  console.log(`Differential coverage base: ${baseRef}`);
+  console.log(`Differential coverage base: ${baseRef}${resolvedRef !== baseRef ? ` (resolved to ${resolvedRef})` : ''}`);
   console.log(`Using coverage report: ${lcovPath}`);
 
-  const diffLines = getDiffHunks(baseRef);
+  const diffLines = getDiffHunks(resolvedRef);
   const changed = collectChangedLines(diffLines);
 
   if (changed.size === 0) {
