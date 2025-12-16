@@ -57,6 +57,35 @@ function getDiffHunks(resolvedRef) {
   return output.split('\n');
 }
 
+function isSourceFile(filePath) {
+  // Only enforce coverage for TypeScript source files in packages/*/src/
+  // Exclude: test files, docs, CI configs, build configs, etc.
+  if (!filePath.startsWith('packages/')) {
+    return false;
+  }
+
+  if (!filePath.includes('/src/')) {
+    return false;
+  }
+
+  // Must be a .ts file (not .test.ts, .d.ts, .spec.ts, etc.)
+  if (!filePath.endsWith('.ts')) {
+    return false;
+  }
+
+  // Exclude test files
+  if (filePath.includes('.test.') || filePath.includes('.spec.')) {
+    return false;
+  }
+
+  // Exclude type definition files
+  if (filePath.endsWith('.d.ts')) {
+    return false;
+  }
+
+  return true;
+}
+
 function collectChangedLines(diffLines) {
   const fileChanges = new Map(); // file -> Set<lineNumber>
   let currentFile = null;
@@ -64,8 +93,13 @@ function collectChangedLines(diffLines) {
   for (const line of diffLines) {
     if (line.startsWith('+++ b/')) {
       currentFile = line.substring('+++ b/'.length).trim();
-      if (!fileChanges.has(currentFile)) {
-        fileChanges.set(currentFile, new Set());
+      // Only track source files
+      if (isSourceFile(currentFile)) {
+        if (!fileChanges.has(currentFile)) {
+          fileChanges.set(currentFile, new Set());
+        }
+      } else {
+        currentFile = null; // Skip this file
       }
       continue;
     }
