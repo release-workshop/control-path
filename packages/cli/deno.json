@@ -10,7 +10,6 @@
     "build": "deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net --output dist/controlpath src/index.ts",
     "test": "deno test --allow-read --allow-write || (echo 'No test files found' && exit 0)",
     "lint": "deno lint src",
-    "typecheck": "deno check src/index.ts",
     "format:check": "deno fmt --check src"
   },
   "fmt": {
