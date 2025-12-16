@@ -47,6 +47,8 @@ git config alias.pushmain '!f() {
   # Create a unique remote validation branch name
   SHORT_SHA=$(git rev-parse --short HEAD)
   USER_PART=$(git config user.username || git config user.name || echo "dev")
+  # Sanitize username: replace spaces and invalid chars with hyphens, lowercase
+  USER_PART=$(echo "$USER_PART" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
   TS_PART=$(date +%Y%m%d-%H%M%S)
   REMOTE_BRANCH="validation/${USER_PART}-${TS_PART}-${SHORT_SHA}"
 
