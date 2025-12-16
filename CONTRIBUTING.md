@@ -55,26 +55,57 @@ See the [README.md](README.md) for detailed setup instructions.
 
 ## Development Workflow
 
-### Making Changes
+### Trunk-Based Development (Maintainers/Trusted Users)
 
-1. Create a new branch from `main`:
+For maintainers and trusted contributors, Control Path supports **trunk-based development**:
+
+- Work directly on `main` locally
+- Use `git pushmain` to push changes (appears as direct push to `main`, but goes through validation)
+- CI automatically validates and merges into `main` on success
+- This ensures `main` is always in a releasable state while maintaining fast iteration
+
+**Setup**:
+```bash
+bash scripts/setup-git-aliases.sh
+```
+
+**Workflow**:
+```bash
+git checkout main
+git pull --ff-only  # Stay up to date
+# ... make changes and commit directly on main ...
+git commit -m "feat(compiler): add new feature"
+git pushmain  # Validates and auto-merges into main on success
+```
+
+The `pushmain` command:
+- Syncs your local `main` with `origin/main`
+- Pushes to a temporary `validation/*` branch
+- CI runs full validation (TIA, 100% diff coverage, lint, typecheck)
+- On success, automatically merges into `main` (appears as if you pushed directly)
+
+### Pull Request Workflow (Contributors)
+
+For external contributors, use the standard **Pull Request** workflow:
+
+1. Fork the repository and clone your fork
+2. Create a feature branch:
    ```bash
    git checkout -b feature/your-feature-name
    ```
-2. Make your changes
-3. Ensure code quality:
+3. Make your changes and commit using [Conventional Commits](#commit-messages):
    ```bash
-   turbo run lint
-   turbo run format:check
+   git add .
+   git commit -m "feat(compiler): add new feature"
    ```
-4. Run tests:
+4. Push your branch and create a PR:
    ```bash
-   turbo run test
+   git push origin feature/your-feature-name
+   # Then create a PR via GitHub UI
    ```
-5. Build to verify:
-   ```bash
-   turbo run build
-   ```
+5. Once CI passes, a maintainer will review and merge your PR
+
+**Note**: Direct commits to `main` are not allowed (enforced by branch protection). Only maintainers can use `pushmain` for trunk-based development.
 
 ### Code Style
 
@@ -85,22 +116,50 @@ See the [README.md](README.md) for detailed setup instructions.
 
 ### Commit Messages
 
-Write clear, descriptive commit messages:
+Control Path uses **Conventional Commits** format. Commit messages are enforced by `commitlint` (both locally via Husky and in CI).
 
-- Use the present tense ("Add feature" not "Added feature")
-- Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-- Limit the first line to 72 characters or less
-- Reference issues and pull requests liberally after the first line
+**Format**: `type(scope): summary`
 
-Example:
+**Types**:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `refactor`: Code refactoring
+- `test`: Test changes
+- `chore`: Maintenance tasks (CI, build, deps)
+- `build`: Build system changes
+- `ci`: CI configuration changes
+
+**Scopes** (optional but recommended):
+- `compiler`: Changes to `packages/compiler`
+- `cli`: Changes to `packages/cli`
+- `repo`: Root-level config, workflows, docs
+- `ci`: CI/CD changes
+- `docs`: Documentation changes
+- `deps`: Dependency updates
+
+**Examples**:
 
 ```
-Add support for semver comparison in expressions
+feat(compiler): add support for semver comparison in expressions
 
 Implements SEMVER_EQ, SEMVER_GT, SEMVER_GTE, SEMVER_LT, and SEMVER_LTE
 functions in the expression engine.
 
 Fixes #123
+```
+
+```
+fix(cli): handle missing flag definitions gracefully
+
+Previously, the CLI would crash when encountering missing flag definitions.
+Now it logs a warning and continues processing.
+
+Closes #456
+```
+
+```
+chore(ci): update GitHub Actions workflows for merge queues
 ```
 
 ## Submitting Changes
