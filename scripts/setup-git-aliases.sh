@@ -66,6 +66,8 @@ git config alias.pushmain '!f() {
 
 echo "✓ Git alias 'pushmain' configured successfully!"
 echo ""
+echo "✓ Pre-push hook installed to block direct pushes to main"
+echo ""
 echo "Usage (for maintainers/trusted users with trunk-based development):"
 echo "  git checkout main"
 echo "  # ... make changes and commit directly on main ..."
@@ -77,5 +79,7 @@ echo "  - Push to a validation/* branch (invisible to you)"
 echo "  - CI validates your changes (TIA, coverage, lint, typecheck)"
 echo "  - On success, automatically merges into main (appears as direct push)"
 echo ""
-echo "Note: Contributors should use Pull Requests instead of pushmain."
+echo "Note:"
+echo "  - Direct pushes to main are blocked by a pre-push hook (use 'git pushmain' instead)"
+echo "  - Contributors should use Pull Requests instead of pushmain"
 
