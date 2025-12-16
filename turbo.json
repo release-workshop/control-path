@@ -4,11 +4,14 @@
     "lint": {
       "outputs": []
     },
+    "typecheck": {
+      "outputs": []
+    },
     "format:check": {
       "outputs": []
     },
     "build": {
-      "dependsOn": ["^build", "lint", "format:check"],
+      "dependsOn": ["^build", "lint", "typecheck", "format:check"],
       "outputs": ["dist/**", "packages/cli/dist/**"]
     },
     "test": {

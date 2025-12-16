@@ -8,6 +8,7 @@
     "build": "tsc",
     "test": "vitest run",
     "lint": "eslint src --max-warnings 0",
+    "typecheck": "tsc --noEmit",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
   },
   "dependencies": {
