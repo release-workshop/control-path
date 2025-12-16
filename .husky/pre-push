@@ -1,6 +1,3 @@
-#!/usr/bin/env sh
-. "$(dirname "$0")/_/husky.sh"
-
 # Block direct pushes to main branch
 # Use 'git pushmain' instead to go through validation → auto-merge workflow
 
