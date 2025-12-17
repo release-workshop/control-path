@@ -298,7 +298,7 @@ await evaluator.reloadArtifact('./.controlpath/production.ast');
 
 ## Development
 
-This is a monorepo managed with **pnpm** and **Turborepo**
+This is a monorepo managed with **pnpm** and **Turborepo**.
 
 ### Prerequisites
 
