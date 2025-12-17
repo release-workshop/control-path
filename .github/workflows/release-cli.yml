@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag name (e.g., v0.1.0)'
+        required: true
+        type: string
 
 jobs:
   build-cli-binaries:
@@ -57,7 +65,13 @@ jobs:
       - name: Build CLI binary (${{ matrix.target_name }})
         working-directory: packages/cli
         run: |
-          VERSION="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
           deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
@@ -68,7 +82,13 @@ jobs:
       - name: Package CLI archive (${{ matrix.target_name }})
         run: |
           mkdir -p artifacts
-          VERSION="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
 
           if [ "${{ matrix.archive }}" = "tar" ]; then
             tar -czf "artifacts/controlpath-${VERSION}-${{ matrix.target_name }}.tar.gz" -C packages/cli/dist "${{ matrix.output }}"
@@ -134,7 +154,13 @@ jobs:
       - name: Package source tarball
         run: |
           mkdir -p artifacts
-          VERSION="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.tag_name }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
 
           tar -czf "artifacts/control-path-source-${VERSION}.tar.gz" \
             --exclude='.git' \
@@ -148,13 +174,21 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const tag = context.ref.replace('refs/tags/', '');
+            let tag;
+            if (context.eventName === 'release') {
+              tag = context.payload.release.tag_name;
+            } else if (context.eventName === 'workflow_dispatch') {
+              tag = context.payload.inputs.tag_name;
+            } else {
+              tag = context.ref.replace('refs/tags/', '');
+            }
             const { data: release } = await github.rest.repos.getReleaseByTag({
               owner: context.repo.owner,
               repo: context.repo.repo,
               tag
             });
             core.setOutput('upload_url', release.upload_url);
+            core.setOutput('tag_name', tag);
 
       - name: Upload CLI archive (Linux)
         uses: actions/upload-release-asset@v1
@@ -162,8 +196,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.find_release.outputs.upload_url }}
-          asset_path: artifacts/cli-linux-x86_64/controlpath-${{ github.ref_name }}-linux-x86_64.tar.gz
-          asset_name: controlpath-${{ github.ref_name }}-linux-x86_64.tar.gz
+          asset_path: artifacts/cli-linux-x86_64/controlpath-${{ steps.find_release.outputs.tag_name }}-linux-x86_64.tar.gz
+          asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-linux-x86_64.tar.gz
           asset_content_type: application/gzip
 
       - name: Upload CLI archive (macOS)
@@ -172,8 +206,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.find_release.outputs.upload_url }}
-          asset_path: artifacts/cli-macos-x86_64/controlpath-${{ github.ref_name }}-macos-x86_64.tar.gz
-          asset_name: controlpath-${{ github.ref_name }}-macos-x86_64.tar.gz
+          asset_path: artifacts/cli-macos-x86_64/controlpath-${{ steps.find_release.outputs.tag_name }}-macos-x86_64.tar.gz
+          asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-macos-x86_64.tar.gz
           asset_content_type: application/gzip
 
       - name: Upload CLI archive (Windows)
@@ -182,8 +216,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.find_release.outputs.upload_url }}
-          asset_path: artifacts/cli-windows-x86_64/controlpath-${{ github.ref_name }}-windows-x86_64.zip
-          asset_name: controlpath-${{ github.ref_name }}-windows-x86_64.zip
+          asset_path: artifacts/cli-windows-x86_64/controlpath-${{ steps.find_release.outputs.tag_name }}-windows-x86_64.zip
+          asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-windows-x86_64.zip
           asset_content_type: application/zip
 
       - name: Upload source tarball
@@ -192,8 +226,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.find_release.outputs.upload_url }}
-          asset_path: artifacts/control-path-source-${{ github.ref_name }}.tar.gz
-          asset_name: control-path-source-${{ github.ref_name }}.tar.gz
+          asset_path: artifacts/control-path-source-${{ steps.find_release.outputs.tag_name }}.tar.gz
+          asset_name: control-path-source-${{ steps.find_release.outputs.tag_name }}.tar.gz
           asset_content_type: application/gzip
 
 
