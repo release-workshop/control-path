@@ -28,5 +28,6 @@
     "rules": {
       "tags": ["recommended"]
     }
-  }
+  },
+  "allowScripts": ["npm:msgpackr-extract@3.0.3"]
 }
