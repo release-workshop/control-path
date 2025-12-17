@@ -96,18 +96,28 @@ jobs:
           script: |
             const ref = context.ref.replace('refs/heads/', '');
             const base = 'main';
+            
             core.info(`Attempting to merge ${ref} into ${base}...`);
 
             try {
+              // Try to merge - GitHub will use fast-forward if possible (no merge commit)
+              // Otherwise creates a merge commit with a clean message
               const result = await github.rest.repos.merge({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 base,
                 head: ref,
-                commit_message: `Auto-merge ${ref} into ${base}`
+                commit_message: `chore: merge ${ref}`
               });
 
-              core.info(`Merge successful: ${result.data.sha}`);
+              if (result.data.merged) {
+                core.info(`Merge successful: ${result.data.sha}`);
+                if (result.data.sha === result.data.commit.sha) {
+                  core.info('Fast-forward merge (no merge commit created)');
+                } else {
+                  core.info('Merge commit created');
+                }
+              }
             } catch (error) {
               core.setFailed(`Auto-merge failed: ${error.message}`);
             }
