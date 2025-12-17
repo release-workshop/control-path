@@ -74,16 +74,18 @@ jobs:
           fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
-          # Create dist directory if it doesn't exist
-          mkdir -p dist
-
           # Ensure Deno can resolve Node.js modules
           # The import map in deno.json maps Node.js dependencies to npm: specifiers
           # Use --sloppy-imports to handle imports without file extensions in compiler source
+          # Compile to current directory first (where we have write permissions), then move to dist
           deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
-            --output "dist/${{ matrix.output }}" \
+            --output "${{ matrix.output }}" \
             src/index.ts
+          
+          # Create dist directory and move the compiled binary
+          mkdir -p dist
+          mv "${{ matrix.output }}" "dist/${{ matrix.output }}"
 
       - name: Package CLI archive (${{ matrix.target_name }})
         run: |
