@@ -50,6 +50,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Check for changes
+        run: |
+          if git diff --quiet origin/main HEAD; then
+            echo "❌ Error: No changes detected between validation branch and main."
+            echo "This validation branch has no commits to merge."
+            exit 1
+          fi
+          echo "✓ Changes detected between validation branch and main"
+
       - name: Compute affected tests with TIA
         id: tia
         run: |
