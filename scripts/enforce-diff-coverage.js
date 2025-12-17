@@ -24,7 +24,7 @@
 
 const { execSync } = require('child_process');
 const { existsSync, readFileSync } = require('fs');
-const { resolve } = require('path');
+const { resolve, join } = require('path');
 
 function run(cmd) {
   return execSync(cmd, { encoding: 'utf-8' });
@@ -57,7 +57,78 @@ function getDiffHunks(resolvedRef) {
   return output.split('\n');
 }
 
-function isSourceFile(filePath) {
+/**
+ * Load ignore configuration from .diff-coverage-ignore.json
+ * Returns an object with 'patterns' and 'files' arrays.
+ */
+function loadIgnoreConfig() {
+  const repoRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8' }).trim();
+  const configPath = join(repoRoot, '.diff-coverage-ignore.json');
+
+  if (!existsSync(configPath)) {
+    // Return default empty config if file doesn't exist
+    return { patterns: [], files: [] };
+  }
+
+  try {
+    const content = readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(content);
+    return {
+      patterns: config.patterns || [],
+      files: config.files || [],
+    };
+  } catch (e) {
+    console.warn(`⚠️  Warning: Failed to parse .diff-coverage-ignore.json: ${e.message}`);
+    return { patterns: [], files: [] };
+  }
+}
+
+/**
+ * Simple glob pattern matcher for common patterns.
+ * Supports:
+ * - ** for matching any number of directories
+ * - * for matching any characters except /
+ * - Exact matches
+ */
+function matchesGlob(filePath, pattern) {
+  // Normalize paths to use forward slashes
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  const normalizedPattern = pattern.replace(/\\/g, '/');
+
+  // Convert glob pattern to regex
+  // Escape special regex characters except * and **
+  let regexStr = normalizedPattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '___DOUBLE_STAR___')
+    .replace(/\*/g, '[^/]*')
+    .replace(/___DOUBLE_STAR___/g, '.*');
+
+  const regex = new RegExp(`^${regexStr}$`);
+  return regex.test(normalizedPath);
+}
+
+/**
+ * Check if a file should be ignored based on the ignore config.
+ */
+function shouldIgnoreFile(filePath, ignoreConfig) {
+  // Check specific file paths
+  for (const file of ignoreConfig.files) {
+    if (filePath === file || filePath.startsWith(file + '/')) {
+      return true;
+    }
+  }
+
+  // Check glob patterns
+  for (const pattern of ignoreConfig.patterns) {
+    if (matchesGlob(filePath, pattern)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isSourceFile(filePath, ignoreConfig) {
   // Only enforce coverage for TypeScript source files in packages/*/src/
   // Exclude: test files, docs, CI configs, build configs, etc.
   if (!filePath.startsWith('packages/')) {
@@ -68,25 +139,20 @@ function isSourceFile(filePath) {
     return false;
   }
 
-  // Must be a .ts file (not .test.ts, .d.ts, .spec.ts, etc.)
+  // Must be a .ts file
   if (!filePath.endsWith('.ts')) {
     return false;
   }
 
-  // Exclude test files
-  if (filePath.includes('.test.') || filePath.includes('.spec.')) {
-    return false;
-  }
-
-  // Exclude type definition files
-  if (filePath.endsWith('.d.ts')) {
+  // Check ignore config (patterns and specific files)
+  if (shouldIgnoreFile(filePath, ignoreConfig)) {
     return false;
   }
 
   return true;
 }
 
-function collectChangedLines(diffLines) {
+function collectChangedLines(diffLines, ignoreConfig) {
   const fileChanges = new Map(); // file -> Set<lineNumber>
   let currentFile = null;
 
@@ -94,7 +160,7 @@ function collectChangedLines(diffLines) {
     if (line.startsWith('+++ b/')) {
       currentFile = line.substring('+++ b/'.length).trim();
       // Only track source files
-      if (isSourceFile(currentFile)) {
+      if (isSourceFile(currentFile, ignoreConfig)) {
         if (!fileChanges.has(currentFile)) {
           fileChanges.set(currentFile, new Set());
         }
@@ -181,6 +247,12 @@ function main() {
     process.exit(1);
   }
 
+  // Load ignore configuration
+  const ignoreConfig = loadIgnoreConfig();
+  if (ignoreConfig.patterns.length > 0 || ignoreConfig.files.length > 0) {
+    console.log(`Using ignore config: ${ignoreConfig.patterns.length} pattern(s), ${ignoreConfig.files.length} file(s)`);
+  }
+
   const baseRef = getBaseRef();
   const resolvedRef = resolveBaseRef(baseRef);
 
@@ -188,7 +260,7 @@ function main() {
   console.log(`Using coverage report: ${lcovPath}`);
 
   const diffLines = getDiffHunks(resolvedRef);
-  const changed = collectChangedLines(diffLines);
+  const changed = collectChangedLines(diffLines, ignoreConfig);
 
   if (changed.size === 0) {
     console.log('No changed lines detected; nothing to enforce for differential coverage.');
