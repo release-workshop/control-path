@@ -74,7 +74,9 @@ jobs:
           fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
-          deno compile --no-check --unstable-sloppy-imports --allow-read --allow-write --allow-net \
+          # Ensure Deno can resolve Node.js modules
+          # The import map in deno.json maps Node.js dependencies to npm: specifiers
+          deno compile --no-check --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
             --output "dist/${{ matrix.output }}" \
             src/index.ts
