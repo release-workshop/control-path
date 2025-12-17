@@ -21,6 +21,37 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
+      - name: Update release PR branch to match main
+        env:
+          GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+        run: |
+          RELEASE_BRANCH="release-please--branches--main"
+          
+          # Configure git for authentication
+          git config user.name "chrisbot-release-workshop"
+          git config user.email "chris+bot@releaseworkshop.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          
+          # Check if the release branch exists
+          if git ls-remote --heads origin "$RELEASE_BRANCH" | grep -q "$RELEASE_BRANCH"; then
+            echo "Release branch exists, updating it to match main..."
+            git fetch origin "$RELEASE_BRANCH" || true
+            git checkout -b "$RELEASE_BRANCH" "origin/$RELEASE_BRANCH" 2>/dev/null || git checkout "$RELEASE_BRANCH"
+            
+            # Update the branch to match main
+            git reset --hard origin/main
+            
+            # Push the updated branch
+            git push origin "$RELEASE_BRANCH" --force-with-lease || {
+              echo "⚠️  Warning: Failed to update release branch (may be locked by release-please or already up to date)"
+            }
+            
+            # Return to main
+            git checkout main
+          else
+            echo "Release branch does not exist yet, release-please will create it"
+          fi
+
       - name: Release PR and tags
         uses: google-github-actions/release-please-action@v4
         with:
