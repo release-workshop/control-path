@@ -76,7 +76,8 @@ jobs:
 
           # Ensure Deno can resolve Node.js modules
           # The import map in deno.json maps Node.js dependencies to npm: specifiers
-          deno compile --no-check --allow-read --allow-write --allow-net \
+          # Use --sloppy-imports to handle imports without file extensions in compiler source
+          deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
             --output "dist/${{ matrix.output }}" \
             src/index.ts
