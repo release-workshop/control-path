@@ -74,18 +74,33 @@ jobs:
           fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
+          # Create dist directory first to ensure it exists
+          mkdir -p dist
+          
+          # Use GitHub Actions runner temp directory or create our own with proper permissions
+          # Deno creates temp files in the same directory as the output, so we need write access there
+          export TMPDIR="${RUNNER_TEMP:-$(pwd)/.deno-tmp}"
+          mkdir -p "$TMPDIR"
+          chmod 777 "$TMPDIR"
+          
+          # Ensure the dist directory has proper permissions
+          chmod 755 dist
+          
+          # Use absolute path for output to avoid path resolution issues
+          OUTPUT_PATH="$(pwd)/dist/${{ matrix.output }}"
+          
           # Ensure Deno can resolve Node.js modules
           # The import map in deno.json maps Node.js dependencies to npm: specifiers
           # Use --sloppy-imports to handle imports without file extensions in compiler source
-          # Compile to current directory first (where we have write permissions), then move to dist
           deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
-            --output "${{ matrix.output }}" \
+            --output "$OUTPUT_PATH" \
             src/index.ts
           
-          # Create dist directory and move the compiled binary
-          mkdir -p dist
-          mv "${{ matrix.output }}" "dist/${{ matrix.output }}"
+          # Clean up temp directory if we created it
+          if [ "$TMPDIR" != "$RUNNER_TEMP" ]; then
+            rm -rf "$TMPDIR"
+          fi
 
       - name: Package CLI archive (${{ matrix.target_name }})
         run: |
