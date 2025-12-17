@@ -110,31 +110,28 @@ jobs:
 
       - name: Fast-forward merge into main (no merge commit)
         if: success()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
-          script: |
-            const ref = context.ref.replace('refs/heads/', '');
-            const base = 'main';
-            
-            core.info(`Attempting fast-forward merge of ${ref} into ${base}...`);
-
-            try {
-              // Use merge with no-ff=false to ensure fast-forward (no merge commit)
-              // After rebase, this should always fast-forward
-              const result = await github.rest.repos.merge({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                base,
-                head: ref
-              });
-
-              if (result.data.merged) {
-                core.info(`Fast-forward merge successful: ${result.data.sha}`);
-                core.info('No merge commit created - your original commits are preserved');
-              }
-            } catch (error) {
-              core.setFailed(`Auto-merge failed: ${error.message}`);
-            }
+        env:
+          GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+        run: |
+          # Use git directly to do a fast-forward only merge
+          # This ensures no merge commit is created
+          
+          VALIDATION_BRANCH="${{ github.ref_name }}"
+          
+          echo "Checking out main branch..."
+          git checkout main
+          git reset --hard origin/main
+          
+          echo "Attempting fast-forward merge of ${VALIDATION_BRANCH} into main..."
+          git merge --ff-only "origin/${VALIDATION_BRANCH}" || {
+            echo "❌ Fast-forward merge failed. This should not happen after rebase."
+            exit 1
+          }
+          
+          echo "Pushing main with fast-forward merge..."
+          git push origin main
+          
+          echo "✓ Fast-forward merge successful - no merge commit created"
+          echo "Your original commits are now in main with their original messages"
 
 
