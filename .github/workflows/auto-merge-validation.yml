@@ -129,7 +129,7 @@ jobs:
           }
           
           echo "Pushing main with fast-forward merge..."
-          git push origin main --no-verify
+          git push origin main --no-verify --force
           
           echo "✓ Fast-forward merge successful - no merge commit created"
           echo "Your original commits are now in main with their original messages"
