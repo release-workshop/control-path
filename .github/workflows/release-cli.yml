@@ -74,6 +74,9 @@ jobs:
           fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
+          # Create dist directory if it doesn't exist
+          mkdir -p dist
+
           # Ensure Deno can resolve Node.js modules
           # The import map in deno.json maps Node.js dependencies to npm: specifiers
           # Use --sloppy-imports to handle imports without file extensions in compiler source
