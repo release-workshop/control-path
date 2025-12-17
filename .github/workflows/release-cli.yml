@@ -64,6 +64,11 @@ jobs:
 
       - name: Build CLI binary (${{ matrix.target_name }})
         working-directory: packages/cli
+        env:
+          # Set DENO_DIR to a directory we control with proper permissions
+          # This is critical for cross-compilation as Deno downloads denort binaries here
+          DENO_DIR: ${{ github.workspace }}/.deno-cache
+          TMPDIR: ${{ runner.temp }}
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
@@ -74,33 +79,22 @@ jobs:
           fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
-          # Create dist directory first to ensure it exists
+          # Create DENO_DIR with proper permissions for cross-compilation
+          # Deno needs this to download and extract denort binaries for target platforms
+          mkdir -p "$DENO_DIR"
+          chmod 755 "$DENO_DIR"
+          
+          # Create dist directory for output
           mkdir -p dist
-          
-          # Use GitHub Actions runner temp directory or create our own with proper permissions
-          # Deno creates temp files in the same directory as the output, so we need write access there
-          export TMPDIR="${RUNNER_TEMP:-$(pwd)/.deno-tmp}"
-          mkdir -p "$TMPDIR"
-          chmod 777 "$TMPDIR"
-          
-          # Ensure the dist directory has proper permissions
           chmod 755 dist
-          
-          # Use absolute path for output to avoid path resolution issues
-          OUTPUT_PATH="$(pwd)/dist/${{ matrix.output }}"
           
           # Ensure Deno can resolve Node.js modules
           # The import map in deno.json maps Node.js dependencies to npm: specifiers
           # Use --sloppy-imports to handle imports without file extensions in compiler source
           deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
-            --output "$OUTPUT_PATH" \
+            --output "dist/${{ matrix.output }}" \
             src/index.ts
-          
-          # Clean up temp directory if we created it
-          if [ "$TMPDIR" != "$RUNNER_TEMP" ]; then
-            rm -rf "$TMPDIR"
-          fi
 
       - name: Package CLI archive (${{ matrix.target_name }})
         run: |
