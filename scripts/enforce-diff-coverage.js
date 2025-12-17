@@ -111,10 +111,18 @@ function matchesGlob(filePath, pattern) {
  * Check if a file should be ignored based on the ignore config.
  */
 function shouldIgnoreFile(filePath, ignoreConfig) {
-  // Check specific file paths
+  // Check specific file paths (treat as glob if they contain * or **)
   for (const file of ignoreConfig.files) {
-    if (filePath === file || filePath.startsWith(file + '/')) {
-      return true;
+    // If the file pattern contains glob characters, use glob matching
+    if (file.includes('*')) {
+      if (matchesGlob(filePath, file)) {
+        return true;
+      }
+    } else {
+      // Otherwise, treat as literal path
+      if (filePath === file || filePath.startsWith(file + '/')) {
+        return true;
+      }
     }
   }
 
