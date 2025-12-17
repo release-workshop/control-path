@@ -25,45 +25,45 @@ else
 fi
 
 # pushmain alias: push current main through validation → auto-merge (appears as direct push to main)
-git config alias.pushmain '!f() {
+git config alias.pushmain '!bash -c "
   set +x
-  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  CURRENT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"\")
 
-  if [ "$CURRENT_BRANCH" != "main" ]; then
-    echo "Error: pushmain must be run from the main branch (current: $CURRENT_BRANCH)."
-    echo "Please switch to main: git checkout main && git pull --ff-only"
+  if [ \"\$CURRENT_BRANCH\" != \"main\" ]; then
+    echo \"Error: pushmain must be run from the main branch (current: \$CURRENT_BRANCH).\"
+    echo \"Please switch to main: git checkout main && git pull --ff-only\"
     exit 1
   fi
 
-  # Ensure local main is up to date
-  echo "Syncing with origin/main..."
+  echo \"Syncing with origin/main...\"
   git fetch origin main:main 2>/dev/null || true
 
-  echo "Rebasing local main onto origin/main..."
+  echo \"Rebasing local main onto origin/main...\"
   git rebase origin/main 2>/dev/null || {
-    echo "Error: Rebase failed. Please resolve conflicts and try again."
+    echo \"Error: Rebase failed. Please resolve conflicts and try again.\"
     exit 1
   }
 
-  # Create a unique remote validation branch name
-  SHORT_SHA=$(git rev-parse --short HEAD 2>/dev/null)
-  USER_PART=$(git config user.username 2>/dev/null || git config user.name 2>/dev/null || echo "dev")
-  # Sanitize username: replace spaces and invalid chars with hyphens, lowercase
-  USER_PART=$(echo "$USER_PART" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
-  TS_PART=$(date +%Y%m%d-%H%M%S)
-  REMOTE_BRANCH="validation/${USER_PART}-${TS_PART}-${SHORT_SHA}"
+  SHORT_SHA=\$(git rev-parse --short HEAD 2>/dev/null)
+  USER_PART=\$(git config user.username 2>/dev/null || git config user.name 2>/dev/null || echo \"dev\")
+  USER_PART=\$(echo \"\$USER_PART\" | tr \"[:upper:]\" \"[:lower:]\" | sed \"s/[^a-z0-9-]/-/g\" | sed \"s/--*/-/g\" | sed \"s/^-\\(.*\\)-$/\\1/\" | sed \"s/^-\\(.*\\)$/\\1/\" | sed \"s/\\(.*\\)-$/\\1/\")
+  if [ -z \"\$USER_PART\" ]; then
+    USER_PART=\"dev\"
+  fi
+  TS_PART=\$(date +%Y%m%d-%H%M%S)
+  REMOTE_BRANCH=\"validation/\${USER_PART}-\${TS_PART}-\${SHORT_SHA}\"
 
-  echo "Pushing to validation branch: ${REMOTE_BRANCH}..."
-  git push origin HEAD:"refs/heads/${REMOTE_BRANCH}" 2>&1
+  echo \"Pushing to validation branch: \${REMOTE_BRANCH}...\"
+  git push origin HEAD:\"refs/heads/\${REMOTE_BRANCH}\" 2>&1
 
-  echo ""
-  echo "✓ Pushed to ${REMOTE_BRANCH}"
-  echo ""
-  echo "CI is running validation checks. If all checks pass, your changes will"
-  echo "automatically merge into main (appearing as if you pushed directly)."
-  echo ""
-  echo "You can continue working on main locally. Check GitHub Actions for status."
-}; f'
+  echo \"\"
+  echo \"✓ Pushed to \${REMOTE_BRANCH}\"
+  echo \"\"
+  echo \"CI is running validation checks. If all checks pass, your changes will\"
+  echo \"automatically merge into main (appearing as if you pushed directly).\"
+  echo \"\"
+  echo \"You can continue working on main locally. Check GitHub Actions for status.\"
+"'
 
 echo "✓ Git alias 'pushmain' configured successfully!"
 echo ""
