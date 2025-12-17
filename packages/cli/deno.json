@@ -11,8 +11,8 @@
     "msgpackr": "npm:msgpackr@^1.9.0"
   },
   "tasks": {
-    "build": "deno compile --no-check --unstable-sloppy-imports --allow-read --allow-write --allow-env --allow-net --output dist/controlpath src/index.ts",
-    "test": "deno test --no-check --unstable-sloppy-imports --allow-read --allow-write --allow-env src || (echo 'No test files found' && exit 0)",
+    "build": "deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-env --allow-net --output dist/controlpath src/index.ts",
+    "test": "deno test --no-check --sloppy-imports --allow-read --allow-write --allow-env src || (echo 'No test files found' && exit 0)",
     "lint": "deno lint src",
     "format:check": "deno fmt --check src"
   },
@@ -28,6 +28,5 @@
     "rules": {
       "tags": ["recommended"]
     }
-  },
-  "allowScripts": ["npm:msgpackr-extract@3.0.3"]
+  }
 }
