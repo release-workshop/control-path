@@ -74,7 +74,7 @@ jobs:
           fi
           echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
-          deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
+          deno compile --no-check --unstable-sloppy-imports --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
             --output "dist/${{ matrix.output }}" \
             src/index.ts
