@@ -49,7 +49,7 @@ jobs:
       - name: Install Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: v1.x
+          deno-version: v2.x
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
