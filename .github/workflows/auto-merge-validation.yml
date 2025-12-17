@@ -137,5 +137,12 @@ jobs:
           
           echo "✓ Fast-forward merge successful - no merge commit created"
           echo "Your original commits are now in main with their original messages"
+          
+          # Delete the validation branch after successful merge
+          echo "Deleting validation branch ${VALIDATION_BRANCH}..."
+          git push origin --delete "${VALIDATION_BRANCH}" || {
+            echo "⚠️  Warning: Failed to delete validation branch (may have already been deleted)"
+          }
+          echo "✓ Validation branch cleaned up"
 
 
