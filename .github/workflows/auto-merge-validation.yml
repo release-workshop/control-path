@@ -128,8 +128,11 @@ jobs:
             exit 1
           }
           
+          # Configure git to use the token for authentication
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          
           echo "Pushing main with fast-forward merge..."
-          git push origin main --no-verify --force
+          git push origin main --no-verify
           
           echo "✓ Fast-forward merge successful - no merge commit created"
           echo "Your original commits are now in main with their original messages"
