@@ -44,6 +44,12 @@ git config alias.pushmain '!bash -c "
     exit 1
   }
 
+  # Check if there are any commits to push
+  if git diff --quiet origin/main HEAD 2>/dev/null; then
+    echo \"No committed changes to push. Your local main is up to date with origin/main.\"
+    exit 0
+  fi
+
   SHORT_SHA=\$(git rev-parse --short HEAD 2>/dev/null)
   USER_PART=\$(git config user.username 2>/dev/null || git config user.name 2>/dev/null || echo \"dev\")
   USER_PART=\$(echo \"\$USER_PART\" | tr \"[:upper:]\" \"[:lower:]\" | sed \"s/[^a-z0-9-]/-/g\" | sed \"s/--*/-/g\" | sed \"s/^-\\(.*\\)-$/\\1/\" | sed \"s/^-\\(.*\\)$/\\1/\" | sed \"s/\\(.*\\)-$/\\1/\")
