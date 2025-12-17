@@ -26,6 +26,7 @@ fi
 
 # pushmain alias: push current main through validation → auto-merge (appears as direct push to main)
 git config alias.pushmain '!f() {
+  set +x
   CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
 
   if [ "$CURRENT_BRANCH" != "main" ]; then
@@ -39,21 +40,21 @@ git config alias.pushmain '!f() {
   git fetch origin main:main 2>/dev/null || true
 
   echo "Rebasing local main onto origin/main..."
-  git rebase origin/main || {
+  git rebase origin/main 2>/dev/null || {
     echo "Error: Rebase failed. Please resolve conflicts and try again."
     exit 1
   }
 
   # Create a unique remote validation branch name
-  SHORT_SHA=$(git rev-parse --short HEAD)
-  USER_PART=$(git config user.username || git config user.name || echo "dev")
+  SHORT_SHA=$(git rev-parse --short HEAD 2>/dev/null)
+  USER_PART=$(git config user.username 2>/dev/null || git config user.name 2>/dev/null || echo "dev")
   # Sanitize username: replace spaces and invalid chars with hyphens, lowercase
   USER_PART=$(echo "$USER_PART" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
   TS_PART=$(date +%Y%m%d-%H%M%S)
   REMOTE_BRANCH="validation/${USER_PART}-${TS_PART}-${SHORT_SHA}"
 
   echo "Pushing to validation branch: ${REMOTE_BRANCH}..."
-  git push origin HEAD:"refs/heads/${REMOTE_BRANCH}"
+  git push origin HEAD:"refs/heads/${REMOTE_BRANCH}" 2>&1
 
   echo ""
   echo "✓ Pushed to ${REMOTE_BRANCH}"
