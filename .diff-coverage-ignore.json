@@ -7,6 +7,6 @@
     "**/*.d.ts"
   ],
   "files": [
-    "packages/cli/src/test-utils/**"
+    "packages/cli/**"
   ]
 }
