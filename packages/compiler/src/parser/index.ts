@@ -6,6 +6,7 @@
 
 export { parseDefinitions, parseDefinitionsFromString } from './definitions';
 export { parseDeployment, parseDeploymentFromString } from './deployment';
+export { ParseError } from './parse-error';
 export type {
   FlagDefinitions,
   FlagDefinition,
@@ -17,5 +18,4 @@ export type {
   DeploymentRule,
   FlagRules,
   SegmentDefinition,
-  ParseError,
 } from './types';

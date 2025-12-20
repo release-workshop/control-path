@@ -141,26 +141,6 @@ export interface Deployment {
 
 /**
  * Parser error types
+ *
+ * Note: ParseError class is exported from './parse-error.ts'
  */
-
-/**
- * Error thrown when parsing fails.
- * Includes file path and optional cause for better error reporting.
- */
-export class ParseError extends Error {
-  /**
-   * Create a new ParseError.
-   *
-   * @param message - Error message
-   * @param filePath - Path to the file that caused the error
-   * @param cause - Optional underlying error
-   */
-  constructor(
-    message: string,
-    public readonly filePath: string,
-    public readonly cause?: Error
-  ) {
-    super(message);
-    this.name = 'ParseError';
-  }
-}

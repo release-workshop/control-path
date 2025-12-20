@@ -2,5 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Configuration for files to ignore in differential coverage analysis",
   "patterns": ["**/*.test.ts", "**/*.spec.ts", "**/*.d.ts"],
-  "files": ["packages/cli/**"]
+  "files": [
+    "packages/cli/**",
+    "packages/compiler/src/parser/types.ts"
+  ]
 }

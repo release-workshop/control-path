@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { compile, serialize, compileAndSerialize } from './index';
-import { FlagDefinitions, Deployment } from '../parser/types';
+import type { FlagDefinitions, Deployment } from '../parser/types';
 import { Artifact, RuleType, ExpressionType, BinaryOp } from '../ast';
 import { unpack } from 'msgpackr';
 

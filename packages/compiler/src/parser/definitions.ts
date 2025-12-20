@@ -4,7 +4,8 @@
  * See the LICENSE file in the project root for details.
  */
 
-import { FlagDefinitions, ParseError } from './types';
+import { FlagDefinitions } from './types';
+import { ParseError } from './parse-error';
 import { readFile, parseYamlOrJson } from './utils';
 
 /**

@@ -8,7 +8,8 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { parseDefinitions, parseDefinitionsFromString, ParseError } from './definitions';
+import { parseDefinitions, parseDefinitionsFromString } from './definitions';
+import { ParseError } from './parse-error';
 
 describe('parseDefinitions', () => {
   it('should parse valid YAML flag definitions', () => {

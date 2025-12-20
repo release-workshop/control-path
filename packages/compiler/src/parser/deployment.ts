@@ -4,7 +4,8 @@
  * See the LICENSE file in the project root for details.
  */
 
-import { Deployment, ParseError } from './types';
+import { Deployment } from './types';
+import { ParseError } from './parse-error';
 import { readFile, parseYamlOrJson } from './utils';
 
 /**

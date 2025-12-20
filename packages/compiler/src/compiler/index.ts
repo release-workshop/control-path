@@ -6,7 +6,7 @@
 
 import { pack } from 'msgpackr';
 import { Artifact, Rule, RuleType, Variation, Expression } from '../ast';
-import { FlagDefinitions, FlagDefinition, Deployment, DeploymentRule } from '../parser/types';
+import type { FlagDefinitions, FlagDefinition, Deployment, DeploymentRule } from '../parser/types';
 import { parseExpression } from './expressions';
 import { StringTable } from './string-table';
 
