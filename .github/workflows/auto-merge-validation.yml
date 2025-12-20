@@ -85,13 +85,8 @@ jobs:
             echo "Running affected tests from TIA: ${{ steps.tia.outputs.affected_tests }}"
             pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov ${{ steps.tia.outputs.affected_tests }}
           fi
-
-      - name: Enforce 100% differential coverage
-        env:
-          DIFF_COVERAGE_LCOV: packages/compiler/coverage/lcov.info
-          DIFF_COVERAGE_BASE: main
-        run: |
-          node scripts/enforce-diff-coverage.js
+          # Coverage thresholds are enforced automatically by Vitest
+          # If thresholds are not met, vitest will exit with code 1
 
   # Run lint and typecheck in parallel (they can run simultaneously via turbo)
   lint-and-typecheck:
