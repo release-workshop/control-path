@@ -51,7 +51,10 @@ function getChangedFiles(baseRef) {
   const cmd = `git diff --name-only ${baseRef}...HEAD`;
   const output = run(cmd);
   if (!output) return [];
-  return output.split('\n').map((f) => f.trim()).filter(Boolean);
+  return output
+    .split('\n')
+    .map((f) => f.trim())
+    .filter(Boolean);
 }
 
 function isMonorepoPackageFile(filePath) {
@@ -121,11 +124,7 @@ function resolveImport(fromFileRel, spec, gitRoot) {
   const fromAbs = resolve(gitRoot, fromFileRel);
   const base = resolve(dirname(fromAbs), spec);
 
-  const candidates = [
-    base,
-    `${base}.ts`,
-    join(base, 'index.ts'),
-  ];
+  const candidates = [base, `${base}.ts`, join(base, 'index.ts')];
 
   // Find the first existing candidate and return its repo-relative path.
   for (const candidate of candidates) {
@@ -244,4 +243,3 @@ function main() {
 if (require.main === module) {
   main();
 }
-

@@ -3,7 +3,7 @@ name: Auto-merge validation
 on:
   push:
     branches:
-      - "validation/**"
+      - 'validation/**'
 
 jobs:
   # Fast-fail check before installing dependencies
@@ -172,17 +172,17 @@ jobs:
           # Rebase the validation branch onto main to enable fast-forward merge
           # This ensures no merge commit is created - just your original commits
           # git rebase preserves the original commit author by default
-          
+
           # Set git config for the rebase operation (committer will be bot, author is preserved)
           git config user.name "chrisbot-release-workshop"
           git config user.email "chris+bot@releaseworkshop.com"
-          
+
           # Rebase - author information is automatically preserved from original commits
           git rebase origin/main || {
             echo "❌ Rebase failed. This should not happen if validation branch was created from main."
             exit 1
           }
-          
+
           # Force push the rebased branch (safe since it's a temporary validation branch)
           git push origin HEAD:${{ github.ref_name }} --force-with-lease
 
@@ -192,28 +192,28 @@ jobs:
         run: |
           # Use git directly to do a fast-forward only merge
           # This ensures no merge commit is created
-          
+
           VALIDATION_BRANCH="${{ github.ref_name }}"
-          
+
           echo "Checking out main branch..."
           git checkout main
           git reset --hard origin/main
-          
+
           echo "Attempting fast-forward merge of ${VALIDATION_BRANCH} into main..."
           git merge --ff-only "origin/${VALIDATION_BRANCH}" || {
             echo "❌ Fast-forward merge failed. This should not happen after rebase."
             exit 1
           }
-          
+
           # Configure git to use the token for authentication
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          
+
           echo "Pushing main with fast-forward merge..."
           git push origin main --no-verify
-          
+
           echo "✓ Fast-forward merge successful - no merge commit created"
           echo "Your original commits are now in main with their original messages"
-          
+
           # Delete the validation branch after successful merge
           echo "Deleting validation branch ${VALIDATION_BRANCH}..."
           git push origin --delete "${VALIDATION_BRANCH}" || {

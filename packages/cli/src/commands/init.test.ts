@@ -61,24 +61,27 @@ Deno.test('init: should not create definitions file with --no-examples', async (
   }
 });
 
-Deno.test('init: should create definitions file with --example-flags even if --no-examples', async () => {
-  const { cleanup } = await setupTestEnvironment('-init');
+Deno.test(
+  'init: should create definitions file with --example-flags even if --no-examples',
+  async () => {
+    const { cleanup } = await setupTestEnvironment('-init');
 
-  try {
-    const exitCode = await initCommand({
-      noExamples: true,
-      exampleFlags: true,
-    });
+    try {
+      const exitCode = await initCommand({
+        noExamples: true,
+        exampleFlags: true,
+      });
 
-    assertEquals(exitCode, 0);
+      assertEquals(exitCode, 0);
 
-    const definitionsExists = await pathExists('flags.definitions.yaml');
+      const definitionsExists = await pathExists('flags.definitions.yaml');
 
-    assertEquals(definitionsExists, true);
-  } finally {
-    await cleanup();
-  }
-});
+      assertEquals(definitionsExists, true);
+    } finally {
+      await cleanup();
+    }
+  },
+);
 
 Deno.test('init: should fail when files exist without --force', async () => {
   const { cleanup } = await setupTestEnvironment('-init');

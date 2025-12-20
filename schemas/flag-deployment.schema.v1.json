@@ -33,11 +33,7 @@
                   },
                   "serve": {
                     "description": "Value to serve when rule matches. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
-                    "oneOf": [
-                      { "type": "string" },
-                      { "type": "boolean" },
-                      { "type": "number" }
-                    ]
+                    "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
                   },
                   "variations": {
                     "type": "array",
@@ -114,4 +110,3 @@
   },
   "additionalProperties": false
 }
-

@@ -6,6 +6,7 @@
     "build": "deno task build",
     "test": "deno task test",
     "lint": "deno task lint",
+    "format": "deno task format",
     "format:check": "deno task format:check"
   },
   "devDependencies": {

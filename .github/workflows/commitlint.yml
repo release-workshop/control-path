@@ -52,5 +52,3 @@ jobs:
           git fetch origin "${BASE_REF}:${BASE_REF}" || true
           FROM_SHA="$(git merge-base HEAD "${BASE_REF}")"
           pnpm exec commitlint --from="${FROM_SHA}" --to=HEAD
-
-

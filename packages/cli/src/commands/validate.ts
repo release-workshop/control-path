@@ -99,10 +99,7 @@ async function autoDetectFiles(): Promise<FileToValidate[]> {
 /**
  * Validate a single file and return the result.
  */
-function validateFile(
-  validator: Validator,
-  file: FileToValidate,
-): ValidationFileResult | null {
+function validateFile(validator: Validator, file: FileToValidate): ValidationFileResult | null {
   try {
     let result: ValidationResult;
 
@@ -143,10 +140,7 @@ function displaySuccessMessage(validCount: number): void {
 /**
  * Display validation errors for all invalid files.
  */
-function displayValidationErrors(
-  validator: Validator,
-  results: ValidationFileResult[],
-): void {
+function displayValidationErrors(validator: Validator, results: ValidationFileResult[]): void {
   for (const { result } of results) {
     if (!result.valid && result.errors.length > 0) {
       console.error(validator.formatErrors(result.errors));

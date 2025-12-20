@@ -8,6 +8,9 @@
       "outputs": [],
       "dependsOn": ["^build"]
     },
+    "format": {
+      "outputs": []
+    },
     "format:check": {
       "outputs": []
     },

@@ -9,7 +9,7 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yaml,yml}\"",
+    "format": "turbo run format",
     "format:check": "turbo run format:check",
     "changelog:latest": "conventional-changelog -p conventionalcommits -r 1",
     "prepare": "husky install",

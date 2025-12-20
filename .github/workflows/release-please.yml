@@ -29,13 +29,13 @@ jobs:
           git config user.name "chrisbot-release-workshop"
           git config user.email "chris+bot@releaseworkshop.com"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          
+
           # Fetch all tags
           git fetch --tags
-          
+
           # Find the latest release tag matching the component pattern (control-path-v*)
           LATEST_TAG=$(git tag -l "control-path-v*" | sort -V | tail -1)
-          
+
           if [ -n "$LATEST_TAG" ]; then
             # Extract version from tag (e.g., control-path-v0.2.0 -> 0.2.0)
             VERSION=$(echo "$LATEST_TAG" | sed 's/^control-path-v//')
@@ -71,12 +71,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
         run: |
           RELEASE_BRANCH="release-please--branches--main"
-          
+
           # Configure git for authentication
           git config user.name "chrisbot-release-workshop"
           git config user.email "chris+bot@releaseworkshop.com"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          
+
           # Check if the release branch exists
           if git ls-remote --heads origin "$RELEASE_BRANCH" | grep -q "$RELEASE_BRANCH"; then
             echo "Release branch exists, updating it to match main..."
@@ -103,5 +103,3 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
-
-

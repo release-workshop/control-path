@@ -65,11 +65,13 @@ For maintainers and trusted contributors, Control Path supports **trunk-based de
 - This ensures `main` is always in a releasable state while maintaining fast iteration
 
 **Setup**:
+
 ```bash
 bash scripts/setup-git-aliases.sh
 ```
 
 **Workflow**:
+
 ```bash
 git checkout main
 git pull --ff-only  # Stay up to date
@@ -79,6 +81,7 @@ git pushmain  # Validates and auto-merges into main on success
 ```
 
 The `pushmain` command:
+
 - Syncs your local `main` with `origin/main`
 - Pushes to a temporary `validation/*` branch
 - CI runs full validation (TIA, 100% diff coverage, lint, typecheck)
@@ -121,6 +124,7 @@ Control Path uses **Conventional Commits** format. Commit messages are enforced 
 **Format**: `type(scope): summary`
 
 **Types**:
+
 - `feat`: New feature
 - `fix`: Bug fix
 - `docs`: Documentation changes
@@ -131,6 +135,7 @@ Control Path uses **Conventional Commits** format. Commit messages are enforced 
 - `ci`: CI configuration changes
 
 **Scopes** (optional but recommended):
+
 - `compiler`: Changes to `packages/compiler`
 - `cli`: Changes to `packages/cli`
 - `repo`: Root-level config, workflows, docs

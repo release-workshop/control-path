@@ -258,13 +258,17 @@ function main() {
   // Load ignore configuration
   const ignoreConfig = loadIgnoreConfig();
   if (ignoreConfig.patterns.length > 0 || ignoreConfig.files.length > 0) {
-    console.log(`Using ignore config: ${ignoreConfig.patterns.length} pattern(s), ${ignoreConfig.files.length} file(s)`);
+    console.log(
+      `Using ignore config: ${ignoreConfig.patterns.length} pattern(s), ${ignoreConfig.files.length} file(s)`
+    );
   }
 
   const baseRef = getBaseRef();
   const resolvedRef = resolveBaseRef(baseRef);
 
-  console.log(`Differential coverage base: ${baseRef}${resolvedRef !== baseRef ? ` (resolved to ${resolvedRef})` : ''}`);
+  console.log(
+    `Differential coverage base: ${baseRef}${resolvedRef !== baseRef ? ` (resolved to ${resolvedRef})` : ''}`
+  );
   console.log(`Using coverage report: ${lcovPath}`);
 
   const diffLines = getDiffHunks(resolvedRef);
@@ -293,7 +297,9 @@ function main() {
   }
 
   if (uncovered.length > 0) {
-    console.error('❌ Differential coverage requirement not met. The following lines are not covered:');
+    console.error(
+      '❌ Differential coverage requirement not met. The following lines are not covered:'
+    );
     for (const { file, line } of uncovered) {
       console.error(`  - ${file}:${line}`);
     }
@@ -306,5 +312,3 @@ function main() {
 if (require.main === module) {
   main();
 }
-
-

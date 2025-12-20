@@ -8,3 +8,6 @@ pnpm-lock.yaml
 package-lock.json
 yarn.lock
 
+# Exclude CLI package source files - uses Deno formatter instead
+packages/cli/src/**
+
