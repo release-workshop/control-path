@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/release-workshop/control-path/compare/control-path-v0.2.0...control-path-v0.2.1) (2025-12-20)
+
+
+### Bug Fixes
+
+* macos build using correct github action runner ([bff15ab](https://github.com/release-workshop/control-path/commit/bff15ab3fae4369d7aabd7a92b24188274a993e5))
+
 ## [0.2.0](https://github.com/release-workshop/control-path/compare/control-path-v0.1.0...control-path-v0.2.0) (2025-12-17)
 
 
