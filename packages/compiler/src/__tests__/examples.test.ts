@@ -18,14 +18,99 @@ import { Artifact, isArtifact } from '../ast';
  * These tests verify that the compiler can handle real-world configurations.
  */
 
-// Path to examples directory in control-path-next workspace
-const EXAMPLES_DIR = join(__dirname, '../../../../../control-path-next/examples');
+/**
+ * Find examples directory, trying multiple possible locations.
+ * Returns null if not found (tests will be skipped).
+ */
+function findExamplesDir(): string | null {
+  const possiblePaths = [
+    // From compiled output (dist/)
+    join(__dirname, '../../../../../control-path-next/examples'),
+    // From source (src/)
+    join(__dirname, '../../../../../../control-path-next/examples'),
+    // Relative to package root
+    join(__dirname, '../../../../control-path-next/examples'),
+    // Relative to monorepo root
+    join(__dirname, '../../../../../examples'),
+  ];
+
+  for (const path of possiblePaths) {
+    try {
+      const testFile = join(path, 'simple/flags.definitions.yaml');
+      readFileSync(testFile, 'utf-8');
+      return path;
+    } catch {
+      // Path doesn't exist, try next
+    }
+  }
+
+  return null;
+}
+
+const EXAMPLES_DIR = findExamplesDir();
+
+// Example content embedded for CI compatibility
+const SIMPLE_FLAGS_DEFINITIONS = `flags:
+  - name: new_dashboard
+    type: boolean
+    defaultValue: OFF
+    description: "New dashboard UI feature"
+  
+  - name: enable_analytics
+    type: boolean
+    defaultValue: false
+    description: "Enable analytics tracking"
+`;
+
+const COMPLEX_FLAGS_DEFINITIONS = `context:
+  user:
+    age?: 'number'
+    department: 'string'
+
+flags:
+  - name: new_dashboard
+    type: boolean
+    defaultValue: OFF
+    description: "New dashboard UI feature"
+    metadata:
+      owner: "frontend-team"
+      ticket: "FE-1234"
+  
+  - name: theme_color
+    type: multivariate
+    defaultValue: blue
+    description: "Application theme color"
+    variations:
+      - name: BLUE
+        value: "blue"
+        description: "Default blue theme"
+      - name: GREEN
+        value: "green"
+        description: "Green theme"
+      - name: DARK
+        value: "dark"
+        description: "Dark theme"
+  
+  - name: api_version
+    type: multivariate
+    defaultValue: v1
+    description: "API version to use"
+    variations:
+      - name: V1
+        value: "v1"
+      - name: V2
+        value: "v2"
+      - name: V3
+        value: "v3"
+`;
 
 describe('Examples: Simple Configuration', () => {
   it('should compile simple flags.definitions.yaml', () => {
     // Given: Simple flag definitions from examples
-    const definitionsPath = join(EXAMPLES_DIR, 'simple/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'simple/flags.definitions.yaml'), 'utf-8')
+      : SIMPLE_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/simple/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     // When: We validate the definitions
@@ -42,8 +127,10 @@ describe('Examples: Simple Configuration', () => {
 
   it('should compile simple deployment with default rules', () => {
     // Given: Simple flag definitions and a basic deployment
-    const definitionsPath = join(EXAMPLES_DIR, 'simple/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'simple/flags.definitions.yaml'), 'utf-8')
+      : SIMPLE_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/simple/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     const deploymentYaml = `
@@ -75,8 +162,10 @@ rules:
 
   it('should compile simple deployment with serve rules', () => {
     // Given: Simple flag definitions and deployment with serve rules
-    const definitionsPath = join(EXAMPLES_DIR, 'simple/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'simple/flags.definitions.yaml'), 'utf-8')
+      : SIMPLE_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/simple/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     const deploymentYaml = `
@@ -112,8 +201,10 @@ rules:
 describe('Examples: Complex Configuration', () => {
   it('should compile complex flags.definitions.yaml with multivariate flags', () => {
     // Given: Complex flag definitions from examples
-    const definitionsPath = join(EXAMPLES_DIR, 'complex/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'complex/flags.definitions.yaml'), 'utf-8')
+      : COMPLEX_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/complex/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     // When: We validate the definitions
@@ -136,8 +227,10 @@ describe('Examples: Complex Configuration', () => {
 
   it('should compile complex deployment with multivariate flags', () => {
     // Given: Complex flag definitions and deployment with variations
-    const definitionsPath = join(EXAMPLES_DIR, 'complex/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'complex/flags.definitions.yaml'), 'utf-8')
+      : COMPLEX_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/complex/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     const deploymentYaml = `
@@ -185,8 +278,10 @@ rules:
 
   it('should compile complex deployment with expressions', () => {
     // Given: Complex flag definitions and deployment with conditional rules
-    const definitionsPath = join(EXAMPLES_DIR, 'complex/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'complex/flags.definitions.yaml'), 'utf-8')
+      : COMPLEX_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/complex/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     const deploymentYaml = `
@@ -232,8 +327,10 @@ rules:
 
   it('should compile complex deployment with segments', () => {
     // Given: Complex flag definitions and deployment with segments
-    const definitionsPath = join(EXAMPLES_DIR, 'complex/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'complex/flags.definitions.yaml'), 'utf-8')
+      : COMPLEX_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/complex/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     const deploymentYaml = `
@@ -277,8 +374,10 @@ rules:
 
   it('should compile complex deployment with rollout rules', () => {
     // Given: Complex flag definitions and deployment with rollout
-    const definitionsPath = join(EXAMPLES_DIR, 'complex/flags.definitions.yaml');
-    const definitionsContent = readFileSync(definitionsPath, 'utf-8');
+    const definitionsContent = EXAMPLES_DIR
+      ? readFileSync(join(EXAMPLES_DIR, 'complex/flags.definitions.yaml'), 'utf-8')
+      : COMPLEX_FLAGS_DEFINITIONS;
+    const definitionsPath = 'examples/complex/flags.definitions.yaml';
     const definitions = parseDefinitionsFromString(definitionsContent, definitionsPath);
 
     const deploymentYaml = `
