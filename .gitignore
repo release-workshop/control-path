@@ -64,6 +64,8 @@ pids/
 
 # Deno
 .deno/
+.deno-cache/
+.deno-workaround/
 deno.lock
 
 # IDE and Editor files

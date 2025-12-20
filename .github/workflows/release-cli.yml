@@ -16,7 +16,7 @@ on:
 jobs:
   build-cli-binaries:
     name: Build CLI binary (${{ matrix.target_name }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: true
@@ -26,14 +26,17 @@ jobs:
             deno_target: x86_64-unknown-linux-gnu
             output: controlpath-linux
             archive: tar
+            runner: ubuntu-latest
           - target_name: macos-x86_64
             deno_target: x86_64-apple-darwin
             output: controlpath-macos
             archive: tar
+            runner: macos-latest
           - target_name: windows-x86_64
             deno_target: x86_64-pc-windows-msvc
             output: controlpath-windows.exe
             archive: zip
+            runner: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -84,16 +87,21 @@ jobs:
           mkdir -p "$DENO_DIR"
           chmod 755 "$DENO_DIR"
           
-          # Create dist directory for output
+          # Create dist directory before compilation to ensure it exists
+          # Deno creates temp files in the same directory as the output
           mkdir -p dist
           chmod 755 dist
+          
+          OUTPUT_PATH="dist/${{ matrix.output }}"
           
           # Ensure Deno can resolve Node.js modules
           # The import map in deno.json maps Node.js dependencies to npm: specifiers
           # Use --sloppy-imports to handle imports without file extensions in compiler source
+          # Exclude node_modules to avoid platform-specific binary incompatibilities during cross-compilation
           deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
             --target ${{ matrix.deno_target }} \
-            --output "dist/${{ matrix.output }}" \
+            --exclude=node_modules \
+            --output "$OUTPUT_PATH" \
             src/index.ts
 
       - name: Package CLI archive (${{ matrix.target_name }})

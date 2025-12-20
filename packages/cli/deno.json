@@ -11,7 +11,10 @@
     "msgpackr": "npm:msgpackr@^1.9.0"
   },
   "tasks": {
-    "build": "deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-env --allow-net --output dist/controlpath src/index.ts",
+    "build": "deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-env --allow-net --exclude=node_modules --output dist/controlpath src/index.ts",
+    "build:linux": "mkdir -p dist && deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-env --allow-net --exclude=node_modules --target x86_64-unknown-linux-gnu --output dist/controlpath-linux src/index.ts",
+    "build:macos": "mkdir -p dist && deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-env --allow-net --exclude=node_modules --target x86_64-apple-darwin --output dist/controlpath-macos src/index.ts",
+    "build:windows": "mkdir -p dist && deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-env --allow-net --exclude=node_modules --target x86_64-pc-windows-msvc --output dist/controlpath-windows.exe src/index.ts",
     "test": "deno test --no-check --sloppy-imports --allow-read --allow-write --allow-env src || (echo 'No test files found' && exit 0)",
     "lint": "deno lint src",
     "format:check": "deno fmt --check src"
