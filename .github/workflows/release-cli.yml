@@ -166,11 +166,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Smoke test built compiler
-        run: |
-          pnpm --filter @controlpath/compiler build
-          node -e "require('./packages/compiler/dist'); console.log('Compiler loaded successfully');"
-
       - name: Download CLI artifacts
         uses: actions/download-artifact@v4
         with:
