@@ -6,14 +6,38 @@ on:
       - "validation/**"
 
 jobs:
-  validate-and-merge:
-    name: Validate change and auto-merge into main
+  # Fast-fail check before installing dependencies
+  check-changes:
+    name: Check for changes
     runs-on: ubuntu-latest
-
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
+      - name: Fetch main branch for comparison
+        run: git fetch origin main:main --depth=1
+
+      - name: Check for changes
+        run: |
+          if git diff --quiet main HEAD; then
+            echo "❌ Error: No changes detected between validation branch and main."
+            echo "This validation branch has no commits to merge."
+            exit 1
+          fi
+          echo "✓ Changes detected between validation branch and main"
+
+  # Run tests in parallel with lint/typecheck
+  test:
+    name: Run tests with coverage
+    runs-on: ubuntu-latest
+    needs: check-changes
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -25,11 +49,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Install Deno
-        uses: denoland/setup-deno@v1
-        with:
-          deno-version: v2.x
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -50,15 +69,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Check for changes
-        run: |
-          if git diff --quiet origin/main HEAD; then
-            echo "❌ Error: No changes detected between validation branch and main."
-            echo "This validation branch has no commits to merge."
-            exit 1
-          fi
-          echo "✓ Changes detected between validation branch and main"
 
       - name: Compute affected tests with TIA
         id: tia
@@ -83,14 +93,81 @@ jobs:
         run: |
           node scripts/enforce-diff-coverage.js
 
+  # Run lint and typecheck in parallel (they can run simultaneously via turbo)
+  lint-and-typecheck:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    needs: check-changes
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
+
+      - name: Cache Deno
+        uses: actions/cache@v4
+        with:
+          path: ~/.deno
+          key: deno-${{ runner.os }}-v2.x-${{ hashFiles('packages/cli/deno.json', 'packages/cli/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-v2.x-
+            deno-${{ runner.os }}-
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.0
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "store_path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.store_path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Lint
         run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
 
+  # Merge job runs only if all validations pass
+  merge:
+    name: Merge into main
+    runs-on: ubuntu-latest
+    needs: [test, lint-and-typecheck]
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
       - name: Rebase validation branch onto main for clean history
-        if: success()
         run: |
           # Rebase the validation branch onto main to enable fast-forward merge
           # This ensures no merge commit is created - just your original commits
@@ -110,7 +187,6 @@ jobs:
           git push origin HEAD:${{ github.ref_name }} --force-with-lease
 
       - name: Fast-forward merge into main (no merge commit)
-        if: success()
         env:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
         run: |
@@ -144,5 +220,3 @@ jobs:
             echo "⚠️  Warning: Failed to delete validation branch (may have already been deleted)"
           }
           echo "✓ Validation branch cleaned up"
-
-
