@@ -21,6 +21,51 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
+      - name: Sync manifest with existing releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+        run: |
+          # Configure git for authentication
+          git config user.name "chrisbot-release-workshop"
+          git config user.email "chris+bot@releaseworkshop.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          
+          # Fetch all tags
+          git fetch --tags
+          
+          # Find the latest release tag matching the component pattern (control-path-v*)
+          LATEST_TAG=$(git tag -l "control-path-v*" | sort -V | tail -1)
+          
+          if [ -n "$LATEST_TAG" ]; then
+            # Extract version from tag (e.g., control-path-v0.2.0 -> 0.2.0)
+            VERSION=$(echo "$LATEST_TAG" | sed 's/^control-path-v//')
+            echo "Latest release tag: $LATEST_TAG (version: $VERSION)"
+            
+            # Read current manifest
+            CURRENT_VERSION=$(jq -r '.["."]' .release-please-manifest.json)
+            echo "Current manifest version: $CURRENT_VERSION"
+            
+            # Compare versions and update if needed
+            if [ "$(printf '%s\n' "$CURRENT_VERSION" "$VERSION" | sort -V | head -1)" != "$VERSION" ]; then
+              echo "Updating manifest from $CURRENT_VERSION to $VERSION"
+              jq --arg v "$VERSION" '.["."] = $v' .release-please-manifest.json > .release-please-manifest.json.tmp
+              mv .release-please-manifest.json.tmp .release-please-manifest.json
+              
+              # Commit the update if it changed
+              git add .release-please-manifest.json
+              if git diff --staged --quiet; then
+                echo "No changes to commit"
+              else
+                git commit -m "chore: sync manifest with release $VERSION" || echo "No changes to commit"
+                git push origin main || echo "Failed to push manifest update (may already be up to date)"
+              fi
+            else
+              echo "Manifest is already up to date"
+            fi
+          else
+            echo "No release tags found"
+          fi
+
       - name: Update release PR branch to match main
         env:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
