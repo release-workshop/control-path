@@ -7,13 +7,30 @@
 import { describe, it, expect } from 'vitest';
 import { evaluate, evaluateRule } from './evaluator';
 import type { Artifact, User, Context, Rule } from './types';
+import { RuleType, ExpressionType, BinaryOp, LogicalOp } from './types';
 
 describe('Evaluator', () => {
   const mockArtifact: Artifact = {
     v: '1.0',
     env: 'test',
-    strs: ['flag1', 'flag2'],
-    flags: [],
+    strs: ['ON', 'OFF', 'user.role', 'admin'],
+    flags: [
+      // Flag 0: simple serve rule
+      [[RuleType.SERVE, undefined, 0]], // Returns 'ON'
+      // Flag 1: serve rule with when clause
+      [
+        [
+          RuleType.SERVE,
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 2],
+            [ExpressionType.LITERAL, 3],
+          ],
+          0,
+        ],
+      ], // user.role == 'admin' -> 'ON'
+    ],
   };
 
   const mockUser: User = {
@@ -28,32 +45,496 @@ describe('Evaluator', () => {
   };
 
   describe('evaluate', () => {
-    it('should return undefined for placeholder implementation', () => {
-      const result = evaluate('flag1', mockArtifact, mockUser, mockContext);
+    it('should evaluate flag with simple serve rule', () => {
+      const result = evaluate(0, mockArtifact, mockUser, mockContext);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate flag with when clause', () => {
+      const result = evaluate(1, mockArtifact, mockUser, mockContext);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should return undefined for invalid flag index', () => {
+      const result = evaluate(999, mockArtifact, mockUser, mockContext);
 
       expect(result).toBeUndefined();
     });
 
     it('should handle missing context', () => {
-      const result = evaluate('flag1', mockArtifact, mockUser);
+      const result = evaluate(0, mockArtifact, mockUser);
 
-      expect(result).toBeUndefined();
+      expect(result).toBe('ON');
     });
   });
 
   describe('evaluateRule', () => {
-    it('should return undefined for placeholder implementation', () => {
-      const rule: Rule = [0, undefined, 0];
+    it('should evaluate serve rule without when clause', () => {
+      const rule: Rule = [RuleType.SERVE, undefined, 0];
+      const result = evaluateRule(rule, mockArtifact, mockUser, mockContext);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate serve rule with matching when clause', () => {
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 2],
+          [ExpressionType.LITERAL, 3],
+        ],
+        0,
+      ];
+      const result = evaluateRule(rule, mockArtifact, mockUser, mockContext);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should return undefined when when clause does not match', () => {
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 2],
+          [ExpressionType.LITERAL, 1],
+        ], // user.role == 'OFF' (should not match)
+        0,
+      ];
       const result = evaluateRule(rule, mockArtifact, mockUser, mockContext);
 
       expect(result).toBeUndefined();
     });
 
     it('should handle missing context', () => {
-      const rule: Rule = [0, undefined, 0];
+      const rule: Rule = [RuleType.SERVE, undefined, 0];
       const result = evaluateRule(rule, mockArtifact, mockUser);
 
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate variations rule', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['variant_a', 'variant_b', 'variant_c'],
+        flags: [],
+      };
+      const rule: Rule = [
+        RuleType.VARIATIONS,
+        undefined,
+        [
+          [0, 50], // variant_a: 50%
+          [1, 30], // variant_b: 30%
+          [2, 20], // variant_c: 20%
+        ],
+      ];
+
+      // Test with consistent user ID for deterministic results
+      const user1: User = { id: 'user1' };
+      const result1 = evaluateRule(rule, artifact, user1);
+      expect(['variant_a', 'variant_b', 'variant_c']).toContain(result1);
+
+      // Same user should get same variation
+      const result2 = evaluateRule(rule, artifact, user1);
+      expect(result2).toBe(result1);
+    });
+
+    it('should evaluate rollout rule', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF'],
+        flags: [],
+      };
+
+      // 50% rollout
+      const rule: Rule = [RuleType.ROLLOUT, undefined, [0, 50]];
+
+      const user1: User = { id: 'user1' };
+      const result1 = evaluateRule(rule, artifact, user1);
+
+      // Should be either 'ON' or undefined (depending on hash)
+      expect(result1 === 'ON' || result1 === undefined).toBe(true);
+
+      // Same user should get consistent result
+      const result2 = evaluateRule(rule, artifact, user1);
+      expect(result2).toBe(result1);
+    });
+
+    it('should return undefined for variations with invalid string indices', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['variant_a'],
+        flags: [],
+      };
+      const rule: Rule = [
+        RuleType.VARIATIONS,
+        undefined,
+        [
+          [999, 100], // Invalid string index
+        ],
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
       expect(result).toBeUndefined();
+    });
+
+    it('should handle variations with zero total percentage', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['variant_a'],
+        flags: [],
+      };
+      const rule: Rule = [
+        RuleType.VARIATIONS,
+        undefined,
+        [
+          [0, 0], // 0% - should return first variation
+        ],
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      expect(result).toBe('variant_a');
+    });
+  });
+
+  describe('complex expressions', () => {
+    it('should evaluate AND logical operator', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF', 'user.role', 'admin', 'user.email', 'test@example.com'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.LOGICAL_OP,
+          LogicalOp.AND,
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 2],
+            [ExpressionType.LITERAL, 3],
+          ], // user.role == 'admin'
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 4],
+            [ExpressionType.LITERAL, 5],
+          ], // user.email == 'test@example.com'
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1', role: 'admin', email: 'test@example.com' };
+      const result = evaluateRule(rule, artifact, user);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate OR logical operator', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF', 'user.role', 'admin', 'user'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.LOGICAL_OP,
+          LogicalOp.OR,
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 2],
+            [ExpressionType.LITERAL, 3],
+          ], // user.role == 'admin'
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 2],
+            [ExpressionType.LITERAL, 4],
+          ], // user.role == 'user'
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1', role: 'user' };
+      const result = evaluateRule(rule, artifact, user);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate NOT logical operator', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF', 'user.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.LOGICAL_OP,
+          LogicalOp.NOT,
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 2],
+            [ExpressionType.LITERAL, 3],
+          ], // NOT (user.role == 'admin')
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1', role: 'user' };
+      const result = evaluateRule(rule, artifact, user);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate nested logical operators', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.role', 'admin', 'user.email', 'test@example.com'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.LOGICAL_OP,
+          LogicalOp.AND,
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.PROPERTY, 1],
+            [ExpressionType.LITERAL, 2],
+          ], // user.role == 'admin'
+          [
+            ExpressionType.LOGICAL_OP,
+            LogicalOp.OR,
+            [
+              ExpressionType.BINARY_OP,
+              BinaryOp.EQ,
+              [ExpressionType.PROPERTY, 3],
+              [ExpressionType.LITERAL, 4],
+            ], // user.email == 'test@example.com'
+            [ExpressionType.LITERAL, true], // OR true
+          ],
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1', role: 'admin', email: 'test@example.com' };
+      const result = evaluateRule(rule, artifact, user);
+
+      expect(result).toBe('ON');
+    });
+
+    it('should evaluate comparison operators', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.id'],
+        flags: [],
+      };
+
+      // Test GT (greater than)
+      const ruleGT: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.GT,
+          [ExpressionType.LITERAL, 10],
+          [ExpressionType.LITERAL, 5],
+        ],
+        0,
+      ];
+      expect(evaluateRule(ruleGT, artifact, mockUser)).toBe('ON');
+
+      // Test LT (less than)
+      const ruleLT: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.LT,
+          [ExpressionType.LITERAL, 5],
+          [ExpressionType.LITERAL, 10],
+        ],
+        0,
+      ];
+      expect(evaluateRule(ruleLT, artifact, mockUser)).toBe('ON');
+
+      // Test GTE (greater than or equal)
+      const ruleGTE: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.GTE,
+          [ExpressionType.LITERAL, 10],
+          [ExpressionType.LITERAL, 10],
+        ],
+        0,
+      ];
+      expect(evaluateRule(ruleGTE, artifact, mockUser)).toBe('ON');
+
+      // Test LTE (less than or equal)
+      const ruleLTE: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.LTE,
+          [ExpressionType.LITERAL, 5],
+          [ExpressionType.LITERAL, 10],
+        ],
+        0,
+      ];
+      expect(evaluateRule(ruleLTE, artifact, mockUser)).toBe('ON');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle missing user properties', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF', 'user.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 2],
+          [ExpressionType.LITERAL, 3],
+        ],
+        0,
+      ];
+
+      const userWithoutRole: User = { id: 'user1' };
+      const result = evaluateRule(rule, artifact, userWithoutRole);
+
+      // Should not match since user.role is undefined
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle nested property access', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.profile.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = {
+        id: 'user1',
+        profile: {
+          role: 'admin',
+        },
+      };
+
+      const result = evaluateRule(rule, artifact, user);
+      expect(result).toBe('ON');
+    });
+
+    it('should handle multiple rules with precedence', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF', 'user.role', 'admin'],
+        flags: [
+          [
+            [
+              RuleType.SERVE,
+              [
+                ExpressionType.BINARY_OP,
+                BinaryOp.EQ,
+                [ExpressionType.PROPERTY, 2],
+                [ExpressionType.LITERAL, 3],
+              ],
+              0,
+            ], // user.role == 'admin' -> 'ON'
+            [RuleType.SERVE, undefined, 1], // default -> 'OFF'
+          ],
+        ],
+      };
+
+      const adminUser: User = { id: 'user1', role: 'admin' };
+      const result1 = evaluate(0, artifact, adminUser);
+      expect(result1).toBe('ON'); // First rule matches
+
+      const regularUser: User = { id: 'user2', role: 'user' };
+      const result2 = evaluate(0, artifact, regularUser);
+      expect(result2).toBe('OFF'); // First rule doesn't match, second rule matches
+    });
+
+    it('should handle empty variations array', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+      };
+
+      const rule: Rule = [RuleType.VARIATIONS, undefined, []];
+      const result = evaluateRule(rule, artifact, mockUser);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle rollout with 0%', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [RuleType.ROLLOUT, undefined, [0, 0]];
+      const result = evaluateRule(rule, artifact, mockUser);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle rollout with 100%', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [RuleType.ROLLOUT, undefined, [0, 100]];
+      const result = evaluateRule(rule, artifact, mockUser);
+
+      expect(result).toBe('ON');
     });
   });
 });
