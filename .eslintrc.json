@@ -3,9 +3,7 @@
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "ecmaVersion": 2020,
-    "sourceType": "module",
-    "project": true,
-    "tsconfigRootDir": "."
+    "sourceType": "module"
   },
   "plugins": ["@typescript-eslint", "prettier"],
   "extends": [
@@ -43,5 +41,28 @@
     "*.config.js",
     "**/*.test.ts",
     "**/schemas/deno.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["runtime/typescript/**/*.ts"],
+      "parserOptions": {
+        "project": "./runtime/typescript/tsconfig.json",
+        "tsconfigRootDir": "."
+      }
+    },
+    {
+      "files": ["packages/compiler/**/*.ts"],
+      "parserOptions": {
+        "project": "./packages/compiler/tsconfig.json",
+        "tsconfigRootDir": "."
+      }
+    },
+    {
+      "files": ["packages/cli/**/*.ts"],
+      "parserOptions": {
+        "project": "./packages/cli/tsconfig.json",
+        "tsconfigRootDir": "."
+      }
+    }
   ]
 }
