@@ -202,25 +202,23 @@ function validateArtifact(value: unknown): Artifact {
   // At this point, we've validated all required fields
   // We've validated the structure, so we can safely assert types
   // Since we've validated, we know the types are correct
-  const validatedV: string = artifact.v;
-  const validatedEnv: string = artifact.env;
-  const validatedStrs: string[] = artifact.strs;
-  const validatedFlags: Artifact['flags'] = artifact.flags as Artifact['flags'];
+  // Use 'as unknown as' to properly narrow from Record<string, unknown> to Artifact
+  const validatedArtifact = artifact as unknown as Artifact;
 
   const result: Artifact = {
-    v: validatedV,
-    env: validatedEnv,
-    strs: validatedStrs,
-    flags: validatedFlags,
+    v: validatedArtifact.v,
+    env: validatedArtifact.env,
+    strs: validatedArtifact.strs,
+    flags: validatedArtifact.flags,
   };
 
   // Add optional fields if present
-  if (artifact.segments !== undefined) {
-    result.segments = artifact.segments as Artifact['segments'];
+  if (validatedArtifact.segments !== undefined) {
+    result.segments = validatedArtifact.segments;
   }
 
-  if (artifact.sig !== undefined) {
-    result.sig = artifact.sig as Artifact['sig'];
+  if (validatedArtifact.sig !== undefined) {
+    result.sig = validatedArtifact.sig;
   }
 
   return result;

@@ -41,28 +41,5 @@
     "*.config.js",
     "**/*.test.ts",
     "**/schemas/deno.ts"
-  ],
-  "overrides": [
-    {
-      "files": ["runtime/typescript/**/*.ts"],
-      "parserOptions": {
-        "project": "./runtime/typescript/tsconfig.json",
-        "tsconfigRootDir": "."
-      }
-    },
-    {
-      "files": ["packages/compiler/**/*.ts"],
-      "parserOptions": {
-        "project": "./packages/compiler/tsconfig.json",
-        "tsconfigRootDir": "."
-      }
-    },
-    {
-      "files": ["packages/cli/**/*.ts"],
-      "parserOptions": {
-        "project": "./packages/cli/tsconfig.json",
-        "tsconfigRootDir": "."
-      }
-    }
   ]
 }
