@@ -6,36 +6,10 @@ on:
       - 'validation/**'
 
 jobs:
-  # Fast-fail check before installing dependencies
-  check-changes:
-    name: Check for changes
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
-
-      - name: Fetch main branch for comparison
-        run: git fetch origin main:main --depth=1
-
-      - name: Check for changes
-        run: |
-          if git diff --quiet main HEAD; then
-            echo "❌ Error: No changes detected between validation branch and main."
-            echo "This validation branch has no commits to merge."
-            exit 1
-          fi
-          echo "✓ Changes detected between validation branch and main"
-
   # Run tests in parallel with lint/typecheck
   test:
     name: Run tests with coverage
     runs-on: ubuntu-latest
-    needs: check-changes
     permissions:
       contents: read
     steps:
@@ -92,7 +66,6 @@ jobs:
   lint-and-typecheck:
     name: Lint and typecheck
     runs-on: ubuntu-latest
-    needs: check-changes
     permissions:
       contents: read
     steps:
@@ -107,19 +80,21 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install Deno
-        uses: denoland/setup-deno@v1
-        with:
-          deno-version: v2.x
-
       - name: Cache Deno
         uses: actions/cache@v4
         with:
-          path: ~/.deno
+          path: |
+            ~/.cache/deno
+            ${{ github.workspace }}/.deno-cache
           key: deno-${{ runner.os }}-v2.x-${{ hashFiles('packages/cli/deno.json', 'packages/cli/deno.lock') }}
           restore-keys: |
             deno-${{ runner.os }}-v2.x-
             deno-${{ runner.os }}-
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v2.x
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

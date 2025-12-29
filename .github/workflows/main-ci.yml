@@ -28,6 +28,17 @@ jobs:
         with:
           node-version: 24
 
+      - name: Cache Deno
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/deno
+            ${{ github.workspace }}/.deno-cache
+          key: deno-${{ runner.os }}-v2.x-${{ hashFiles('packages/cli/deno.json', 'packages/cli/deno.lock') }}
+          restore-keys: |
+            deno-${{ runner.os }}-v2.x-
+            deno-${{ runner.os }}-
+
       - name: Install Deno
         uses: denoland/setup-deno@v1
         with:
