@@ -80,17 +80,10 @@ jobs:
         with:
           node-version: 24
 
-      - name: Cache Deno binary
-        uses: actions/cache@v4
-        with:
-          path: /opt/hostedtoolcache/deno
-          key: deno-binary-${{ runner.os }}-v2.x
-          restore-keys: |
-            deno-binary-${{ runner.os }}-
-
       - name: Install Deno
-        uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@v2
         with:
+          cache: true
           deno-version: v2.x
 
       - name: Setup pnpm
@@ -109,17 +102,6 @@ jobs:
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: |
             pnpm-store-${{ runner.os }}-
-
-      - name: Cache Deno dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/deno
-            ${{ github.workspace }}/.deno-cache
-          key: deno-deps-${{ runner.os }}-v2.x-${{ hashFiles('packages/cli/deno.json', 'packages/cli/deno.lock') }}
-          restore-keys: |
-            deno-deps-${{ runner.os }}-v2.x-
-            deno-deps-${{ runner.os }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
