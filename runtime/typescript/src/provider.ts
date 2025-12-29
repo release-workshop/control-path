@@ -42,7 +42,7 @@ export class Provider {
   /**
    * Hooks array for OpenFeature (optional)
    */
-  readonly hooks: unknown[] = [];
+  readonly hooks: Array<unknown> = [];
 
   /**
    * Create a new Provider instance

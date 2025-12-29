@@ -200,12 +200,21 @@ function validateArtifact(value: unknown): Artifact {
   }
 
   // At this point, we've validated all required fields
-  return {
+  const result: Artifact = {
     v: artifact.v,
     env: artifact.env,
     strs: artifact.strs,
     flags: artifact.flags as Artifact['flags'],
-    segments: artifact.segments as Artifact['segments'],
-    sig: artifact.sig as Artifact['sig'],
   };
+
+  // Add optional fields if present
+  if (artifact.segments !== undefined) {
+    result.segments = artifact.segments as Artifact['segments'];
+  }
+
+  if (artifact.sig !== undefined) {
+    result.sig = artifact.sig as Artifact['sig'];
+  }
+
+  return result;
 }
