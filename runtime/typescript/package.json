@@ -1,0 +1,35 @@
+{
+  "name": "@controlpath/runtime",
+  "version": "0.1.0",
+  "description": "Control Path low-level runtime SDK for AST loading and flag evaluation",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
+  },
+  "dependencies": {
+    "msgpackr": "^1.9.0"
+  },
+  "peerDependencies": {
+    "@controlpath/compiler": "*"
+  },
+  "peerDependenciesMeta": {
+    "@controlpath/compiler": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@controlpath/compiler": "workspace:*",
+    "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0",
+    "eslint": "^8.50.0"
+  }
+}
+

@@ -1,0 +1,183 @@
+/**
+ * Copyright 2025 Release Workshop Ltd
+ * Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.
+ * See the LICENSE file in the project root for details.
+ */
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { readFile, writeFile, mkdir, rm } from 'fs/promises';
+import { join } from 'path';
+import { pack } from 'msgpackr';
+import { loadFromFile, loadFromURL, loadFromBuffer } from './ast-loader';
+import type { Artifact } from './types';
+
+describe('AST Loader', () => {
+  const testDir = join(__dirname, '../test-fixtures');
+  const testFile = join(testDir, 'test.ast');
+
+  beforeEach(async () => {
+    try {
+      await mkdir(testDir, { recursive: true });
+    } catch {
+      // Directory might already exist
+    }
+  });
+
+  afterEach(async () => {
+    try {
+      await rm(testDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  describe('loadFromBuffer', () => {
+    it('should load valid AST from buffer', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1', 'flag2'],
+        flags: [],
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      const loaded = loadFromBuffer(buffer);
+
+      expect(loaded.v).toBe('1.0');
+      expect(loaded.env).toBe('test');
+      expect(loaded.strs).toEqual(['flag1', 'flag2']);
+      expect(loaded.flags).toEqual([]);
+    });
+
+    it('should load AST with optional fields', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+        segments: [[0, [2, 1]]],
+        sig: new Uint8Array([1, 2, 3]),
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      const loaded = loadFromBuffer(buffer);
+
+      expect(loaded.segments).toBeDefined();
+      expect(loaded.sig).toBeDefined();
+    });
+
+    it('should throw error for invalid buffer', () => {
+      const buffer = Buffer.from('invalid data');
+
+      expect(() => loadFromBuffer(buffer)).toThrow();
+    });
+
+    it('should throw error for invalid AST structure', () => {
+      const invalidData = { notAnArtifact: true };
+      const buffer = Buffer.from(pack(invalidData));
+
+      expect(() => loadFromBuffer(buffer)).toThrow('Invalid AST format');
+    });
+
+    it('should throw error for missing required fields', () => {
+      const invalidData = { v: '1.0' }; // missing env, strs, flags
+      const buffer = Buffer.from(pack(invalidData));
+
+      expect(() => loadFromBuffer(buffer)).toThrow('Invalid AST format');
+    });
+  });
+
+  describe('loadFromFile', () => {
+    it('should load AST from file', async () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [],
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      await writeFile(testFile, buffer);
+
+      const loaded = await loadFromFile(testFile);
+
+      expect(loaded.v).toBe('1.0');
+      expect(loaded.env).toBe('test');
+      expect(loaded.strs).toEqual(['flag1']);
+    });
+
+    it('should throw error for non-existent file', async () => {
+      const nonExistentFile = join(testDir, 'non-existent.ast');
+
+      await expect(loadFromFile(nonExistentFile)).rejects.toThrow();
+    });
+
+    it('should throw error for invalid file content', async () => {
+      // Write completely invalid binary data
+      await writeFile(testFile, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]));
+
+      // Should fail validation even if msgpackr parses it
+      await expect(loadFromFile(testFile)).rejects.toThrow();
+    });
+
+    it('should reject path traversal attempts', async () => {
+      await expect(loadFromFile('../test.ast')).rejects.toThrow('Path traversal detected');
+      await expect(loadFromFile('../../etc/passwd')).rejects.toThrow('Path traversal detected');
+      await expect(loadFromFile('./../test.ast')).rejects.toThrow('Path traversal detected');
+      await expect(loadFromFile('test/../../test.ast')).rejects.toThrow('Path traversal detected');
+    });
+
+    it('should reject paths with null bytes', async () => {
+      await expect(loadFromFile('test\0.ast')).rejects.toThrow('Null byte detected');
+    });
+
+    it('should normalize valid relative paths', async () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      await writeFile(testFile, buffer);
+
+      // Test that normalized paths work
+      const normalizedPath = testFile.replace(/\\/g, '/'); // Normalize separators
+      const loaded = await loadFromFile(normalizedPath);
+
+      expect(loaded.v).toBe('1.0');
+      expect(loaded.env).toBe('test');
+    });
+  });
+
+  describe('loadFromURL', () => {
+    it.skip('should load AST from HTTP URL', () => {
+      // TODO: Implement HTTP URL test with a test server (e.g., nock or msw)
+      // This test is skipped because it requires a running HTTP server
+      // In a real scenario, you'd use a test HTTP server or mocking library
+    });
+
+    it('should throw error for invalid URL', async () => {
+      await expect(loadFromURL('not-a-valid-url')).rejects.toThrow('Invalid URL');
+    });
+
+    it('should throw error for unsupported protocol', async () => {
+      await expect(loadFromURL('ftp://example.com/test.ast')).rejects.toThrow(
+        'Unsupported URL protocol'
+      );
+    });
+
+    it('should throw error for 404 response', async () => {
+      // Use a URL that will return 404
+      await expect(loadFromURL('https://httpbin.org/status/404')).rejects.toThrow(
+        'Failed to load AST from URL'
+      );
+    });
+
+    it('should handle timeout', async () => {
+      // Use a URL that will timeout (very short timeout)
+      await expect(loadFromURL('https://httpbin.org/delay/10', 100)).rejects.toThrow('Timeout');
+    });
+  });
+});
