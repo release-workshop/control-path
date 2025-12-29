@@ -86,7 +86,6 @@ export async function loadFromFile(filePath: string): Promise<Artifact> {
     );
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return loadFromBuffer(buffer);
 }
 
@@ -153,7 +152,6 @@ export async function loadFromURL(
     }
 
     const buffer = Buffer.from(arrayBuffer);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return loadFromBuffer(buffer);
   } catch (error) {
     clearTimeout(timeoutId);
@@ -172,7 +170,6 @@ export async function loadFromURL(
  */
 export function loadFromBuffer(buffer: Buffer): Artifact {
   const artifact: unknown = unpack(buffer);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return validateArtifact(artifact);
 }
 
@@ -203,31 +200,26 @@ function validateArtifact(value: unknown): Artifact {
   }
 
   // At this point, we've validated all required fields
-  // TypeScript doesn't know the types are safe, so we need to assert
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const flags = artifact.flags;
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const strs = artifact.strs;
+  // We've validated the structure, so we can safely assert types
+  // Since we've validated, we know the types are correct
+  const validatedV: string = artifact.v;
+  const validatedEnv: string = artifact.env;
+  const validatedStrs: string[] = artifact.strs;
+  const validatedFlags: Artifact['flags'] = artifact.flags as Artifact['flags'];
 
   const result: Artifact = {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    v: artifact.v as string,
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    env: artifact.env as string,
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    strs: strs as string[],
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-    flags: flags as Artifact['flags'],
+    v: validatedV,
+    env: validatedEnv,
+    strs: validatedStrs,
+    flags: validatedFlags,
   };
 
   // Add optional fields if present
   if (artifact.segments !== undefined) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     result.segments = artifact.segments as Artifact['segments'];
   }
 
   if (artifact.sig !== undefined) {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     result.sig = artifact.sig as Artifact['sig'];
   }
 

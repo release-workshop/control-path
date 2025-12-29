@@ -166,12 +166,10 @@ export function isRule(value: unknown): value is Rule {
     return false;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  // Access array elements with proper type narrowing
   const type: unknown = value[0];
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const when: unknown = value[1];
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const payload: unknown = value[2];
+  const when: unknown = value.length > 1 ? value[1] : undefined;
+  const payload: unknown = value.length > 2 ? value[2] : undefined;
 
   // Type must be a valid RuleType
   if (typeof type !== 'number' || type < 0 || type > 2) {
@@ -224,7 +222,7 @@ export function isExpression(value: unknown): value is Expression {
     return false;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  // Access array element with proper type narrowing
   const type: unknown = value[0];
 
   if (typeof type !== 'number' || type < 0 || type > 4) {

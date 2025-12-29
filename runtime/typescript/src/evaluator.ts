@@ -32,8 +32,7 @@ export function evaluate(
     return undefined;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const flagRules = artifact.flags[flagIndex];
+  const flagRules: Rule[] = artifact.flags[flagIndex];
   if (!Array.isArray(flagRules) || flagRules.length === 0) {
     return undefined;
   }
@@ -68,7 +67,11 @@ export function evaluateRule(
     return undefined;
   }
 
-  const [ruleType, when, payload] = rule;
+  // Rule is a tuple type, so we can safely access elements
+  // The type is: [type, when?, payload] where type is 0, 1, or 2
+  const ruleType = rule[0];
+  const when: Expression | undefined = rule.length > 1 ? rule[1] : undefined;
+  const payload: unknown = rule.length > 2 ? rule[2] : undefined;
 
   // Evaluate when clause if present
   if (when !== undefined) {
@@ -94,7 +97,9 @@ export function evaluateRule(
       if (!Array.isArray(payload)) {
         return undefined;
       }
-      return selectVariation(payload, artifact, user);
+      // Type guard: ensure payload is Variation[]
+      const variations = payload as Variation[];
+      return selectVariation(variations, artifact, user);
     }
 
     case RuleType.ROLLOUT: {
@@ -102,7 +107,8 @@ export function evaluateRule(
       if (!Array.isArray(payload) || payload.length !== 2) {
         return undefined;
       }
-      const [valueIndex, pct] = payload;
+      const rolloutPayload = payload as [string | number, number];
+      const [valueIndex, pct] = rolloutPayload;
       if (selectRollout(user, pct)) {
         if (typeof valueIndex === 'number') {
           return artifact.strs[valueIndex];
@@ -136,7 +142,9 @@ export function evaluateExpression(
     return false;
   }
 
-  const [type, ...operands] = expr;
+  // Expression is a tuple type, so we can safely access elements
+  const type = expr[0];
+  const operands: unknown[] = expr.slice(1);
 
   switch (type) {
     case ExpressionType.BINARY_OP: {
@@ -246,7 +254,9 @@ function evaluateExpressionValue(
     return undefined;
   }
 
-  const [type, ...operands] = expr;
+  // Expression is a tuple type, so we can safely access elements
+  const type = expr[0];
+  const operands: unknown[] = expr.slice(1);
 
   switch (type) {
     case ExpressionType.PROPERTY: {
