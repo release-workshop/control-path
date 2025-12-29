@@ -27,12 +27,14 @@ export function evaluate(
   user: User,
   context?: Context
 ): unknown {
-  if (!artifact.flags || flagIndex < 0 || flagIndex >= artifact.flags.length) {
+  // Type guard: ensure flags exists and is an array
+  if (!Array.isArray(artifact.flags) || flagIndex < 0 || flagIndex >= artifact.flags.length) {
     return undefined;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const flagRules = artifact.flags[flagIndex];
-  if (!flagRules || flagRules.length === 0) {
+  if (!Array.isArray(flagRules) || flagRules.length === 0) {
     return undefined;
   }
 

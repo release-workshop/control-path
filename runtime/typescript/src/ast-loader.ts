@@ -86,6 +86,7 @@ export async function loadFromFile(filePath: string): Promise<Artifact> {
     );
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return loadFromBuffer(buffer);
 }
 
@@ -152,6 +153,7 @@ export async function loadFromURL(
     }
 
     const buffer = Buffer.from(arrayBuffer);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return loadFromBuffer(buffer);
   } catch (error) {
     clearTimeout(timeoutId);
@@ -169,7 +171,8 @@ export async function loadFromURL(
  * Load AST artifact from a Buffer
  */
 export function loadFromBuffer(buffer: Buffer): Artifact {
-  const artifact = unpack(buffer) as unknown;
+  const artifact: unknown = unpack(buffer);
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return
   return validateArtifact(artifact);
 }
 
@@ -200,19 +203,31 @@ function validateArtifact(value: unknown): Artifact {
   }
 
   // At this point, we've validated all required fields
+  // TypeScript doesn't know the types are safe, so we need to assert
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  const flags = artifact.flags;
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+  const strs = artifact.strs;
+
   const result: Artifact = {
-    v: artifact.v,
-    env: artifact.env,
-    strs: artifact.strs,
-    flags: artifact.flags as Artifact['flags'],
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    v: artifact.v as string,
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    env: artifact.env as string,
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    strs: strs as string[],
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    flags: flags as Artifact['flags'],
   };
 
   // Add optional fields if present
   if (artifact.segments !== undefined) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     result.segments = artifact.segments as Artifact['segments'];
   }
 
   if (artifact.sig !== undefined) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     result.sig = artifact.sig as Artifact['sig'];
   }
 
