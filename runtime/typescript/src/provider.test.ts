@@ -64,12 +64,13 @@ describe('Provider', () => {
     it('should load artifact from file path', async () => {
       const testDir = getTestDir();
       const testFile = getTestFile(testDir);
-      const artifact: Artifact = {
+      const artifact = {
         v: '1.0',
         env: 'test',
         strs: ['flag1'],
-        flags: [],
-      };
+        flags: [[]],
+        flagNames: [0], // flag1 is at index 0 in string table
+      } as Artifact;
 
       const buffer = Buffer.from(pack(artifact));
       // Ensure directory exists before writing
@@ -228,12 +229,13 @@ describe('Provider', () => {
     it('should reload artifact from file', async () => {
       const testDir = getTestDir();
       const testFile = getTestFile(testDir);
-      const artifact1: Artifact = {
+      const artifact1 = {
         v: '1.0',
         env: 'test',
         strs: ['flag1'],
-        flags: [],
-      };
+        flags: [[]],
+        flagNames: [0], // flag1 is at index 0 in string table
+      } as Artifact;
 
       const buffer1 = Buffer.from(pack(artifact1));
       await mkdir(testDir, { recursive: true });
@@ -335,18 +337,19 @@ describe('Provider', () => {
     it('should filter prototype-polluting keys from cache context', async () => {
       const testDir = getTestDir();
       const testFile = getTestFile(testDir);
-      const artifact: Artifact = {
+      const artifact = {
         v: '1.0',
         env: 'test',
         strs: ['flag1'],
-        flags: [],
-      };
+        flags: [[]],
+        flagNames: [0], // flag1 is at index 0 in string table
+      } as Artifact;
 
       const buffer = Buffer.from(pack(artifact));
       await mkdir(testDir, { recursive: true });
       writeFileSync(testFile, buffer);
 
-      const provider = new Provider({ flagNameMap: { flag1: 0 } });
+      const provider = new Provider();
       await provider.loadArtifact(testFile);
 
       // Create context with prototype-polluting keys
@@ -373,18 +376,19 @@ describe('Provider', () => {
     it('should normalize cache keys for consistent caching', async () => {
       const testDir = getTestDir();
       const testFile = getTestFile(testDir);
-      const artifact: Artifact = {
+      const artifact = {
         v: '1.0',
         env: 'test',
         strs: ['flag1'],
-        flags: [],
-      };
+        flags: [[]],
+        flagNames: [0], // flag1 is at index 0 in string table
+      } as Artifact;
 
       const buffer = Buffer.from(pack(artifact));
       await mkdir(testDir, { recursive: true });
       writeFileSync(testFile, buffer);
 
-      const provider = new Provider({ flagNameMap: { flag1: 0 } });
+      const provider = new Provider();
       await provider.loadArtifact(testFile);
 
       // Context with keys in different order
@@ -421,18 +425,19 @@ describe('Provider', () => {
     it('should create different cache keys for different contexts', async () => {
       const testDir = getTestDir();
       const testFile = getTestFile(testDir);
-      const artifact: Artifact = {
+      const artifact = {
         v: '1.0',
         env: 'test',
         strs: ['flag1'],
-        flags: [],
-      };
+        flags: [[]],
+        flagNames: [0], // flag1 is at index 0 in string table
+      } as Artifact;
 
       const buffer = Buffer.from(pack(artifact));
       await mkdir(testDir, { recursive: true });
       writeFileSync(testFile, buffer);
 
-      const provider = new Provider({ flagNameMap: { flag1: 0 }, enableCache: true });
+      const provider = new Provider({ enableCache: true });
       await provider.loadArtifact(testFile);
 
       // Different contexts should produce different cache keys

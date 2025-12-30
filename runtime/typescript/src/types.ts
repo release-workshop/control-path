@@ -164,7 +164,10 @@ export function isArtifact(value: unknown): value is Artifact {
     Array.isArray(artifact.strs) &&
     artifact.strs.every((s) => typeof s === 'string') &&
     Array.isArray(artifact.flags) &&
-    artifact.flags.every((flag) => Array.isArray(flag))
+    artifact.flags.every((flag) => Array.isArray(flag)) &&
+    Array.isArray(artifact.flagNames) &&
+    artifact.flagNames.every((idx) => typeof idx === 'number' && idx >= 0) &&
+    artifact.flagNames.length === artifact.flags.length
   );
 }
 

@@ -30,22 +30,6 @@ import type { Provider as OpenFeatureProvider, Hook } from '@openfeature/server-
 export interface ProviderOptions {
   /** Optional logger for error and debug logging */
   logger?: Logger;
-  /**
-   * Flag name to index mapping (for name-based flag lookup).
-   * This maps flag names (strings) to their indices in the AST flags array.
-   *
-   * @example
-   * ```typescript
-   * const flagNameMap = {
-   *   'new_dashboard': 0,
-   *   'enable_analytics': 1,
-   *   'theme_color': 2
-   * };
-   * ```
-   *
-   * You can build this map from flag definitions using the `buildFlagNameMap` helper function.
-   */
-  flagNameMap?: Record<string, number>;
   /** Optional public key for Ed25519 signature verification (base64 or hex encoded) */
   publicKey?: string | Uint8Array;
   /** Whether to require a signature (default: false - signature is optional) */
@@ -107,7 +91,7 @@ export class Provider implements OpenFeatureProvider {
    */
   constructor(options?: ProviderOptions) {
     this.logger = options?.logger;
-    this.flagNameMap = options?.flagNameMap ?? {};
+    this.flagNameMap = {}; // Will be built automatically when artifact is loaded
     this.cacheEnabled = options?.enableCache ?? true;
     this.cacheTTL = options?.cacheTTL ?? DEFAULT_CACHE_TTL;
     if (options?.publicKey || options?.requireSignature) {
@@ -116,6 +100,33 @@ export class Provider implements OpenFeatureProvider {
         requireSignature: options.requireSignature,
       };
     }
+  }
+
+  /**
+   * Build flag name map from artifact flagNames array.
+   * This automatically infers the flag name to index mapping from the artifact.
+   * @private
+   */
+  private buildFlagNameMapFromArtifact(): void {
+    if (!this.artifact) {
+      return;
+    }
+
+    // Type assertion: Artifact includes flagNames (required field in new format)
+    const artifact = this.artifact as Artifact & { flagNames?: number[] };
+    if (!artifact.flagNames) {
+      throw new Error(
+        'Artifact does not include flagNames array. This artifact format is not supported. Please use a newer artifact that includes flag names.'
+      );
+    }
+
+    this.flagNameMap = {};
+    artifact.flagNames.forEach((nameIndex: number, flagIndex: number) => {
+      const flagName = artifact.strs[nameIndex];
+      if (flagName) {
+        this.flagNameMap[flagName] = flagIndex;
+      }
+    });
   }
 
   /**
@@ -145,6 +156,9 @@ export class Provider implements OpenFeatureProvider {
       } else {
         this.artifact = await loadFromFile(artifactPath, this.loadOptions);
       }
+
+      // Automatically build flag name map from artifact
+      this.buildFlagNameMapFromArtifact();
     } catch (error) {
       if (this.logger) {
         this.logger.error(

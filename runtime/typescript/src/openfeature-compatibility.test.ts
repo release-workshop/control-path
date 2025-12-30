@@ -24,7 +24,6 @@ import { fileURLToPath } from 'url';
 import { compile, serialize } from '@controlpath/compiler';
 import { parseDefinitions, parseDeployment } from '@controlpath/compiler';
 import { Provider } from './provider';
-import { buildFlagNameMap } from './utils';
 // Type guard function moved inline since openfeature-types.ts was removed
 function isOpenFeatureProvider(
   provider: unknown
@@ -170,9 +169,7 @@ rules:
 
   describe('Provider Registration', () => {
     it('should register provider with OpenFeature SDK', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       // Verify provider implements OpenFeatureProvider interface
@@ -187,9 +184,7 @@ rules:
     });
 
     it('should work with setProviderAndWait for async initialization', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
 
       // Load artifact asynchronously
       const loadPromise = provider.loadArtifact(astFile);
@@ -207,9 +202,7 @@ rules:
 
   describe('Boolean Flag Evaluation', () => {
     it('should evaluate boolean flags through OpenFeature SDK', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -227,9 +220,7 @@ rules:
     });
 
     it('should return default value for non-existent flags', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -241,9 +232,7 @@ rules:
     });
 
     it('should handle flags that are always true', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -257,9 +246,7 @@ rules:
 
   describe('String Flag Evaluation', () => {
     it('should evaluate string flags through OpenFeature SDK', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -277,9 +264,7 @@ rules:
     });
 
     it('should return default value for non-existent string flags', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -292,9 +277,7 @@ rules:
 
   describe('Number Flag Evaluation', () => {
     it('should evaluate number flags through OpenFeature SDK', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -319,9 +302,7 @@ rules:
     });
 
     it('should return default value for non-existent number flags', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -334,9 +315,7 @@ rules:
 
   describe('Object Flag Evaluation', () => {
     it('should evaluate object flags through OpenFeature SDK', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -353,9 +332,7 @@ rules:
 
   describe('EvaluationContext Handling', () => {
     it('should handle EvaluationContext with targetingKey', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -374,9 +351,7 @@ rules:
     });
 
     it('should handle nested user properties in EvaluationContext', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -393,9 +368,7 @@ rules:
     });
 
     it('should handle empty EvaluationContext', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -409,9 +382,7 @@ rules:
 
   describe('Error Handling', () => {
     it('should handle errors gracefully through OpenFeature SDK', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);
@@ -423,9 +394,7 @@ rules:
     });
 
     it('should handle provider without artifact loaded', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       // Don't load artifact
 
       OpenFeature.setProvider(provider);
@@ -439,9 +408,7 @@ rules:
 
   describe('All Evaluation Methods', () => {
     it('should support all four evaluation method types', async () => {
-      const definitions = parseDefinitions(definitionsFile);
-      const flagNameMap = buildFlagNameMap(definitions.flags);
-      const provider = new Provider({ flagNameMap });
+      const provider = new Provider();
       await provider.loadArtifact(astFile);
 
       OpenFeature.setProvider(provider);

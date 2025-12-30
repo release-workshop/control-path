@@ -13,17 +13,12 @@ pnpm add @controlpath/runtime
 ### Basic Usage
 
 ```typescript
-import { Provider, buildFlagNameMap } from '@controlpath/runtime';
-import { parseDefinitions } from '@controlpath/compiler';
+import { Provider } from '@controlpath/runtime';
 
-// Parse flag definitions to build flag name map
-const definitions = parseDefinitions('flags.definitions.yaml');
-const flagNameMap = buildFlagNameMap(definitions.flags);
+// Create provider instance (flag name map is optional)
+const provider = new Provider();
 
-// Create provider instance with flag name map
-const provider = new Provider({ flagNameMap });
-
-// Load AST artifact from file
+// Load AST artifact from file (flag name map is automatically built)
 await provider.loadArtifact('./flags/production.ast');
 
 // Evaluate flags using OpenFeature interface
@@ -51,27 +46,11 @@ const buffer = Buffer.from(/* ... */);
 const artifact = loadFromBuffer(buffer);
 ```
 
-### Building Flag Name Map
+### Flag Name Map
 
-The Provider requires a `flagNameMap` to map flag names to their indices in the AST. Use the helper function:
+The Provider automatically builds the flag name map from the artifact when you call `loadArtifact()` or `reloadArtifact()`. The artifact includes flag names, so no manual configuration is needed.
 
-```typescript
-import { buildFlagNameMap } from '@controlpath/runtime';
-import { parseDefinitions } from '@controlpath/compiler';
-
-// From flag definitions (recommended)
-const definitions = parseDefinitions('flags.definitions.yaml');
-const flagNameMap = buildFlagNameMap(definitions.flags);
-
-// Or manually
-const flagNameMap = {
-  'new_dashboard': 0,
-  'enable_analytics': 1,
-  'theme_color': 2
-};
-
-const provider = new Provider({ flagNameMap });
-```
+The flag name map is built automatically from the `flagNames` array in the artifact, which contains string table indices for each flag name. This allows the Provider to look up flags by name without requiring the flag definitions file at runtime.
 
 ### Signature Verification
 
@@ -84,7 +63,6 @@ import { Provider } from '@controlpath/runtime';
 const publicKey = 'base64-encoded-public-key-here';
 
 const provider = new Provider({
-  flagNameMap,
   publicKey,
   requireSignature: true, // Require signature (optional, default: false)
 });
@@ -95,7 +73,7 @@ await provider.loadArtifact('https://cdn.example.com/flags/production.ast');
 ### Hot Reloading
 
 ```typescript
-const provider = new Provider({ flagNameMap });
+const provider = new Provider();
 await provider.loadArtifact('./flags/production.ast');
 
 // Later, reload updated artifact (clears cache automatically)
@@ -108,7 +86,6 @@ The Provider caches evaluation results by default (5 minute TTL):
 
 ```typescript
 const provider = new Provider({
-  flagNameMap,
   enableCache: true, // Default: true
   cacheTTL: 5 * 60 * 1000, // 5 minutes (default)
 });
@@ -146,15 +123,10 @@ The Provider is fully compatible with `@openfeature/server-sdk`.
 
 ```typescript
 import { OpenFeature } from '@openfeature/server-sdk';
-import { Provider, buildFlagNameMap } from '@controlpath/runtime';
-import { parseDefinitions } from '@controlpath/compiler';
+import { Provider } from '@controlpath/runtime';
 
-// Build flag name map
-const definitions = parseDefinitions('flags.definitions.yaml');
-const flagNameMap = buildFlagNameMap(definitions.flags);
-
-// Create and register provider
-const provider = new Provider({ flagNameMap });
+// Create and register provider (flag name map is automatically inferred)
+const provider = new Provider();
 await provider.loadArtifact('./flags/production.ast');
 
 OpenFeature.setProvider(provider);

@@ -354,18 +354,37 @@ function validateArtifact(artifact: unknown): Artifact {
     throw new Error(`Too many flags: ${artifact.flags.length} (max: ${MAX_FLAGS})`);
   }
 
+  // Validate flagNames array (required field)
+  if (!Array.isArray(artifact.flagNames)) {
+    throw new Error('Invalid AST format: missing or invalid flagNames array');
+  }
+
+  const flagNames = artifact.flagNames as unknown[];
+  if (flagNames.length !== artifact.flags.length) {
+    throw new Error(
+      `Invalid AST format: flagNames length (${flagNames.length}) does not match flags length (${artifact.flags.length})`
+    );
+  }
+
+  const strs = artifact.strs as string[];
+  if (!flagNames.every((idx) => typeof idx === 'number' && idx >= 0 && idx < strs.length)) {
+    throw new Error('Invalid AST format: flagNames contains invalid string table indices');
+  }
+
   // At this point, we've validated all required fields
   // We've validated the structure, so we can safely assert types
   // Since we've validated, we know the types are correct
   // Use 'as unknown as' to properly narrow from Record<string, unknown> to Artifact
-  const validatedArtifact = artifact as unknown as Artifact;
+  // Note: flagNames is a required field in the Artifact type from @controlpath/compiler
+  const validatedArtifact = artifact as unknown as Artifact & { flagNames: number[] };
 
-  const result: Artifact = {
+  const result = {
     v: validatedArtifact.v,
     env: validatedArtifact.env,
     strs: validatedArtifact.strs,
     flags: validatedArtifact.flags,
-  };
+    flagNames: flagNames as number[],
+  } as Artifact;
 
   // Add optional fields if present
   if (validatedArtifact.segments !== undefined) {
@@ -448,6 +467,7 @@ async function verifySignature(
     env: artifact.env,
     strs: artifact.strs,
     flags: artifact.flags,
+    flagNames: artifact.flagNames,
   };
   if (artifact.segments) {
     artifactWithoutSig.segments = artifact.segments;

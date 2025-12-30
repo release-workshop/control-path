@@ -72,12 +72,22 @@ export function compile(deployment: Deployment, definitions: FlagDefinitions): A
     flags[flagIndex].push([RuleType.SERVE, undefined, defaultIndex]);
   });
 
+  // Build flag names array (string table indices) for automatic flag name map inference
+  // This allows the runtime SDK to automatically build the flagNameMap without requiring
+  // the flag definitions file at runtime.
+  const flagNames: number[] = [];
+  definitions.flags.forEach((flagDef) => {
+    const nameIndex = stringTable.add(flagDef.name);
+    flagNames.push(nameIndex);
+  });
+
   // Build artifact
   const artifact: Artifact = {
     v: '1.0',
     env: deployment.environment,
     strs: stringTable.toArray(),
     flags,
+    flagNames,
   };
 
   // Add segments if present

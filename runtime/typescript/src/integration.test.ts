@@ -162,14 +162,8 @@ rules:
     const buffer = Buffer.from(bytes);
     await writeFile(astFile, buffer);
 
-    // Create flag name to index map
-    const flagNameMap: Record<string, number> = {};
-    definitions.flags.forEach((flag, index) => {
-      flagNameMap[flag.name] = index;
-    });
-
-    // Create provider and load artifact
-    const provider = new Provider({ flagNameMap });
+    // Create provider and load artifact (flag name map is automatically built)
+    const provider = new Provider();
     await provider.loadArtifact(astFile);
 
     // Test evaluation

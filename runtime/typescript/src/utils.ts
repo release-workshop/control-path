@@ -10,7 +10,11 @@
 
 /**
  * Build a flag name to index map from flag definitions.
- * This helper function creates the flagNameMap required by the Provider class.
+ * This helper function is primarily useful for testing or tooling purposes.
+ *
+ * **Note**: The Provider automatically builds the flag name map from the artifact
+ * when `loadArtifact()` is called. You typically don't need this function for
+ * normal usage.
  *
  * @param flags - Array of flag definitions with name property
  * @returns Record mapping flag names to their indices
@@ -20,10 +24,9 @@
  * import { buildFlagNameMap } from '@controlpath/runtime';
  * import { parseDefinitions } from '@controlpath/compiler';
  *
+ * // For testing or tooling
  * const definitions = parseDefinitions('flags.definitions.yaml');
  * const flagNameMap = buildFlagNameMap(definitions.flags);
- *
- * const provider = new Provider({ flagNameMap });
  * ```
  */
 export function buildFlagNameMap(flags: Array<{ name: string }>): Record<string, number> {
@@ -35,35 +38,35 @@ export function buildFlagNameMap(flags: Array<{ name: string }>): Record<string,
 }
 
 /**
- * Build a flag name to index map from an AST artifact.
- * This extracts flag names from the string table if available.
+ * Build a flag name to index map from an AST artifact's flagNames array.
+ * This extracts flag names from the artifact's flagNames array and string table.
  *
- * Note: This requires flag names to be present in the AST string table.
- * For best results, use buildFlagNameMap with flag definitions instead.
+ * **Note**: The Provider automatically does this when `loadArtifact()` is called.
+ * You only need this function for testing or tooling purposes.
  *
- * @param artifact - The AST artifact
- * @param flagNames - Array of flag names in the same order as flags in the artifact
+ * @param artifact - The AST artifact with flagNames array
  * @returns Record mapping flag names to their indices
  *
  * @example
  * ```typescript
  * import { buildFlagNameMapFromArtifact } from '@controlpath/runtime';
+ * import { loadFromFile } from '@controlpath/runtime';
  *
+ * // For testing or tooling
  * const artifact = await loadFromFile('production.ast');
- * const flagNames = ['new_dashboard', 'enable_analytics', 'theme_color'];
- * const flagNameMap = buildFlagNameMapFromArtifact(artifact, flagNames);
- *
- * const provider = new Provider({ flagNameMap });
+ * const flagNameMap = buildFlagNameMapFromArtifact(artifact);
  * ```
  */
-export function buildFlagNameMapFromArtifact(
-  artifact: { flags: unknown[][] },
-  flagNames: string[]
-): Record<string, number> {
+export function buildFlagNameMapFromArtifact(artifact: {
+  flags: unknown[][];
+  flagNames: number[];
+  strs: string[];
+}): Record<string, number> {
   const map: Record<string, number> = {};
-  flagNames.forEach((name, index) => {
-    if (index < artifact.flags.length) {
-      map[name] = index;
+  artifact.flagNames.forEach((nameIndex, flagIndex) => {
+    const flagName = artifact.strs[nameIndex];
+    if (flagName) {
+      map[flagName] = flagIndex;
     }
   });
   return map;
