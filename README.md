@@ -72,26 +72,26 @@ Control Path is a **Git-native feature flag system** that generates **type-safe 
 ### Two-Layer Architecture
 
 ```
-┌─────────────────────────────────────────┐
-│   Your Application Code (Unified Context) │
-│        evaluator.newDashboard(context)   │
-└────────────────┬────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────┐
-│  Layer 2: Generated Type-Safe SDK        │
-│  • Type-safe methods per flag           │
-│  • IDE autocomplete                     │
-│  • Compile-time validation              │
-└────────────────┬────────────────────────┘
-                 │
-                 ▼
-┌─────────────────────────────────────────┐
-│  Layer 1: Low-Level Runtime SDK         │
-│  • AST artifact loading                 │
-│  • OpenFeature-compliant Provider       │
-│  • Flag evaluation                      │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────┐
+│  Your Application Code                      │
+│  evaluator.newDashboard(context)            │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────┐
+│  Layer 2: Generated Type-Safe SDK           │
+│  • Type-safe methods per flag               │
+│  • IDE autocomplete                         │
+│  • Compile-time validation                  │
+└──────────────────┬──────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────┐
+│  Layer 1: Low-Level Runtime SDK             │
+│  • AST artifact loading                     │
+│  • OpenFeature-compliant Provider           │
+│  • Flag evaluation                          │
+└─────────────────────────────────────────────┘
 ```
 
 ### Key Features
