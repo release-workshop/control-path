@@ -2,6 +2,16 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    // Use file pool for better file I/O isolation
+    // This helps prevent race conditions when tests access the file system
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        // Limit parallelism to reduce file system contention
+        singleFork: false,
+        isolate: true,
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

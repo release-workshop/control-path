@@ -13,7 +13,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json}\""
   },
   "dependencies": {
-    "msgpackr": "^1.9.0"
+    "msgpackr": "^1.9.0",
+    "@noble/ed25519": "^1.7.3"
   },
   "peerDependencies": {
     "@controlpath/compiler": "*"

@@ -5,37 +5,42 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFile, mkdir, rm } from 'fs/promises';
+import { writeFile, mkdir, rm, stat } from 'fs/promises';
+import { writeFileSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { pack } from 'msgpackr';
 import { Provider } from './provider';
 import type { Artifact } from './types';
 
 describe('Provider', () => {
-  const getTestDir = () =>
-    join(
-      __dirname,
-      '../test-fixtures',
+  // Track test directories per test to avoid interference when tests run in parallel
+  const testDirs = new Set<string>();
+
+  const getTestDir = () => {
+    // Use OS temp directory for better isolation and reliability
+    // This avoids race conditions with shared test-fixtures directory
+    const testDir = join(
+      tmpdir(),
+      'controlpath-test',
       `test-${Date.now()}-${Math.random().toString(36).substring(7)}`
     );
+    testDirs.add(testDir);
+    return testDir;
+  };
   const getTestFile = (dir: string) => join(dir, 'test.ast');
 
   afterEach(async () => {
-    // Clean up any leftover test directories
-    try {
-      const baseDir = join(__dirname, '../test-fixtures');
-      const entries = await import('fs/promises').then((fs) =>
-        fs.readdir(baseDir, { withFileTypes: true }).catch(() => [])
-      );
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith('test-')) {
-          await rm(join(baseDir, entry.name), { recursive: true, force: true }).catch(() => {
-            // Ignore cleanup errors
-          });
-        }
+    // Clean up only the directories created by this test run
+    // This prevents interference when tests run in parallel
+    const dirsToClean = Array.from(testDirs);
+    testDirs.clear();
+    for (const testDir of dirsToClean) {
+      try {
+        await rm(testDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors - directory might already be deleted
       }
-    } catch {
-      // Ignore cleanup errors
     }
   });
 
@@ -69,14 +74,62 @@ describe('Provider', () => {
       const buffer = Buffer.from(pack(artifact));
       // Ensure directory exists before writing
       await mkdir(testDir, { recursive: true });
-      await writeFile(testFile, buffer);
+
+      // Write file using writeFileSync for immediate, synchronous write
+      // This is more reliable in test environments where async timing can cause issues
+      writeFileSync(testFile, buffer);
+
+      // Verify file exists and is readable before loading
+      // Use retry mechanism to handle potential race conditions in CI/turbo environments
+      // Turbo may run tests in parallel, causing file system delays
+      const { readFile } = await import('fs/promises');
+      let retries = 30;
+      let lastError: Error | null = null;
+      while (retries > 0) {
+        try {
+          // Try to read the file directly - this is the most reliable check
+          const fileContent = await readFile(testFile);
+          if (fileContent.length > 0) {
+            break; // File exists, has content, and is readable
+          }
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+          // File doesn't exist yet or isn't readable, wait a bit and retry
+          // Increase delay slightly for turbo environments
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          retries--;
+        }
+      }
+      if (retries === 0) {
+        // Final diagnostic: check if directory exists and list its contents
+        let dirInfo = 'unknown';
+        try {
+          const { readdir } = await import('fs/promises');
+          const dirExists = await stat(testDir)
+            .then(() => true)
+            .catch(() => false);
+          const files = dirExists ? await readdir(testDir).catch(() => []) : [];
+          dirInfo = `exists: ${dirExists}, files: [${files.join(', ')}]`;
+        } catch {
+          dirInfo = 'check failed';
+        }
+        throw new Error(
+          `File ${testFile} was not accessible after 30 attempts. ` +
+            `Directory ${testDir}: ${dirInfo}. ` +
+            `Last error: ${lastError?.message || 'unknown error'}`
+        );
+      }
 
       const provider = new Provider();
       await provider.loadArtifact(testFile);
 
       // Verify artifact was loaded by checking evaluation returns default
+      // Note: Without flagNameMap, flag lookup will fail but should still return default
       const result = provider.resolveBooleanEvaluation('flag1', false, {});
       expect(result).toBeDefined();
+      expect(result.value).toBe(false); // Should return default when flag not found
+      expect(result.reason).toBe('DEFAULT');
+      expect(result.errorCode).toBe('FLAG_NOT_FOUND');
     });
 
     it('should load artifact from file:// URL string', async () => {
@@ -91,7 +144,20 @@ describe('Provider', () => {
 
       const buffer = Buffer.from(pack(artifact));
       await mkdir(testDir, { recursive: true });
-      await writeFile(testFile, buffer);
+      writeFileSync(testFile, buffer);
+
+      // Verify file exists before loading (handles race conditions in turbo)
+      const { readFile } = await import('fs/promises');
+      let retries = 10;
+      while (retries > 0) {
+        try {
+          await readFile(testFile);
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          retries--;
+        }
+      }
 
       const fileUrl = `file://${testFile}`;
       const provider = new Provider();
@@ -113,7 +179,20 @@ describe('Provider', () => {
 
       const buffer = Buffer.from(pack(artifact));
       await mkdir(testDir, { recursive: true });
-      await writeFile(testFile, buffer);
+      writeFileSync(testFile, buffer);
+
+      // Verify file exists before loading (handles race conditions in turbo)
+      const { readFile } = await import('fs/promises');
+      let retries = 10;
+      while (retries > 0) {
+        try {
+          await readFile(testFile);
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          retries--;
+        }
+      }
 
       const fileUrl = new URL(`file://${testFile}`);
       const provider = new Provider();
@@ -158,7 +237,7 @@ describe('Provider', () => {
 
       const buffer1 = Buffer.from(pack(artifact1));
       await mkdir(testDir, { recursive: true });
-      await writeFile(testFile, buffer1);
+      writeFileSync(testFile, buffer1);
 
       const provider = new Provider();
       await provider.loadArtifact(testFile);
@@ -171,9 +250,20 @@ describe('Provider', () => {
       };
 
       const buffer2 = Buffer.from(pack(artifact2));
-      // Ensure directory still exists before writing
-      await mkdir(testDir, { recursive: true });
-      await writeFile(testFile, buffer2);
+      writeFileSync(testFile, buffer2);
+
+      // Verify file exists before reloading (handles race conditions in turbo)
+      const { readFile } = await import('fs/promises');
+      let retries = 10;
+      while (retries > 0) {
+        try {
+          await readFile(testFile);
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          retries--;
+        }
+      }
 
       await provider.reloadArtifact(testFile);
 

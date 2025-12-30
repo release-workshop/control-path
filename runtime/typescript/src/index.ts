@@ -11,10 +11,10 @@
  * Provides OpenFeature-compliant Provider interface.
  */
 
-export { Provider } from './provider';
-export type { ProviderOptions } from './provider';
-export { loadFromFile, loadFromURL, loadFromBuffer } from './ast-loader';
+export { Provider, type ProviderOptions } from './provider';
+export { loadFromFile, loadFromURL, loadFromBuffer, type LoadOptions } from './ast-loader';
 export { evaluate, evaluateRule } from './evaluator';
+export { buildFlagNameMap, buildFlagNameMapFromArtifact } from './utils';
 export type {
   Artifact,
   Rule,

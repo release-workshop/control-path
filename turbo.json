@@ -20,7 +20,8 @@
       "outputs": ["dist/**", "packages/cli/dist/**"]
     },
     "test": {
-      "outputs": []
+      "dependsOn": ["^build", "build"],
+      "outputs": ["coverage/**"]
     }
   }
 }

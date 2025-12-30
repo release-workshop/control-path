@@ -10,7 +10,7 @@
  */
 
 import type { Artifact, ResolutionDetails, Logger, User, Context } from './types';
-import { loadFromFile, loadFromURL } from './ast-loader';
+import { loadFromFile, loadFromURL, type LoadOptions } from './ast-loader';
 import { evaluate } from './evaluator';
 
 /**
@@ -19,18 +19,57 @@ import { evaluate } from './evaluator';
 export interface ProviderOptions {
   /** Optional logger for error and debug logging */
   logger?: Logger;
-  /** Optional flag name to index mapping (for name-based flag lookup) */
+  /**
+   * Flag name to index mapping (for name-based flag lookup).
+   * This maps flag names (strings) to their indices in the AST flags array.
+   *
+   * @example
+   * ```typescript
+   * const flagNameMap = {
+   *   'new_dashboard': 0,
+   *   'enable_analytics': 1,
+   *   'theme_color': 2
+   * };
+   * ```
+   *
+   * You can build this map from flag definitions using the `buildFlagNameMap` helper function.
+   */
   flagNameMap?: Record<string, number>;
+  /** Optional public key for Ed25519 signature verification (base64 or hex encoded) */
+  publicKey?: string | Uint8Array;
+  /** Whether to require a signature (default: false - signature is optional) */
+  requireSignature?: boolean;
+  /** Whether to enable result caching (default: true) */
+  enableCache?: boolean;
+  /** Cache TTL in milliseconds (default: 5 minutes) */
+  cacheTTL?: number;
 }
 
 /**
  * Control Path Provider for OpenFeature.
  * Implements the OpenFeature Provider interface directly.
  */
+/**
+ * Cache entry for evaluation results
+ */
+interface CacheEntry {
+  details: ResolutionDetails<unknown>;
+  timestamp: number;
+}
+
+/**
+ * Default cache TTL: 5 minutes
+ */
+const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
+
 export class Provider {
   private artifact: Artifact | null = null;
   private logger?: Logger;
   private flagNameMap: Record<string, number>;
+  private loadOptions?: LoadOptions;
+  private cache: Map<string, CacheEntry> = new Map();
+  private cacheEnabled: boolean = true;
+  private cacheTTL: number = DEFAULT_CACHE_TTL;
 
   /**
    * Metadata for OpenFeature compliance
@@ -51,6 +90,14 @@ export class Provider {
   constructor(options?: ProviderOptions) {
     this.logger = options?.logger;
     this.flagNameMap = options?.flagNameMap ?? {};
+    this.cacheEnabled = options?.enableCache ?? true;
+    this.cacheTTL = options?.cacheTTL ?? DEFAULT_CACHE_TTL;
+    if (options?.publicKey || options?.requireSignature) {
+      this.loadOptions = {
+        publicKey: options.publicKey,
+        requireSignature: options.requireSignature,
+      };
+    }
   }
 
   /**
@@ -71,13 +118,14 @@ export class Provider {
 
     try {
       if (artifactPath.startsWith('http://') || artifactPath.startsWith('https://')) {
-        this.artifact = await loadFromURL(artifactPath, 30000, this.logger);
+        // Use default timeout from ast-loader
+        this.artifact = await loadFromURL(artifactPath, undefined, this.logger, this.loadOptions);
       } else if (artifactPath.startsWith('file://')) {
         // Handle file:// URLs by removing the protocol
         const filePath = artifactPath.replace(/^file:\/\//, '');
-        this.artifact = await loadFromFile(filePath);
+        this.artifact = await loadFromFile(filePath, this.loadOptions);
       } else {
-        this.artifact = await loadFromFile(artifactPath);
+        this.artifact = await loadFromFile(artifactPath, this.loadOptions);
       }
     } catch (error) {
       if (this.logger) {
@@ -92,9 +140,18 @@ export class Provider {
 
   /**
    * Reload AST artifact (replaces cached AST)
+   * This also clears the evaluation result cache.
    */
   async reloadArtifact(artifact: string | URL): Promise<void> {
     await this.loadArtifact(artifact);
+    this.clearCache();
+  }
+
+  /**
+   * Clear the evaluation result cache
+   */
+  clearCache(): void {
+    this.cache.clear();
   }
 
   /**
@@ -110,14 +167,25 @@ export class Provider {
     evalContext?: unknown
   ): ResolutionDetails<boolean> {
     try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<boolean>;
+        }
+      }
+
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
         }
-        return {
+        const details: ResolutionDetails<boolean> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const { user, context } = this.mapEvaluationContext(evalContext);
@@ -127,28 +195,34 @@ export class Provider {
         if (this.logger) {
           this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
         }
-        return {
+        const details: ResolutionDetails<boolean> = {
           value: defaultValue,
           reason: 'DEFAULT',
           errorCode: 'FLAG_NOT_FOUND',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const result = evaluate(flagIndex, this.artifact, user, context);
 
       if (result === undefined) {
-        return {
+        const details: ResolutionDetails<boolean> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       // Convert result to boolean
       const boolValue = result === true || result === 'true' || result === 'ON' || result === 1;
-      return {
+      const details: ResolutionDetails<boolean> = {
         value: boolValue,
         reason: 'TARGETING_MATCH',
       };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
     } catch (error) {
       if (this.logger) {
         this.logger.error(
@@ -178,14 +252,25 @@ export class Provider {
     evalContext?: unknown
   ): ResolutionDetails<string> {
     try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<string>;
+        }
+      }
+
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
         }
-        return {
+        const details: ResolutionDetails<string> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const { user, context } = this.mapEvaluationContext(evalContext);
@@ -195,28 +280,37 @@ export class Provider {
         if (this.logger) {
           this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
         }
-        return {
+        const details: ResolutionDetails<string> = {
           value: defaultValue,
           reason: 'DEFAULT',
           errorCode: 'FLAG_NOT_FOUND',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const result = evaluate(flagIndex, this.artifact, user, context);
 
       if (result === undefined) {
-        return {
+        const details: ResolutionDetails<string> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       // Convert result to string
       const stringValue = String(result);
-      return {
+      // Determine variant for multivariate flags
+      const variant = this.getVariant(flagIndex, result);
+      const details: ResolutionDetails<string> = {
         value: stringValue,
         reason: 'TARGETING_MATCH',
+        variant,
       };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
     } catch (error) {
       if (this.logger) {
         this.logger.error(
@@ -246,14 +340,25 @@ export class Provider {
     evalContext?: unknown
   ): ResolutionDetails<number> {
     try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<number>;
+        }
+      }
+
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
         }
-        return {
+        const details: ResolutionDetails<number> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const { user, context } = this.mapEvaluationContext(evalContext);
@@ -263,36 +368,44 @@ export class Provider {
         if (this.logger) {
           this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
         }
-        return {
+        const details: ResolutionDetails<number> = {
           value: defaultValue,
           reason: 'DEFAULT',
           errorCode: 'FLAG_NOT_FOUND',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const result = evaluate(flagIndex, this.artifact, user, context);
 
       if (result === undefined) {
-        return {
+        const details: ResolutionDetails<number> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       // Convert result to number
       const numValue = typeof result === 'number' ? result : parseFloat(String(result));
       if (isNaN(numValue)) {
-        return {
+        const details: ResolutionDetails<number> = {
           value: defaultValue,
           reason: 'DEFAULT',
           errorCode: 'TYPE_MISMATCH',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
-      return {
+      const details: ResolutionDetails<number> = {
         value: numValue,
         reason: 'TARGETING_MATCH',
       };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
     } catch (error) {
       if (this.logger) {
         this.logger.error(
@@ -322,14 +435,25 @@ export class Provider {
     evalContext?: unknown
   ): ResolutionDetails<T> {
     try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<T>;
+        }
+      }
+
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
         }
-        return {
+        const details: ResolutionDetails<T> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const { user, context } = this.mapEvaluationContext(evalContext);
@@ -339,20 +463,24 @@ export class Provider {
         if (this.logger) {
           this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
         }
-        return {
+        const details: ResolutionDetails<T> = {
           value: defaultValue,
           reason: 'DEFAULT',
           errorCode: 'FLAG_NOT_FOUND',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       const result = evaluate(flagIndex, this.artifact, user, context);
 
       if (result === undefined) {
-        return {
+        const details: ResolutionDetails<T> = {
           value: defaultValue,
           reason: 'DEFAULT',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
       // Convert result to object
@@ -363,24 +491,33 @@ export class Provider {
         try {
           objValue = JSON.parse(result) as T;
         } catch {
-          return {
+          const details: ResolutionDetails<T> = {
             value: defaultValue,
             reason: 'DEFAULT',
             errorCode: 'TYPE_MISMATCH',
           };
+          this.setCachedResult(flagKey, evalContext, details);
+          return details;
         }
       } else {
-        return {
+        const details: ResolutionDetails<T> = {
           value: defaultValue,
           reason: 'DEFAULT',
           errorCode: 'TYPE_MISMATCH',
         };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
       }
 
-      return {
+      // Determine variant for multivariate flags
+      const variant = this.getVariant(flagIndex, result);
+      const details: ResolutionDetails<T> = {
         value: objValue,
         reason: 'TARGETING_MATCH',
+        variant,
       };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
     } catch (error) {
       if (this.logger) {
         this.logger.error(
@@ -404,6 +541,87 @@ export class Provider {
    */
   private getFlagIndex(flagKey: string): number | undefined {
     return this.flagNameMap[flagKey];
+  }
+
+  /**
+   * Get cache key from flag key and evaluation context
+   */
+  private getCacheKey(flagKey: string, evalContext?: unknown): string {
+    const contextStr = evalContext ? JSON.stringify(evalContext) : '';
+    return `${flagKey}:${contextStr}`;
+  }
+
+  /**
+   * Get cached result if available and not expired
+   */
+  private getCachedResult(cacheKey: string): ResolutionDetails<unknown> | undefined {
+    const entry = this.cache.get(cacheKey);
+    if (!entry) {
+      return undefined;
+    }
+
+    // Check if expired
+    const now = Date.now();
+    if (now - entry.timestamp > this.cacheTTL) {
+      this.cache.delete(cacheKey);
+      return undefined;
+    }
+
+    return entry.details;
+  }
+
+  /**
+   * Set cached result
+   */
+  private setCachedResult(
+    flagKey: string,
+    evalContext: unknown,
+    details: ResolutionDetails<unknown>
+  ): void {
+    if (!this.cacheEnabled) {
+      return;
+    }
+
+    const cacheKey = this.getCacheKey(flagKey, evalContext);
+    this.cache.set(cacheKey, {
+      details,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Get variant name for multivariate flags
+   * This looks up the variation name from the string table if the result matches a variation value
+   */
+  private getVariant(flagIndex: number, result: unknown): string | undefined {
+    if (!this.artifact || flagIndex < 0 || flagIndex >= this.artifact.flags.length) {
+      return undefined;
+    }
+
+    const flagRules = this.artifact.flags[flagIndex];
+    if (!flagRules) {
+      return undefined;
+    }
+
+    // Look for variations rule that matches the result
+    for (const rule of flagRules) {
+      if (Array.isArray(rule) && rule.length >= 3 && rule[0] === 1) {
+        // RuleType.VARIATIONS
+        const variations = rule[2];
+        if (Array.isArray(variations)) {
+          // Check if result matches any variation
+          for (const [varIndex, _pct] of variations) {
+            if (typeof varIndex === 'number' && this.artifact.strs[varIndex] === result) {
+              // Find the variation name - we need to check if there's a way to get the name
+              // For now, return the string value as variant
+              return String(result);
+            }
+          }
+        }
+      }
+    }
+
+    return undefined;
   }
 
   /**
