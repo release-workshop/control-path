@@ -26,6 +26,7 @@ describe('Type Guards', () => {
         env: 'production',
         strs: [],
         flags: [],
+        flagNames: [],
       };
 
       expect(isArtifact(artifact)).toBe(true);
@@ -37,6 +38,7 @@ describe('Type Guards', () => {
         env: 'production',
         strs: ['test'],
         flags: [],
+        flagNames: [],
         segments: [[0, [ExpressionType.PROPERTY, 1]]],
         sig: new Uint8Array([1, 2, 3]),
       };

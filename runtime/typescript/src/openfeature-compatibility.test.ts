@@ -21,6 +21,7 @@ import { OpenFeature } from '@openfeature/server-sdk';
 import { writeFile, mkdir, rm } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { tmpdir } from 'os';
 import { compile, serialize } from '@controlpath/compiler';
 import { parseDefinitions, parseDeployment } from '@controlpath/compiler';
 import { Provider } from './provider';
@@ -66,20 +67,13 @@ function isOpenFeatureProvider(
 }
 
 describe('OpenFeature SDK Compatibility', () => {
-  // Get the directory of the current file (works in both ESM and CommonJS with Vitest)
-  let currentDir: string;
-  try {
-    if (typeof import.meta !== 'undefined' && import.meta.url) {
-      currentDir = dirname(fileURLToPath(import.meta.url));
-    } else {
-      // @ts-ignore - __dirname is available in CommonJS
-      currentDir = __dirname;
-    }
-  } catch {
-    currentDir = process.cwd();
-  }
-
-  const testDir = join(currentDir, '../test-fixtures/openfeature-compat');
+  // Use OS temp directory for better isolation and reliability
+  // This avoids race conditions when tests run in parallel
+  const testDir = join(
+    tmpdir(),
+    'controlpath-test',
+    `openfeature-compat-${Date.now()}-${Math.random().toString(36).substring(7)}`
+  );
   const definitionsFile = join(testDir, 'flags.definitions.yaml');
   const deploymentFile = join(testDir, 'production.deployment.yaml');
   const astFile = join(testDir, 'production.ast');
@@ -146,7 +140,10 @@ rules:
 `;
 
   beforeAll(async () => {
+    // Ensure directory exists
     await mkdir(testDir, { recursive: true });
+
+    // Write definition and deployment files
     await writeFile(definitionsFile, flagsDefinitions);
     await writeFile(deploymentFile, deployment);
 
@@ -156,7 +153,16 @@ rules:
     const artifact = compile(deploymentData, definitions);
     const bytes = serialize(artifact);
     const buffer = Buffer.from(bytes);
+
+    // Write AST file and verify it exists
     await writeFile(astFile, buffer);
+
+    // Verify file was created successfully
+    const { stat } = await import('fs/promises');
+    const stats = await stat(astFile);
+    if (!stats.isFile() || stats.size === 0) {
+      throw new Error(`Failed to create AST file: ${astFile}`);
+    }
   });
 
   afterAll(async () => {

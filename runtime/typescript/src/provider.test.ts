@@ -124,13 +124,13 @@ describe('Provider', () => {
       const provider = new Provider();
       await provider.loadArtifact(testFile);
 
-      // Verify artifact was loaded by checking evaluation returns default
-      // Note: Without flagNameMap, flag lookup will fail but should still return default
+      // Verify artifact was loaded by checking evaluation works
+      // Flag name map is automatically built from artifact, so flag1 is found
       const result = provider.resolveBooleanEvaluation('flag1', false, {});
       expect(result).toBeDefined();
-      expect(result.value).toBe(false); // Should return default when flag not found
+      expect(result.value).toBe(false); // Should return default value
       expect(result.reason).toBe('DEFAULT');
-      expect(result.errorCode).toBe('FLAG_NOT_FOUND');
+      // No error code since flag is found (flag name map is automatically built)
     });
 
     it('should load artifact from file:// URL string', async () => {
@@ -141,6 +141,7 @@ describe('Provider', () => {
         env: 'test',
         strs: [],
         flags: [],
+        flagNames: [],
       };
 
       const buffer = Buffer.from(pack(artifact));
@@ -176,6 +177,7 @@ describe('Provider', () => {
         env: 'test',
         strs: [],
         flags: [],
+        flagNames: [],
       };
 
       const buffer = Buffer.from(pack(artifact));
@@ -249,6 +251,7 @@ describe('Provider', () => {
         env: 'test',
         strs: ['flag2'],
         flags: [],
+        flagNames: [],
       };
 
       const buffer2 = Buffer.from(pack(artifact2));

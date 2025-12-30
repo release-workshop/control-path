@@ -39,6 +39,7 @@ describe('AST Loader', () => {
         env: 'test',
         strs: ['flag1', 'flag2'],
         flags: [],
+        flagNames: [],
       };
 
       const buffer = Buffer.from(pack(artifact));
@@ -56,6 +57,7 @@ describe('AST Loader', () => {
         env: 'test',
         strs: [],
         flags: [],
+        flagNames: [],
         segments: [[0, [2, 1]]],
         sig: new Uint8Array([1, 2, 3]),
       };
@@ -98,7 +100,8 @@ describe('AST Loader', () => {
           v: '1.0',
           env: 'test',
           strs: ['flag1'],
-          flags: [],
+          flags: [[]],
+          flagNames: [0],
         };
 
         // Sign the artifact
@@ -129,7 +132,8 @@ describe('AST Loader', () => {
           v: '1.0',
           env: 'test',
           strs: ['flag1'],
-          flags: [],
+          flags: [[]],
+          flagNames: [0],
           sig: new Uint8Array(64).fill(0), // Invalid signature
         };
 
@@ -146,7 +150,8 @@ describe('AST Loader', () => {
           v: '1.0',
           env: 'test',
           strs: ['flag1'],
-          flags: [],
+          flags: [[]],
+          flagNames: [0],
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -164,7 +169,8 @@ describe('AST Loader', () => {
           v: '1.0',
           env: 'test',
           strs: ['flag1'],
-          flags: [],
+          flags: [[]],
+          flagNames: [0],
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -184,7 +190,8 @@ describe('AST Loader', () => {
           v: '1.0',
           env: 'test',
           strs: ['flag1'],
-          flags: [],
+          flags: [[]],
+          flagNames: [0],
         };
 
         const messageBytes = pack(artifactWithoutSig);
@@ -211,7 +218,8 @@ describe('AST Loader', () => {
           v: '1.0',
           env: 'test',
           strs: ['flag1'],
-          flags: [],
+          flags: [[]],
+          flagNames: [0],
         };
 
         const messageBytes = pack(artifactWithoutSig);
@@ -237,7 +245,8 @@ describe('AST Loader', () => {
         v: '1.0',
         env: 'test',
         strs: ['flag1'],
-        flags: [],
+        flags: [[]],
+        flagNames: [0],
       };
 
       const buffer = Buffer.from(pack(artifact));
@@ -281,6 +290,7 @@ describe('AST Loader', () => {
         env: 'test',
         strs: [],
         flags: [],
+        flagNames: [],
       };
 
       const buffer = Buffer.from(pack(artifact));
@@ -301,6 +311,7 @@ describe('AST Loader', () => {
           env: 'test',
           strs: [],
           flags: [],
+          flagNames: [],
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -342,6 +353,7 @@ describe('AST Loader', () => {
           env: 'test',
           strs: [],
           flags: [],
+          flagNames: [],
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -379,6 +391,7 @@ describe('AST Loader', () => {
           env: 'test',
           strs,
           flags: [],
+          flagNames: [],
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -394,6 +407,7 @@ describe('AST Loader', () => {
           env: 'test',
           strs: [longString],
           flags: [],
+          flagNames: [],
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -415,6 +429,7 @@ describe('AST Loader', () => {
           env: 'test',
           strs: [],
           flags,
+          flagNames: flags.map((_, i) => i), // Create flagNames array matching flags length
         };
 
         const buffer = Buffer.from(pack(artifact));
@@ -424,11 +439,13 @@ describe('AST Loader', () => {
 
       it('should accept artifacts within size limits', async () => {
         // Create artifact within limits
+        const flags = Array(1000).fill([]);
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
           strs: Array(1000).fill('test'),
-          flags: Array(1000).fill([]),
+          flags,
+          flagNames: flags.map((_, i) => i), // Create flagNames array matching flags length
         };
 
         const buffer = Buffer.from(pack(artifact));

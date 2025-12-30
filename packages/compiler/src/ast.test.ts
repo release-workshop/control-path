@@ -30,6 +30,7 @@ describe('AST Data Structures', () => {
           env: 'production',
           strs: [],
           flags: [],
+          flagNames: [],
         };
 
         expect(isArtifact(artifact)).toBe(true);
