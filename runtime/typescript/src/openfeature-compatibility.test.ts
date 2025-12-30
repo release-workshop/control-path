@@ -19,8 +19,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
 import { writeFile, mkdir, rm } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { tmpdir } from 'os';
 import { compile, serialize } from '@controlpath/compiler';
 import { parseDefinitions, parseDeployment } from '@controlpath/compiler';

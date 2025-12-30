@@ -6,8 +6,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { writeFile, mkdir, rm } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { compile, serialize } from '@controlpath/compiler';
 import { parseDefinitions, parseDeployment } from '@controlpath/compiler';
 import { loadFromBuffer, loadFromFile } from './ast-loader';
@@ -16,21 +16,13 @@ import { Provider } from './provider';
 import type { User, Context } from './types';
 
 describe('Integration Tests with Real AST Artifacts', () => {
-  // Get the directory of the current file (works in both ESM and CommonJS with Vitest)
-  // Use import.meta.url if available (Vitest ESM), otherwise use __dirname (CommonJS)
-  let currentDir: string;
-  try {
-    if (typeof import.meta !== 'undefined' && import.meta.url) {
-      currentDir = dirname(fileURLToPath(import.meta.url));
-    } else {
-      // @ts-ignore - __dirname is available in CommonJS
-      currentDir = __dirname;
-    }
-  } catch {
-    currentDir = process.cwd();
-  }
-
-  const testDir = join(currentDir, '../test-fixtures/integration');
+  // Use OS temp directory for better isolation and reliability
+  // This avoids race conditions when tests run in parallel
+  const testDir = join(
+    tmpdir(),
+    'controlpath-test',
+    `integration-${Date.now()}-${Math.random().toString(36).substring(7)}`
+  );
   const definitionsFile = join(testDir, 'flags.definitions.yaml');
   const deploymentFile = join(testDir, 'production.deployment.yaml');
   const astFile = join(testDir, 'production.ast');
