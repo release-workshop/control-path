@@ -6,7 +6,8 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { writeFile, mkdir, rm } from 'fs/promises';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { compile, serialize } from '@controlpath/compiler';
 import { parseDefinitions, parseDeployment } from '@controlpath/compiler';
 import { loadFromBuffer, loadFromFile } from './ast-loader';
@@ -15,7 +16,21 @@ import { Provider } from './provider';
 import type { User, Context } from './types';
 
 describe('Integration Tests with Real AST Artifacts', () => {
-  const testDir = join(__dirname, '../test-fixtures/integration');
+  // Get the directory of the current file (works in both ESM and CommonJS with Vitest)
+  // Use import.meta.url if available (Vitest ESM), otherwise use __dirname (CommonJS)
+  let currentDir: string;
+  try {
+    if (typeof import.meta !== 'undefined' && import.meta.url) {
+      currentDir = dirname(fileURLToPath(import.meta.url));
+    } else {
+      // @ts-ignore - __dirname is available in CommonJS
+      currentDir = __dirname;
+    }
+  } catch {
+    currentDir = process.cwd();
+  }
+
+  const testDir = join(currentDir, '../test-fixtures/integration');
   const definitionsFile = join(testDir, 'flags.definitions.yaml');
   const deploymentFile = join(testDir, 'production.deployment.yaml');
   const astFile = join(testDir, 'production.ast');

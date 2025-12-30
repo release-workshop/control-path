@@ -10,7 +10,15 @@
  */
 
 import type { Artifact, Rule, Expression, User, Context, Variation } from './types';
-import { RuleType, ExpressionType, BinaryOp, LogicalOp, FuncCode, isExpression } from './types';
+import {
+  RuleType,
+  ExpressionType,
+  BinaryOp,
+  LogicalOp,
+  FuncCode,
+  isExpression,
+  PROTOTYPE_POLLUTING_KEYS,
+} from './types';
 
 /**
  * Evaluate a flag by index using the provided artifact, user, and context.
@@ -334,10 +342,20 @@ function compareValues(left: unknown, right: unknown): number {
 
 /**
  * Get a property value from user or context using dot notation.
+ * Rejects prototype-polluting property paths for security.
  */
 function getProperty(propPath: string, user: User, context?: Context): unknown {
   const parts = propPath.split('.');
   if (parts.length === 0) {
+    return undefined;
+  }
+
+  // Reject prototype-polluting paths
+  if (
+    parts.some((part) =>
+      PROTOTYPE_POLLUTING_KEYS.includes(part as (typeof PROTOTYPE_POLLUTING_KEYS)[number])
+    )
+  ) {
     return undefined;
   }
 
@@ -351,7 +369,11 @@ function getProperty(propPath: string, user: User, context?: Context): unknown {
     obj = context;
   } else {
     // Try user first, then context
-    obj = (user as Record<string, unknown>)[root] ?? (context as Record<string, unknown>)?.[root];
+    const userRecord: Record<string, unknown> = user as Record<string, unknown>;
+    const contextRecord: Record<string, unknown> | undefined = context
+      ? (context as Record<string, unknown>)
+      : undefined;
+    obj = userRecord[root] ?? contextRecord?.[root];
   }
 
   if (obj === undefined || obj === null) {
@@ -363,7 +385,8 @@ function getProperty(propPath: string, user: User, context?: Context): unknown {
     if (typeof obj !== 'object' || obj === null) {
       return undefined;
     }
-    obj = (obj as Record<string, unknown>)[parts[i]];
+    const objRecord: Record<string, unknown> = obj as Record<string, unknown>;
+    obj = objRecord[parts[i]];
     if (obj === undefined || obj === null) {
       return undefined;
     }

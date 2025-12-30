@@ -10,6 +10,7 @@
  */
 
 import type { Artifact, ResolutionDetails, Logger, User, Context } from './types';
+import { PROTOTYPE_POLLUTING_KEYS } from './types';
 import { loadFromFile, loadFromURL, type LoadOptions } from './ast-loader';
 import { evaluate } from './evaluator';
 
@@ -544,10 +545,43 @@ export class Provider {
   }
 
   /**
-   * Get cache key from flag key and evaluation context
+   * Type guard to check if a value is a record-like object
+   */
+  private isRecordLike(value: unknown): value is Record<string, unknown> {
+    return (
+      value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value)
+    );
+  }
+
+  /**
+   * Get cache key from flag key and evaluation context.
+   * Sanitizes context to prevent prototype pollution and normalizes keys for better cache hit rates.
    */
   private getCacheKey(flagKey: string, evalContext?: unknown): string {
-    const contextStr = evalContext ? JSON.stringify(evalContext) : '';
+    if (!this.isRecordLike(evalContext)) {
+      return flagKey;
+    }
+
+    // Create a safe copy without prototype chain to prevent prototype pollution
+    const safeContext: Record<string, unknown> = {};
+    const entries: Array<[string, unknown]> = Object.entries(evalContext);
+    for (const [key, value] of entries) {
+      // Skip prototype-polluting keys
+      if (PROTOTYPE_POLLUTING_KEYS.includes(key as (typeof PROTOTYPE_POLLUTING_KEYS)[number])) {
+        continue;
+      }
+      safeContext[key] = value;
+    }
+
+    // Normalize keys by sorting for consistent cache keys
+    const sortedKeys = Object.keys(safeContext).sort();
+    const normalizedContext: Record<string, unknown> = {};
+    for (const key of sortedKeys) {
+      const value: unknown = safeContext[key];
+      normalizedContext[key] = value;
+    }
+
+    const contextStr = JSON.stringify(normalizedContext);
     return `${flagKey}:${contextStr}`;
   }
 
@@ -649,7 +683,7 @@ export class Provider {
       return { user: {} };
     }
 
-    const context = evalContext as Record<string, unknown>;
+    const context: Record<string, unknown> = evalContext as Record<string, unknown>;
 
     // Standard user properties (top-level)
     const user: User = {};

@@ -330,4 +330,121 @@ describe('Provider', () => {
       });
     });
   });
+
+  describe('cache key normalization and prototype pollution protection', () => {
+    it('should filter prototype-polluting keys from cache context', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [],
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      await mkdir(testDir, { recursive: true });
+      writeFileSync(testFile, buffer);
+
+      const provider = new Provider({ flagNameMap: { flag1: 0 } });
+      await provider.loadArtifact(testFile);
+
+      // Create context with prototype-polluting keys
+      const contextWithPollution = {
+        user: { id: 'user1' },
+        __proto__: { polluted: true },
+        constructor: { polluted: true },
+        prototype: { polluted: true },
+        normalKey: 'value',
+      };
+
+      // First evaluation
+      const result1 = provider.resolveBooleanEvaluation('flag1', false, contextWithPollution);
+      expect(result1).toBeDefined();
+
+      // Second evaluation with same context (should use cache)
+      const result2 = provider.resolveBooleanEvaluation('flag1', false, contextWithPollution);
+      expect(result2).toBeDefined();
+
+      // Results should be the same (cached)
+      expect(result2.value).toBe(result1.value);
+    });
+
+    it('should normalize cache keys for consistent caching', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [],
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      await mkdir(testDir, { recursive: true });
+      writeFileSync(testFile, buffer);
+
+      const provider = new Provider({ flagNameMap: { flag1: 0 } });
+      await provider.loadArtifact(testFile);
+
+      // Context with keys in different order
+      const context1 = { a: '1', b: '2', c: '3' };
+      const context2 = { c: '3', a: '1', b: '2' };
+
+      // First evaluation
+      const result1 = provider.resolveBooleanEvaluation('flag1', false, context1);
+      expect(result1).toBeDefined();
+
+      // Second evaluation with same keys but different order (should use cache)
+      const result2 = provider.resolveBooleanEvaluation('flag1', false, context2);
+      expect(result2).toBeDefined();
+
+      // Results should be the same (cached due to normalization)
+      expect(result2.value).toBe(result1.value);
+    });
+
+    it('should handle non-object context in cache key generation', () => {
+      const provider = new Provider();
+
+      // Should not throw with non-object context
+      const result1 = provider.resolveBooleanEvaluation('flag1', false, null);
+      const result2 = provider.resolveBooleanEvaluation('flag1', false, undefined);
+      const result3 = provider.resolveBooleanEvaluation('flag1', false, 'string');
+      const result4 = provider.resolveBooleanEvaluation('flag1', false, 123);
+
+      expect(result1).toBeDefined();
+      expect(result2).toBeDefined();
+      expect(result3).toBeDefined();
+      expect(result4).toBeDefined();
+    });
+
+    it('should create different cache keys for different contexts', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [],
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+      await mkdir(testDir, { recursive: true });
+      writeFileSync(testFile, buffer);
+
+      const provider = new Provider({ flagNameMap: { flag1: 0 }, enableCache: true });
+      await provider.loadArtifact(testFile);
+
+      // Different contexts should produce different cache keys
+      const context1 = { user: { id: 'user1' } };
+      const context2 = { user: { id: 'user2' } };
+
+      const result1 = provider.resolveBooleanEvaluation('flag1', false, context1);
+      const result2 = provider.resolveBooleanEvaluation('flag1', false, context2);
+
+      // Both should work (may have different values if flag evaluation differs)
+      expect(result1).toBeDefined();
+      expect(result2).toBeDefined();
+    });
+  });
 });

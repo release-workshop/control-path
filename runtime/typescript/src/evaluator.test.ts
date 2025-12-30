@@ -537,4 +537,136 @@ describe('Evaluator', () => {
       expect(result).toBe('ON');
     });
   });
+
+  describe('prototype pollution protection', () => {
+    it('should reject property paths containing __proto__', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', '__proto__.polluted', 'value'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should return undefined because __proto__ path is rejected
+      expect(result).toBeUndefined();
+    });
+
+    it('should reject property paths containing constructor', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'constructor.polluted', 'value'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should return undefined because constructor path is rejected
+      expect(result).toBeUndefined();
+    });
+
+    it('should reject property paths containing prototype', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'prototype.polluted', 'value'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should return undefined because prototype path is rejected
+      expect(result).toBeUndefined();
+    });
+
+    it('should reject nested prototype-polluting paths', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.__proto__.polluted', 'value'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should return undefined because __proto__ in path is rejected
+      expect(result).toBeUndefined();
+    });
+
+    it('should allow valid property paths', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = { id: 'user1', role: 'admin' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should work normally for valid paths
+      expect(result).toBe('ON');
+    });
+  });
 });

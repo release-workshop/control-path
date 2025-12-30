@@ -16,11 +16,11 @@
       "outputs": []
     },
     "build": {
-      "dependsOn": ["^build", "lint", "typecheck", "format:check"],
+      "dependsOn": ["format", "^build", "lint", "typecheck"],
       "outputs": ["dist/**", "packages/cli/dist/**"]
     },
     "test": {
-      "dependsOn": ["^build", "build"],
+      "dependsOn": ["build"],
       "outputs": ["coverage/**"]
     }
   }

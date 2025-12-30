@@ -26,12 +26,38 @@ const MAX_ARTIFACT_SIZE = 10 * 1024 * 1024;
 const DEFAULT_URL_TIMEOUT = 30000;
 
 /**
+ * Maximum allowed timeout for URL loading (5 minutes)
+ */
+const MAX_URL_TIMEOUT = 5 * 60 * 1000;
+
+/**
+ * Maximum number of strings in string table (100,000)
+ */
+const MAX_STRING_TABLE_SIZE = 100000;
+
+/**
+ * Maximum length per string in string table (10,000 characters)
+ */
+const MAX_STRING_LENGTH = 10000;
+
+/**
+ * Maximum number of flags in flags array (100,000)
+ */
+const MAX_FLAGS = 100000;
+
+/**
+ * Maximum number of redirects to follow (5)
+ */
+const MAX_REDIRECTS = 5;
+
+/**
  * Validate and normalize a file path to prevent path traversal attacks
  * @param filePath - The file path to validate
+ * @param allowedDirectory - Optional allowed directory to restrict file access (default: current working directory)
  * @returns The normalized absolute path
- * @throws Error if path traversal is detected
+ * @throws Error if path traversal is detected or path is outside allowed directory
  */
-function validateFilePath(filePath: string): string {
+function validateFilePath(filePath: string, allowedDirectory?: string): string {
   if (!filePath || typeof filePath !== 'string') {
     throw new Error('File path is required');
   }
@@ -62,19 +88,35 @@ function validateFilePath(filePath: string): string {
     }
   }
 
+  // Restrict to allowed directory if specified
+  if (allowedDirectory) {
+    const allowedPath = resolve(allowedDirectory);
+    // Ensure resolved path is within allowed directory
+    // Use normalized paths for comparison
+    const resolvedNormalized = resolved.replace(/[/\\]+/g, '/');
+    const allowedNormalized = allowedPath.replace(/[/\\]+/g, '/');
+    if (
+      !resolvedNormalized.startsWith(allowedNormalized + '/') &&
+      resolvedNormalized !== allowedNormalized
+    ) {
+      throw new Error('File path outside allowed directory');
+    }
+  }
+
   return resolved;
 }
 
 /**
  * Load AST artifact from a local file path
  * @param filePath - The file path to load the AST artifact from
- * @param options - Optional loading options including signature verification
+ * @param options - Optional loading options including signature verification and allowed directory
  * @returns The loaded AST artifact
  * @throws Error if the file cannot be read or the artifact is invalid
  */
 export async function loadFromFile(filePath: string, options?: LoadOptions): Promise<Artifact> {
   // Validate and normalize the path
-  const validatedPath = validateFilePath(filePath);
+  const allowedDirectory = options?.allowedDirectory || process.env.AST_DIRECTORY;
+  const validatedPath = validateFilePath(filePath, allowedDirectory);
 
   let buffer: Buffer;
   try {
@@ -99,7 +141,7 @@ export async function loadFromFile(filePath: string, options?: LoadOptions): Pro
 /**
  * Load AST artifact from a URL
  * @param url - The URL to load the AST artifact from
- * @param timeout - Request timeout in milliseconds (default: 30000)
+ * @param timeout - Request timeout in milliseconds (default: 30000, max: 5 minutes)
  * @param logger - Optional logger for warnings
  * @param options - Optional loading options including signature verification
  * @returns The loaded AST artifact
@@ -123,13 +165,63 @@ export async function loadFromURL(
     throw new Error(`Unsupported URL protocol. Only http:// and https:// are allowed: ${url}`);
   }
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  // Cap timeout at maximum allowed
+  const effectiveTimeout = Math.min(timeout, MAX_URL_TIMEOUT);
+
+  // Follow redirects manually with limit
+  let currentUrl = url;
+  let redirectCount = 0;
+  let response: Response | null = null;
+
+  while (redirectCount <= MAX_REDIRECTS) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+
+    try {
+      response = await fetch(currentUrl, {
+        signal: controller.signal,
+        redirect: 'manual', // Handle redirects manually
+      });
+      clearTimeout(timeoutId);
+
+      // Handle redirects
+      if (response.status >= 300 && response.status < 400) {
+        // Check if we've exceeded the redirect limit before processing
+        if (redirectCount >= MAX_REDIRECTS) {
+          throw new Error(`Too many redirects (max: ${MAX_REDIRECTS})`);
+        }
+
+        const location = response.headers.get('location');
+        if (!location) {
+          throw new Error(`Redirect without location header: ${response.status}`);
+        }
+
+        // Resolve relative redirects
+        try {
+          currentUrl = new URL(location, currentUrl).toString();
+          redirectCount++;
+          continue;
+        } catch {
+          throw new Error(`Invalid redirect URL: ${location}`);
+        }
+      }
+
+      // Break out of loop if not a redirect
+      break;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`Timeout loading AST from URL ${url} after ${effectiveTimeout}ms`);
+      }
+      throw error;
+    }
+  }
+
+  if (!response) {
+    throw new Error(`Failed to load AST from URL ${url}`);
+  }
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       throw new Error(
         `Failed to load AST from URL ${url}: ${response.status} ${response.statusText}`
@@ -163,9 +255,8 @@ export async function loadFromURL(
     const buffer = Buffer.from(arrayBuffer);
     return loadFromBuffer(buffer, options);
   } catch (error) {
-    clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Timeout loading AST from URL ${url} after ${timeout}ms`);
+      throw new Error(`Timeout loading AST from URL ${url} after ${effectiveTimeout}ms`);
     }
     if (error instanceof Error) {
       throw error;
@@ -182,10 +273,17 @@ export interface LoadOptions {
   publicKey?: string | Uint8Array;
   /** Whether to require a signature (default: false - signature is optional) */
   requireSignature?: boolean;
+  /** Optional allowed directory for file loading (restricts file access to this directory) */
+  allowedDirectory?: string;
 }
 
 /**
  * Load AST artifact from a Buffer
+ *
+ * **Security Note**: This function deserializes MessagePack data. Only load artifacts
+ * from trusted sources. MessagePack deserialization can be exploited if the data source
+ * is untrusted. Always verify artifact signatures when loading from untrusted sources.
+ *
  * @param buffer - The buffer containing the MessagePack-encoded AST artifact
  * @param options - Optional loading options including signature verification
  * @returns The loaded AST artifact
@@ -206,14 +304,21 @@ export async function loadFromBuffer(buffer: Buffer, options?: LoadOptions): Pro
 }
 
 /**
+ * Type guard to check if a value is a record-like object
+ */
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return (
+    value !== null && value !== undefined && typeof value === 'object' && !Array.isArray(value)
+  );
+}
+
+/**
  * Validate that the loaded data is a valid Artifact structure
  */
-function validateArtifact(value: unknown): Artifact {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+function validateArtifact(artifact: unknown): Artifact {
+  if (!isRecordLike(artifact)) {
     throw new Error('Invalid AST format: expected object');
   }
-
-  const artifact = value as Record<string, unknown>;
 
   if (typeof artifact.v !== 'string') {
     throw new Error('Invalid AST format: missing or invalid version');
@@ -223,12 +328,30 @@ function validateArtifact(value: unknown): Artifact {
     throw new Error('Invalid AST format: missing or invalid environment');
   }
 
-  if (!Array.isArray(artifact.strs) || !artifact.strs.every((s) => typeof s === 'string')) {
+  // Validate string table with size limits
+  if (!Array.isArray(artifact.strs)) {
     throw new Error('Invalid AST format: missing or invalid string table');
   }
 
+  if (artifact.strs.length > MAX_STRING_TABLE_SIZE) {
+    throw new Error(
+      `String table too large: ${artifact.strs.length} entries (max: ${MAX_STRING_TABLE_SIZE})`
+    );
+  }
+
+  if (!artifact.strs.every((s) => typeof s === 'string' && s.length <= MAX_STRING_LENGTH)) {
+    throw new Error(
+      `Invalid AST format: string table contains invalid strings (max length: ${MAX_STRING_LENGTH})`
+    );
+  }
+
+  // Validate flags array with size limit
   if (!Array.isArray(artifact.flags)) {
     throw new Error('Invalid AST format: missing or invalid flags array');
+  }
+
+  if (artifact.flags.length > MAX_FLAGS) {
+    throw new Error(`Too many flags: ${artifact.flags.length} (max: ${MAX_FLAGS})`);
   }
 
   // At this point, we've validated all required fields

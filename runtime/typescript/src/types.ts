@@ -44,6 +44,12 @@ export interface Logger {
 }
 
 /**
+ * Keys that are rejected to prevent prototype pollution attacks.
+ * These keys should not be allowed in property paths or object keys.
+ */
+export const PROTOTYPE_POLLUTING_KEYS = ['__proto__', 'constructor', 'prototype'] as const;
+
+/**
  * Rule type codes (first element of rule array)
  * These constants are needed at runtime for evaluation.
  */
@@ -146,7 +152,7 @@ export function isArtifact(value: unknown): value is Artifact {
     return false;
   }
 
-  const artifact = value as Record<string, unknown>;
+  const artifact: Record<string, unknown> = value as Record<string, unknown>;
 
   return (
     typeof artifact.v === 'string' &&
