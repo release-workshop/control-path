@@ -97,6 +97,9 @@ importers:
       '@controlpath/compiler':
         specifier: workspace:*
         version: link:../../packages/compiler
+      '@openfeature/server-sdk':
+        specifier: ^1.20.1
+        version: 1.20.1(@openfeature/core@1.9.1)
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.26
@@ -701,6 +704,19 @@ packages:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
+    dev: true
+
+  /@openfeature/core@1.9.1:
+    resolution: {integrity: sha512-YySPtH4s/rKKnHRU0xyFGrqMU8XA+OIPNWDrlEFxE6DCVWCIrxE5YpiB94YD2jMFn6SSdA0cwQ8vLkCkl8lm8A==}
+    dev: true
+
+  /@openfeature/server-sdk@1.20.1(@openfeature/core@1.9.1):
+    resolution: {integrity: sha512-jzz++kblADniuc7hONZ4DlRsoektCMDX5PPHoltn0hYWWw/Zm6sh3f7z5mGUX2XOikWKNVCtUQ3gWsdmIdHHXg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@openfeature/core': ^1.9.0
+    dependencies:
+      '@openfeature/core': 1.9.1
     dev: true
 
   /@pkgr/core@0.2.9:

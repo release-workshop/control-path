@@ -142,8 +142,10 @@ const flagValue = result.value; // Guaranteed to be boolean
 
 ### Using with OpenFeature SDK
 
+The Provider is fully compatible with `@openfeature/server-sdk`.
+
 ```typescript
-import { OpenFeature } from '@openfeature/js-sdk';
+import { OpenFeature } from '@openfeature/server-sdk';
 import { Provider, buildFlagNameMap } from '@controlpath/runtime';
 import { parseDefinitions } from '@controlpath/compiler';
 
@@ -159,8 +161,12 @@ OpenFeature.setProvider(provider);
 
 // Use OpenFeature client
 const client = OpenFeature.getClient();
-const showNewDashboard = await client.getBooleanValue('new_dashboard', false);
+const showNewDashboard = await client.getBooleanValue('new_dashboard', false, {
+  role: 'admin'
+});
 ```
+
+**Note**: The Provider supports both synchronous (for direct usage) and asynchronous (for OpenFeature SDK) method signatures via TypeScript method overloading. The OpenFeature SDK will automatically use the async signature.
 
 ## API Reference
 

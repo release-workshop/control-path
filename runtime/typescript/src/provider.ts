@@ -9,10 +9,20 @@
  * This provider directly implements the OpenFeature Provider interface.
  */
 
-import type { Artifact, ResolutionDetails, Logger, User, Context } from './types';
+import type {
+  Artifact,
+  ResolutionDetails,
+  Logger,
+  User,
+  Context,
+  EvaluationContext,
+} from './types';
+import { ErrorCodeValues } from './types';
 import { PROTOTYPE_POLLUTING_KEYS } from './types';
 import { loadFromFile, loadFromURL, type LoadOptions } from './ast-loader';
 import { evaluate } from './evaluator';
+// Import Provider type directly from OpenFeature (type-only import, no runtime dependency)
+import type { Provider as OpenFeatureProvider, Hook } from '@openfeature/server-sdk';
 
 /**
  * Options for Provider constructor
@@ -63,7 +73,14 @@ interface CacheEntry {
  */
 const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
-export class Provider {
+/**
+ * Control Path Provider for OpenFeature.
+ * Implements the OpenFeature Provider interface directly.
+ *
+ * This class implements the OpenFeatureProvider interface to ensure type compatibility
+ * with @openfeature/server-sdk without requiring it as a dependency.
+ */
+export class Provider implements OpenFeatureProvider {
   private artifact: Artifact | null = null;
   private logger?: Logger;
   private flagNameMap: Record<string, number>;
@@ -82,7 +99,7 @@ export class Provider {
   /**
    * Hooks array for OpenFeature (optional)
    */
-  readonly hooks: Array<unknown> = [];
+  readonly hooks: Array<Hook<Record<string, unknown>>> = [];
 
   /**
    * Create a new Provider instance
@@ -155,383 +172,219 @@ export class Provider {
     this.cache.clear();
   }
 
+  // Method overloads for resolveBooleanEvaluation
+  // Supports both sync (for direct usage) and async (for OpenFeature SDK) signatures
   /**
-   * Resolve boolean flag evaluation (OpenFeature interface)
-   * @param flagKey - The name of the flag to evaluate
-   * @param defaultValue - Default boolean value to return if evaluation fails
-   * @param evalContext - OpenFeature EvaluationContext (optional)
-   * @returns ResolutionDetails with the evaluated value or default
+   * Resolve boolean flag evaluation (async - for @openfeature/server-sdk compatibility)
+   * Matches OpenFeature Provider interface: (flagKey, defaultValue, context, logger)
+   * @overload
+   */
+  resolveBooleanEvaluation(
+    flagKey: string,
+    defaultValue: boolean,
+    context: EvaluationContext,
+    logger: Logger
+  ): Promise<ResolutionDetails<boolean>>;
+  /**
+   * Resolve boolean flag evaluation (synchronous - for direct usage and generated SDK)
+   * @overload
    */
   resolveBooleanEvaluation(
     flagKey: string,
     defaultValue: boolean,
     evalContext?: unknown
-  ): ResolutionDetails<boolean> {
-    try {
-      // Check cache first
-      if (this.cacheEnabled) {
-        const cacheKey = this.getCacheKey(flagKey, evalContext);
-        const cached = this.getCachedResult(cacheKey);
-        if (cached) {
-          return cached as ResolutionDetails<boolean>;
-        }
-      }
-
-      if (!this.artifact) {
-        if (this.logger) {
-          this.logger.debug('No artifact loaded, returning default value');
-        }
-        const details: ResolutionDetails<boolean> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const { user, context } = this.mapEvaluationContext(evalContext);
-      const flagIndex = this.getFlagIndex(flagKey);
-
-      if (flagIndex === undefined) {
-        if (this.logger) {
-          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
-        }
-        const details: ResolutionDetails<boolean> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-          errorCode: 'FLAG_NOT_FOUND',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const result = evaluate(flagIndex, this.artifact, user, context);
-
-      if (result === undefined) {
-        const details: ResolutionDetails<boolean> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      // Convert result to boolean
-      const boolValue = result === true || result === 'true' || result === 'ON' || result === 1;
-      const details: ResolutionDetails<boolean> = {
-        value: boolValue,
-        reason: 'TARGETING_MATCH',
-      };
-      this.setCachedResult(flagKey, evalContext, details);
-      return details;
-    } catch (error) {
-      if (this.logger) {
-        this.logger.error(
-          `Error evaluating boolean flag "${flagKey}"`,
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: 'GENERAL',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      };
+  ): ResolutionDetails<boolean>;
+  /**
+   * Implementation that handles both sync and async calls
+   */
+  resolveBooleanEvaluation(
+    flagKey: string,
+    defaultValueOrContext: boolean | EvaluationContext,
+    evalContextOrDefault?: boolean | EvaluationContext | Logger,
+    loggerOrUndefined?: Logger
+  ): ResolutionDetails<boolean> | Promise<ResolutionDetails<boolean>> {
+    // Check if this is the async signature (4 parameters: flagKey, defaultValue, context, logger)
+    if (
+      typeof defaultValueOrContext === 'boolean' &&
+      typeof evalContextOrDefault === 'object' &&
+      evalContextOrDefault !== null &&
+      !Array.isArray(evalContextOrDefault) &&
+      typeof loggerOrUndefined === 'object' &&
+      loggerOrUndefined !== null &&
+      'debug' in loggerOrUndefined
+    ) {
+      // Async signature: (flagKey, defaultValue, context, logger)
+      const defaultValue = defaultValueOrContext;
+      const context = evalContextOrDefault as EvaluationContext;
+      // logger is available but we use our internal logger if configured
+      return Promise.resolve(this.resolveBooleanEvaluationSync(flagKey, defaultValue, context));
+    } else {
+      // Sync signature: (flagKey, defaultValue, evalContext?)
+      const defaultValue = defaultValueOrContext as boolean;
+      const evalContext = evalContextOrDefault;
+      return this.resolveBooleanEvaluationSync(flagKey, defaultValue, evalContext);
     }
   }
 
+  // Method overloads for resolveStringEvaluation
   /**
-   * Resolve string flag evaluation (OpenFeature interface)
-   * @param flagKey - The name of the flag to evaluate
-   * @param defaultValue - Default string value to return if evaluation fails
-   * @param evalContext - OpenFeature EvaluationContext (optional)
-   * @returns ResolutionDetails with the evaluated value or default
+   * Resolve string flag evaluation (async - for @openfeature/server-sdk compatibility)
+   * Matches OpenFeature Provider interface: (flagKey, defaultValue, context, logger)
+   * @overload
+   */
+  resolveStringEvaluation(
+    flagKey: string,
+    defaultValue: string,
+    context: EvaluationContext,
+    logger: Logger
+  ): Promise<ResolutionDetails<string>>;
+  /**
+   * Resolve string flag evaluation (synchronous - for direct usage and generated SDK)
+   * @overload
    */
   resolveStringEvaluation(
     flagKey: string,
     defaultValue: string,
     evalContext?: unknown
-  ): ResolutionDetails<string> {
-    try {
-      // Check cache first
-      if (this.cacheEnabled) {
-        const cacheKey = this.getCacheKey(flagKey, evalContext);
-        const cached = this.getCachedResult(cacheKey);
-        if (cached) {
-          return cached as ResolutionDetails<string>;
-        }
-      }
-
-      if (!this.artifact) {
-        if (this.logger) {
-          this.logger.debug('No artifact loaded, returning default value');
-        }
-        const details: ResolutionDetails<string> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const { user, context } = this.mapEvaluationContext(evalContext);
-      const flagIndex = this.getFlagIndex(flagKey);
-
-      if (flagIndex === undefined) {
-        if (this.logger) {
-          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
-        }
-        const details: ResolutionDetails<string> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-          errorCode: 'FLAG_NOT_FOUND',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const result = evaluate(flagIndex, this.artifact, user, context);
-
-      if (result === undefined) {
-        const details: ResolutionDetails<string> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      // Convert result to string
-      const stringValue = String(result);
-      // Determine variant for multivariate flags
-      const variant = this.getVariant(flagIndex, result);
-      const details: ResolutionDetails<string> = {
-        value: stringValue,
-        reason: 'TARGETING_MATCH',
-        variant,
-      };
-      this.setCachedResult(flagKey, evalContext, details);
-      return details;
-    } catch (error) {
-      if (this.logger) {
-        this.logger.error(
-          `Error evaluating string flag "${flagKey}"`,
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: 'GENERAL',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      };
+  ): ResolutionDetails<string>;
+  /**
+   * Implementation that handles both sync and async calls
+   */
+  resolveStringEvaluation(
+    flagKey: string,
+    defaultValueOrContext: string | EvaluationContext,
+    evalContextOrDefault?: string | EvaluationContext | Logger,
+    loggerOrUndefined?: Logger
+  ): ResolutionDetails<string> | Promise<ResolutionDetails<string>> {
+    // Check if this is the async signature (4 parameters: flagKey, defaultValue, context, logger)
+    if (
+      typeof defaultValueOrContext === 'string' &&
+      typeof evalContextOrDefault === 'object' &&
+      evalContextOrDefault !== null &&
+      !Array.isArray(evalContextOrDefault) &&
+      typeof loggerOrUndefined === 'object' &&
+      loggerOrUndefined !== null &&
+      'debug' in loggerOrUndefined
+    ) {
+      // Async signature: (flagKey, defaultValue, context, logger)
+      const defaultValue = defaultValueOrContext;
+      const context = evalContextOrDefault as EvaluationContext;
+      // logger is available but we use our internal logger if configured
+      return Promise.resolve(this.resolveStringEvaluationSync(flagKey, defaultValue, context));
+    } else {
+      // Sync signature: (flagKey, defaultValue, evalContext?)
+      const defaultValue = defaultValueOrContext as string;
+      const evalContext = evalContextOrDefault;
+      return this.resolveStringEvaluationSync(flagKey, defaultValue, evalContext);
     }
   }
 
+  // Method overloads for resolveNumberEvaluation
   /**
-   * Resolve number flag evaluation (OpenFeature interface)
-   * @param flagKey - The name of the flag to evaluate
-   * @param defaultValue - Default number value to return if evaluation fails
-   * @param evalContext - OpenFeature EvaluationContext (optional)
-   * @returns ResolutionDetails with the evaluated value or default
+   * Resolve number flag evaluation (async - for @openfeature/server-sdk compatibility)
+   * Matches OpenFeature Provider interface: (flagKey, defaultValue, context, logger)
+   * @overload
+   */
+  resolveNumberEvaluation(
+    flagKey: string,
+    defaultValue: number,
+    context: EvaluationContext,
+    logger: Logger
+  ): Promise<ResolutionDetails<number>>;
+  /**
+   * Resolve number flag evaluation (synchronous - for direct usage and generated SDK)
+   * @overload
    */
   resolveNumberEvaluation(
     flagKey: string,
     defaultValue: number,
     evalContext?: unknown
-  ): ResolutionDetails<number> {
-    try {
-      // Check cache first
-      if (this.cacheEnabled) {
-        const cacheKey = this.getCacheKey(flagKey, evalContext);
-        const cached = this.getCachedResult(cacheKey);
-        if (cached) {
-          return cached as ResolutionDetails<number>;
-        }
-      }
-
-      if (!this.artifact) {
-        if (this.logger) {
-          this.logger.debug('No artifact loaded, returning default value');
-        }
-        const details: ResolutionDetails<number> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const { user, context } = this.mapEvaluationContext(evalContext);
-      const flagIndex = this.getFlagIndex(flagKey);
-
-      if (flagIndex === undefined) {
-        if (this.logger) {
-          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
-        }
-        const details: ResolutionDetails<number> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-          errorCode: 'FLAG_NOT_FOUND',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const result = evaluate(flagIndex, this.artifact, user, context);
-
-      if (result === undefined) {
-        const details: ResolutionDetails<number> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      // Convert result to number
-      const numValue = typeof result === 'number' ? result : parseFloat(String(result));
-      if (isNaN(numValue)) {
-        const details: ResolutionDetails<number> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-          errorCode: 'TYPE_MISMATCH',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const details: ResolutionDetails<number> = {
-        value: numValue,
-        reason: 'TARGETING_MATCH',
-      };
-      this.setCachedResult(flagKey, evalContext, details);
-      return details;
-    } catch (error) {
-      if (this.logger) {
-        this.logger.error(
-          `Error evaluating number flag "${flagKey}"`,
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: 'GENERAL',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      };
+  ): ResolutionDetails<number>;
+  /**
+   * Implementation that handles both sync and async calls
+   */
+  resolveNumberEvaluation(
+    flagKey: string,
+    defaultValueOrContext: number | EvaluationContext,
+    evalContextOrDefault?: number | EvaluationContext | Logger,
+    loggerOrUndefined?: Logger
+  ): ResolutionDetails<number> | Promise<ResolutionDetails<number>> {
+    // Check if this is the async signature (4 parameters: flagKey, defaultValue, context, logger)
+    if (
+      typeof defaultValueOrContext === 'number' &&
+      typeof evalContextOrDefault === 'object' &&
+      evalContextOrDefault !== null &&
+      !Array.isArray(evalContextOrDefault) &&
+      typeof loggerOrUndefined === 'object' &&
+      loggerOrUndefined !== null &&
+      'debug' in loggerOrUndefined
+    ) {
+      // Async signature: (flagKey, defaultValue, context, logger)
+      const defaultValue = defaultValueOrContext;
+      const context = evalContextOrDefault as EvaluationContext;
+      // logger is available but we use our internal logger if configured
+      return Promise.resolve(this.resolveNumberEvaluationSync(flagKey, defaultValue, context));
+    } else {
+      // Sync signature: (flagKey, defaultValue, evalContext?)
+      const defaultValue = defaultValueOrContext as number;
+      const evalContext = evalContextOrDefault;
+      return this.resolveNumberEvaluationSync(flagKey, defaultValue, evalContext);
     }
   }
 
+  // Method overloads for resolveObjectEvaluation
   /**
-   * Resolve object flag evaluation (OpenFeature interface)
-   * @param flagKey - The name of the flag to evaluate
-   * @param defaultValue - Default object value to return if evaluation fails
-   * @param evalContext - OpenFeature EvaluationContext (optional)
-   * @returns ResolutionDetails with the evaluated value or default
+   * Resolve object flag evaluation (async - for @openfeature/server-sdk compatibility)
+   * Matches OpenFeature Provider interface: (flagKey, defaultValue, context, logger)
+   * @overload
+   */
+  resolveObjectEvaluation<T extends Record<string, unknown>>(
+    flagKey: string,
+    defaultValue: T,
+    context: EvaluationContext,
+    logger: Logger
+  ): Promise<ResolutionDetails<T>>;
+  /**
+   * Resolve object flag evaluation (synchronous - for direct usage and generated SDK)
+   * @overload
    */
   resolveObjectEvaluation<T extends Record<string, unknown>>(
     flagKey: string,
     defaultValue: T,
     evalContext?: unknown
-  ): ResolutionDetails<T> {
-    try {
-      // Check cache first
-      if (this.cacheEnabled) {
-        const cacheKey = this.getCacheKey(flagKey, evalContext);
-        const cached = this.getCachedResult(cacheKey);
-        if (cached) {
-          return cached as ResolutionDetails<T>;
-        }
-      }
-
-      if (!this.artifact) {
-        if (this.logger) {
-          this.logger.debug('No artifact loaded, returning default value');
-        }
-        const details: ResolutionDetails<T> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const { user, context } = this.mapEvaluationContext(evalContext);
-      const flagIndex = this.getFlagIndex(flagKey);
-
-      if (flagIndex === undefined) {
-        if (this.logger) {
-          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
-        }
-        const details: ResolutionDetails<T> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-          errorCode: 'FLAG_NOT_FOUND',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      const result = evaluate(flagIndex, this.artifact, user, context);
-
-      if (result === undefined) {
-        const details: ResolutionDetails<T> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      // Convert result to object
-      let objValue: T;
-      if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
-        objValue = result as T;
-      } else if (typeof result === 'string') {
-        try {
-          objValue = JSON.parse(result) as T;
-        } catch {
-          const details: ResolutionDetails<T> = {
-            value: defaultValue,
-            reason: 'DEFAULT',
-            errorCode: 'TYPE_MISMATCH',
-          };
-          this.setCachedResult(flagKey, evalContext, details);
-          return details;
-        }
-      } else {
-        const details: ResolutionDetails<T> = {
-          value: defaultValue,
-          reason: 'DEFAULT',
-          errorCode: 'TYPE_MISMATCH',
-        };
-        this.setCachedResult(flagKey, evalContext, details);
-        return details;
-      }
-
-      // Determine variant for multivariate flags
-      const variant = this.getVariant(flagIndex, result);
-      const details: ResolutionDetails<T> = {
-        value: objValue,
-        reason: 'TARGETING_MATCH',
-        variant,
-      };
-      this.setCachedResult(flagKey, evalContext, details);
-      return details;
-    } catch (error) {
-      if (this.logger) {
-        this.logger.error(
-          `Error evaluating object flag "${flagKey}"`,
-          error instanceof Error ? error : new Error(String(error))
-        );
-      }
-      return {
-        value: defaultValue,
-        reason: 'ERROR',
-        errorCode: 'GENERAL',
-        errorMessage: error instanceof Error ? error.message : String(error),
-      };
+  ): ResolutionDetails<T>;
+  /**
+   * Implementation that handles both sync and async calls
+   */
+  resolveObjectEvaluation<T extends Record<string, unknown>>(
+    flagKey: string,
+    defaultValueOrContext: T | EvaluationContext,
+    evalContextOrDefault?: T | EvaluationContext | Logger,
+    loggerOrUndefined?: Logger
+  ): ResolutionDetails<T> | Promise<ResolutionDetails<T>> {
+    // Check if this is the async signature (4 parameters: flagKey, defaultValue, context, logger)
+    if (
+      typeof defaultValueOrContext === 'object' &&
+      defaultValueOrContext !== null &&
+      !Array.isArray(defaultValueOrContext) &&
+      typeof evalContextOrDefault === 'object' &&
+      evalContextOrDefault !== null &&
+      !Array.isArray(evalContextOrDefault) &&
+      typeof loggerOrUndefined === 'object' &&
+      loggerOrUndefined !== null &&
+      'debug' in loggerOrUndefined &&
+      !('targetingKey' in defaultValueOrContext) // Not an EvaluationContext
+    ) {
+      // Async signature: (flagKey, defaultValue, context, logger)
+      const defaultValue = defaultValueOrContext as T;
+      const context = evalContextOrDefault as EvaluationContext;
+      // logger is available but we use our internal logger if configured
+      return Promise.resolve(this.resolveObjectEvaluationSync(flagKey, defaultValue, context));
+    } else {
+      // Sync signature: (flagKey, defaultValue, evalContext?)
+      const defaultValue = defaultValueOrContext as T;
+      const evalContext = evalContextOrDefault;
+      return this.resolveObjectEvaluationSync(flagKey, defaultValue, evalContext);
     }
   }
 
@@ -742,5 +595,383 @@ export class Provider {
     }
 
     return { user, context: controlPathContext };
+  }
+
+  // ============================================================================
+  // Internal synchronous methods (called by both sync and async public methods)
+  // These contain the core evaluation logic
+  // ============================================================================
+
+  // ============================================================================
+  // Internal synchronous methods (renamed to avoid conflict with async overloads)
+  // These are called by both the public sync methods and async wrappers
+  // ============================================================================
+
+  /**
+   * Internal synchronous boolean evaluation (called by both sync and async methods)
+   * @private
+   */
+  private resolveBooleanEvaluationSync(
+    flagKey: string,
+    defaultValue: boolean,
+    evalContext?: unknown
+  ): ResolutionDetails<boolean> {
+    try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<boolean>;
+        }
+      }
+
+      if (!this.artifact) {
+        if (this.logger) {
+          this.logger.debug('No artifact loaded, returning default value');
+        }
+        const details: ResolutionDetails<boolean> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const { user, context } = this.mapEvaluationContext(evalContext);
+      const flagIndex = this.getFlagIndex(flagKey);
+
+      if (flagIndex === undefined) {
+        if (this.logger) {
+          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
+        }
+        const details: ResolutionDetails<boolean> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+          errorCode: ErrorCodeValues.FLAG_NOT_FOUND,
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const result = evaluate(flagIndex, this.artifact, user, context);
+
+      if (result === undefined) {
+        const details: ResolutionDetails<boolean> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      // Convert result to boolean
+      const boolValue = result === true || result === 'true' || result === 'ON' || result === 1;
+      const details: ResolutionDetails<boolean> = {
+        value: boolValue,
+        reason: 'TARGETING_MATCH',
+      };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
+    } catch (error) {
+      if (this.logger) {
+        this.logger.error(
+          `Error evaluating boolean flag "${flagKey}"`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCodeValues.GENERAL,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Internal synchronous string evaluation (called by both sync and async methods)
+   * @private
+   */
+  private resolveStringEvaluationSync(
+    flagKey: string,
+    defaultValue: string,
+    evalContext?: unknown
+  ): ResolutionDetails<string> {
+    try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<string>;
+        }
+      }
+
+      if (!this.artifact) {
+        if (this.logger) {
+          this.logger.debug('No artifact loaded, returning default value');
+        }
+        const details: ResolutionDetails<string> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const { user, context } = this.mapEvaluationContext(evalContext);
+      const flagIndex = this.getFlagIndex(flagKey);
+
+      if (flagIndex === undefined) {
+        if (this.logger) {
+          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
+        }
+        const details: ResolutionDetails<string> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+          errorCode: ErrorCodeValues.FLAG_NOT_FOUND,
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const result = evaluate(flagIndex, this.artifact, user, context);
+
+      if (result === undefined) {
+        const details: ResolutionDetails<string> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      // Convert result to string
+      const stringValue = String(result);
+      // Determine variant for multivariate flags
+      const variant = this.getVariant(flagIndex, result);
+      const details: ResolutionDetails<string> = {
+        value: stringValue,
+        reason: 'TARGETING_MATCH',
+        variant,
+      };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
+    } catch (error) {
+      if (this.logger) {
+        this.logger.error(
+          `Error evaluating string flag "${flagKey}"`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCodeValues.GENERAL,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Internal synchronous number evaluation (called by both sync and async methods)
+   * @private
+   */
+  private resolveNumberEvaluationSync(
+    flagKey: string,
+    defaultValue: number,
+    evalContext?: unknown
+  ): ResolutionDetails<number> {
+    try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<number>;
+        }
+      }
+
+      if (!this.artifact) {
+        if (this.logger) {
+          this.logger.debug('No artifact loaded, returning default value');
+        }
+        const details: ResolutionDetails<number> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const { user, context } = this.mapEvaluationContext(evalContext);
+      const flagIndex = this.getFlagIndex(flagKey);
+
+      if (flagIndex === undefined) {
+        if (this.logger) {
+          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
+        }
+        const details: ResolutionDetails<number> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+          errorCode: ErrorCodeValues.FLAG_NOT_FOUND,
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const result = evaluate(flagIndex, this.artifact, user, context);
+
+      if (result === undefined) {
+        const details: ResolutionDetails<number> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      // Convert result to number
+      const numValue = typeof result === 'number' ? result : parseFloat(String(result));
+      if (isNaN(numValue)) {
+        const details: ResolutionDetails<number> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+          errorCode: ErrorCodeValues.TYPE_MISMATCH,
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const details: ResolutionDetails<number> = {
+        value: numValue,
+        reason: 'TARGETING_MATCH',
+      };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
+    } catch (error) {
+      if (this.logger) {
+        this.logger.error(
+          `Error evaluating number flag "${flagKey}"`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCodeValues.GENERAL,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Internal synchronous object evaluation (called by both sync and async methods)
+   * @private
+   */
+  private resolveObjectEvaluationSync<T extends Record<string, unknown>>(
+    flagKey: string,
+    defaultValue: T,
+    evalContext?: unknown
+  ): ResolutionDetails<T> {
+    try {
+      // Check cache first
+      if (this.cacheEnabled) {
+        const cacheKey = this.getCacheKey(flagKey, evalContext);
+        const cached = this.getCachedResult(cacheKey);
+        if (cached) {
+          return cached as ResolutionDetails<T>;
+        }
+      }
+
+      if (!this.artifact) {
+        if (this.logger) {
+          this.logger.debug('No artifact loaded, returning default value');
+        }
+        const details: ResolutionDetails<T> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const { user, context } = this.mapEvaluationContext(evalContext);
+      const flagIndex = this.getFlagIndex(flagKey);
+
+      if (flagIndex === undefined) {
+        if (this.logger) {
+          this.logger.warn(`Flag "${flagKey}" not found in flag name map`);
+        }
+        const details: ResolutionDetails<T> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+          errorCode: ErrorCodeValues.FLAG_NOT_FOUND,
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const result = evaluate(flagIndex, this.artifact, user, context);
+
+      if (result === undefined) {
+        const details: ResolutionDetails<T> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      // Convert result to object
+      let objValue: T;
+      if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
+        objValue = result as T;
+      } else if (typeof result === 'string') {
+        try {
+          objValue = JSON.parse(result) as T;
+        } catch {
+          const details: ResolutionDetails<T> = {
+            value: defaultValue,
+            reason: 'DEFAULT',
+            errorCode: ErrorCodeValues.TYPE_MISMATCH,
+          };
+          this.setCachedResult(flagKey, evalContext, details);
+          return details;
+        }
+      } else {
+        const details: ResolutionDetails<T> = {
+          value: defaultValue,
+          reason: 'DEFAULT',
+          errorCode: ErrorCodeValues.TYPE_MISMATCH,
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      // Determine variant for multivariate flags
+      const variant = this.getVariant(flagIndex, result);
+      const details: ResolutionDetails<T> = {
+        value: objValue,
+        reason: 'TARGETING_MATCH',
+        variant,
+      };
+      this.setCachedResult(flagKey, evalContext, details);
+      return details;
+    } catch (error) {
+      if (this.logger) {
+        this.logger.error(
+          `Error evaluating object flag "${flagKey}"`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+      return {
+        value: defaultValue,
+        reason: 'ERROR',
+        errorCode: ErrorCodeValues.GENERAL,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 }

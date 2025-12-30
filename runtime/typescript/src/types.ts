@@ -8,40 +8,44 @@
  * Type definitions for Control Path runtime SDK.
  *
  * AST types are imported from @controlpath/compiler (dev dependency only, since types are compile-time).
+ * OpenFeature types are imported from @openfeature/core (dev dependency only, type-only imports).
  * Runtime constants and type guards are defined here.
  */
 
 // Import types from compiler package (compile-time only, no runtime dependency)
 import type { Artifact, Rule, Expression, Variation } from '@controlpath/compiler';
 
+// Import types from OpenFeature (type-only imports, no runtime dependency)
+// @openfeature/server-sdk re-exports everything from @openfeature/core
+import type {
+  EvaluationContext,
+  ResolutionDetails,
+  Logger,
+  JsonValue,
+  ErrorCode,
+} from '@openfeature/server-sdk';
+
 // Re-export types for consumers
 export type { Artifact, Rule, Expression, Variation };
 
-/**
- * ResolutionDetails type matching OpenFeature's ResolutionDetails interface.
- * This allows the Provider to be OpenFeature-compliant without requiring the OpenFeature package.
- */
-export interface ResolutionDetails<T> {
-  value: T;
-  reason?: string;
-  variant?: string;
-  errorCode?: string;
-  errorMessage?: string;
-}
+// Re-export OpenFeature types for convenience
+export type { EvaluationContext, ResolutionDetails, Logger, JsonValue, ErrorCode };
 
 /**
- * Logger interface for optional error and debug logging.
+ * ErrorCode values as constants (matching OpenFeature's ErrorCode enum).
+ * These are used at runtime instead of the enum to avoid runtime dependency.
+ * The values match OpenFeature's ErrorCode enum exactly.
  */
-export interface Logger {
-  /** Log an error message */
-  error(message: string, error?: Error): void;
-  /** Log a warning message */
-  warn(message: string): void;
-  /** Log an informational message */
-  info(message: string): void;
-  /** Log a debug message */
-  debug(message: string): void;
-}
+export const ErrorCodeValues = {
+  PROVIDER_NOT_READY: 'PROVIDER_NOT_READY' as ErrorCode,
+  PROVIDER_FATAL: 'PROVIDER_FATAL' as ErrorCode,
+  FLAG_NOT_FOUND: 'FLAG_NOT_FOUND' as ErrorCode,
+  PARSE_ERROR: 'PARSE_ERROR' as ErrorCode,
+  TYPE_MISMATCH: 'TYPE_MISMATCH' as ErrorCode,
+  TARGETING_KEY_MISSING: 'TARGETING_KEY_MISSING' as ErrorCode,
+  INVALID_CONTEXT: 'INVALID_CONTEXT' as ErrorCode,
+  GENERAL: 'GENERAL' as ErrorCode,
+} as const;
 
 /**
  * Keys that are rejected to prevent prototype pollution attacks.
@@ -299,3 +303,5 @@ export interface Context {
   /** Additional context attributes */
   [key: string]: unknown;
 }
+
+// EvaluationContext is now imported from @openfeature/server-sdk (see imports above)
