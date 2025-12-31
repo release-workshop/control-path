@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/compiler",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Control Path Contributors"]
+license = "Elastic-2.0"
+repository = "https://github.com/controlpath/control-path"
+

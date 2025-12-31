@@ -1,0 +1,39 @@
+[package]
+name = "controlpath-compiler"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Control Path compiler library - compiles deployment YAML to AST artifacts"
+rust-version = "1.70"
+
+[lib]
+name = "controlpath_compiler"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+# Core serialization (WASM-compatible)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# YAML parsing - using yaml-rust for WASM compatibility
+# serde_yaml may not be fully WASM-compatible, so using yaml-rust as fallback
+yaml-rust = "0.4"
+
+# MessagePack (WASM-compatible)
+rmp-serde = "1.1"
+
+# JSON Schema validation (WASM-compatible)
+# NOTE: jsonschema has a transitive dependency on getrandom which needs WASM configuration
+# This will be addressed in Phase 3 (Schema Validation)
+# For now, we'll comment it out to verify basic WASM compilation works
+# jsonschema = "0.17"
+
+# Error handling (WASM-compatible)
+anyhow = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+criterion = "0.5"
+
