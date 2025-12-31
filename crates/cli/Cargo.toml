@@ -1,0 +1,23 @@
+[package]
+name = "controlpath-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Control Path CLI - command-line tool for compiling and validating flag definitions"
+rust-version = "1.70"
+
+[[bin]]
+name = "controlpath"
+path = "src/main.rs"
+
+[dependencies]
+controlpath-compiler = { path = "../compiler" }
+clap = { version = "4.4", features = ["derive"] }
+anyhow = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3.8"
+

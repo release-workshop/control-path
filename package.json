@@ -7,6 +7,8 @@
     "preinstall": "node scripts/ensure-pnpm.js",
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:comparison": "cd tests/comparison && vitest run",
+    "test:comparison:watch": "cd tests/comparison && vitest",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "format": "turbo run format",

@@ -1,0 +1,5 @@
+environment: production
+rules:
+  example_flag:
+    rules:
+      - serve: false

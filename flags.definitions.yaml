@@ -1,0 +1,5 @@
+flags:
+  - name: example_flag
+    type: boolean
+    defaultValue: false
+    description: An example feature flag

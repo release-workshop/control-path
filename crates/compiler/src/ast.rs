@@ -11,7 +11,8 @@
  * - Fast evaluation (direct array access)
  * - Minimal memory footprint
  */
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_bytes;
 
 /// Top-level AST artifact structure.
 /// This is the root structure that gets serialized to MessagePack.
@@ -33,10 +34,12 @@ pub struct Artifact {
     #[serde(rename = "flagNames")]
     pub flag_names: Vec<u16>,
     /// Optional segment definitions as [name_index, expression] tuples
-    #[serde(rename = "segments", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "segments", skip_serializing_if = "Option::is_none", default)]
     pub segments: Option<Vec<(u16, Expression)>>,
     /// Optional Ed25519 signature
-    #[serde(rename = "sig", skip_serializing_if = "Option::is_none")]
+    /// Serialized as MessagePack binary type (not array) for compatibility with TypeScript
+    /// Note: Using custom serializer to ensure binary format matches TypeScript Uint8Array
+    #[serde(rename = "sig", skip_serializing_if = "Option::is_none", default, serialize_with = "serialize_signature", deserialize_with = "deserialize_signature")]
     pub signature: Option<Vec<u8>>,
 }
 
@@ -491,5 +494,52 @@ impl<'de> Deserialize<'de> for Expression {
 
         deserializer.deserialize_seq(ExpressionVisitor)
     }
+}
+
+/// Custom serializer for signature field to ensure it's serialized as MessagePack binary type
+fn serialize_signature<S>(signature: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match signature {
+        Some(bytes) => serde_bytes::serialize(bytes, serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+/// Custom deserializer for signature field to ensure it's deserialized as MessagePack binary type
+fn deserialize_signature<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Visitor;
+    use std::fmt;
+
+    struct SignatureVisitor;
+
+    impl<'de> Visitor<'de> for SignatureVisitor {
+        type Value = Option<Vec<u8>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("an optional byte array")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            let buf: serde_bytes::ByteBuf = serde_bytes::deserialize(deserializer)?;
+            Ok(Some(buf.into_vec()))
+        }
+    }
+
+    deserializer.deserialize_option(SignatureVisitor)
 }
 
