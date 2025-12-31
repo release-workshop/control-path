@@ -110,3 +110,14 @@ yarn.lock
 *.temp
 .tmp/
 .temp/
+
+# Rust
+# Build output directory
+target/
+# Backup files from rustfmt
+**/*.rs.bk
+# Rust compiler info
+.rustc_info.json
+# Note: Cargo.lock should be committed for binaries/apps (like the CLI)
+# but can be ignored for libraries. Since this is a monorepo with a CLI,
+# Cargo.lock is kept in the repository.
