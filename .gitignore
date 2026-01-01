@@ -118,6 +118,29 @@ target/
 **/*.rs.bk
 # Rust compiler info
 .rustc_info.json
+# Rust build artifacts
+**/*.rlib
+**/*.rmeta
+**/*.pdb
 # Note: Cargo.lock should be committed for binaries/apps (like the CLI)
 # but can be ignored for libraries. Since this is a monorepo with a CLI,
 # Cargo.lock is kept in the repository.
+
+# Binary executables and test files
+# Test binaries (e.g., test-native, packages/cli/test-native)
+test-native
+**/test-native
+**/*-test-native
+**/*-native
+# Explicit path for known test binary
+packages/cli/test-native
+# Compiled binaries (should be in dist/ but adding explicit patterns)
+**/*.exe
+**/*.bin
+**/*.so
+**/*.dylib
+**/*.dll
+**/*.wasm
+# Object files
+**/*.o
+**/*.a
