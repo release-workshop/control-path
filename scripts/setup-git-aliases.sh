@@ -1,5 +1,8 @@
 #!/bin/bash
 # Setup script for git aliases and hooks
+# This script:
+#   1. Configures the 'git pushmain' alias for trunk-based development
+#   2. Installs git hooks (pre-commit, commit-msg, pre-push)
 
 # Copyright 2025 Release Workshop Ltd
 # Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.

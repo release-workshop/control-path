@@ -10,13 +10,19 @@ This directory contains git hooks for the Control Path repository. These hooks r
 
 ## Installation
 
-Run the setup script to install these hooks:
+Run the setup script to install these hooks and configure git aliases:
 
 ```bash
 bash scripts/setup-git-aliases.sh
 ```
 
-Or manually install:
+This will:
+- Install all git hooks (pre-commit, commit-msg, pre-push)
+- Configure the `git pushmain` alias for trunk-based development
+
+### Manual Installation
+
+If you only want to install hooks without aliases:
 
 ```bash
 cp .githooks/* .git/hooks/
