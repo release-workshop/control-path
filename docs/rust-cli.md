@@ -338,22 +338,6 @@ Clear messages when files are missing:
   Error: Failed to read definitions file: No such file or directory (os error 2)
 ```
 
-## Comparison with TypeScript CLI
-
-The Rust CLI provides the same functionality as the TypeScript CLI:
-
-| Feature | TypeScript CLI | Rust CLI |
-|---------|---------------|----------|
-| `validate` command | ✅ | ✅ |
-| `compile` command | ✅ | ✅ |
-| `init` command | ✅ | ✅ |
-| File path resolution | ✅ | ✅ |
-| Auto-detection | ✅ | ✅ |
-| Error messages | ✅ | ✅ |
-| Performance | Fast | Faster |
-| Binary size | Larger | Smaller |
-| Startup time | Slower | Faster |
-
 ## Performance
 
 The Rust CLI is optimized for performance:
@@ -394,6 +378,5 @@ Check for:
 ## See Also
 
 - [Rust API Documentation](./rust-api.md)
-- [Migration Guide](./migration-typescript-to-rust.md)
 - [Architecture Documentation](../control-path-next/ARCHITECTURE.md)
 

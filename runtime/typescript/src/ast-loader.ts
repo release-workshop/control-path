@@ -375,7 +375,6 @@ function validateArtifact(artifact: unknown): Artifact {
   // We've validated the structure, so we can safely assert types
   // Since we've validated, we know the types are correct
   // Use 'as unknown as' to properly narrow from Record<string, unknown> to Artifact
-  // Note: flagNames is a required field in the Artifact type from @controlpath/compiler
   const validatedArtifact = artifact as unknown as Artifact & { flagNames: number[] };
 
   const result = {

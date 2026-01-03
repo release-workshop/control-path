@@ -22,11 +22,10 @@
  * @example
  * ```typescript
  * import { buildFlagNameMap } from '@controlpath/runtime';
- * import { parseDefinitions } from '@controlpath/compiler';
  *
  * // For testing or tooling
- * const definitions = parseDefinitions('flags.definitions.yaml');
- * const flagNameMap = buildFlagNameMap(definitions.flags);
+ * const flags = [{ name: 'flag1' }, { name: 'flag2' }];
+ * const flagNameMap = buildFlagNameMap(flags);
  * ```
  */
 export function buildFlagNameMap(flags: Array<{ name: string }>): Record<string, number> {

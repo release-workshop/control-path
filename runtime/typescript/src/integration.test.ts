@@ -5,15 +5,73 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { writeFile, mkdir, rm } from 'fs/promises';
+import { writeFile, mkdir, rm, readFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { compile, serialize } from '@controlpath/compiler';
-import { parseDefinitions, parseDeployment } from '@controlpath/compiler';
+import { spawnSync } from 'child_process';
 import { loadFromBuffer, loadFromFile } from './ast-loader';
 import { evaluate } from './evaluator';
 import { Provider } from './provider';
 import type { User, Context } from './types';
+
+/**
+ * Get the path to the Rust CLI binary
+ */
+function getRustCliPath(): string {
+  // Try release build first (faster for repeated runs)
+  const releasePath = join(__dirname, '../../../target/release/controlpath');
+  try {
+    require('fs').readFileSync(releasePath);
+    return releasePath;
+  } catch {
+    // Fall back to debug build
+    const debugPath = join(__dirname, '../../../target/debug/controlpath');
+    try {
+      require('fs').readFileSync(debugPath);
+      return debugPath;
+    } catch {
+      throw new Error(
+        'Rust CLI binary not found. Please build it first: cargo build --release --bin controlpath'
+      );
+    }
+  }
+}
+
+/**
+ * Compile using Rust CLI
+ */
+async function compileWithRustCli(
+  definitionsFile: string,
+  deploymentFile: string,
+  outputFile: string
+): Promise<Buffer> {
+  const rustCli = getRustCliPath();
+  const result = spawnSync(rustCli, [
+    'compile',
+    '--definitions',
+    definitionsFile,
+    '--deployment',
+    deploymentFile,
+    '--output',
+    outputFile,
+  ], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  });
+
+  if (result.error) {
+    throw new Error(`Failed to run Rust CLI: ${result.error.message}`);
+  }
+
+  if (result.status !== 0) {
+    const errorMsg = result.stderr?.toString() || result.stdout?.toString() || 'Unknown error';
+    throw new Error(`Rust CLI failed with exit code ${result.status}: ${errorMsg}`);
+  }
+
+  // Read the output file
+  const buffer = await readFile(outputFile);
+  return buffer;
+}
 
 describe('Integration Tests with Real AST Artifacts', () => {
   // Use OS temp directory for better isolation and reliability
@@ -84,20 +142,9 @@ rules:
     }
   });
 
-  it('should compile and load AST artifact from Phase 1 compiler', async () => {
-    // Parse definitions and deployment
-    const definitions = parseDefinitions(definitionsFile);
-    const deploymentData = parseDeployment(deploymentFile);
-
-    // Compile to AST
-    const artifact = compile(deploymentData, definitions);
-
-    // Serialize to MessagePack (returns Uint8Array)
-    const bytes = serialize(artifact);
-    const buffer = Buffer.from(bytes);
-
-    // Write to file
-    await writeFile(astFile, buffer);
+  it('should compile and load AST artifact from Rust CLI', async () => {
+    // Compile using Rust CLI
+    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
 
     // Load from file
     const loaded = await loadFromFile(astFile);
@@ -109,18 +156,17 @@ rules:
   });
 
   it('should evaluate flags from compiled AST artifact', async () => {
-    // Parse and compile
-    const definitions = parseDefinitions(definitionsFile);
-    const deploymentData = parseDeployment(deploymentFile);
-    const artifact = compile(deploymentData, definitions);
-    const bytes = serialize(artifact);
-    const buffer = Buffer.from(bytes);
+    // Compile using Rust CLI
+    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
     const loaded = await loadFromBuffer(buffer);
 
-    // Create flag name to index map
+    // Create flag name to index map from artifact
     const flagNameMap: Record<string, number> = {};
-    definitions.flags.forEach((flag, index) => {
-      flagNameMap[flag.name] = index;
+    loaded.flagNames.forEach((nameIndex, flagIndex) => {
+      const flagName = loaded.strs[nameIndex];
+      if (flagName) {
+        flagNameMap[flagName] = flagIndex;
+      }
     });
 
     // Test flag 0: new_dashboard
@@ -146,13 +192,8 @@ rules:
   });
 
   it('should work with Provider class using compiled AST', async () => {
-    // Parse and compile
-    const definitions = parseDefinitions(definitionsFile);
-    const deploymentData = parseDeployment(deploymentFile);
-    const artifact = compile(deploymentData, definitions);
-    const bytes = serialize(artifact);
-    const buffer = Buffer.from(bytes);
-    await writeFile(astFile, buffer);
+    // Compile using Rust CLI
+    await compileWithRustCli(definitionsFile, deploymentFile, astFile);
 
     // Create provider and load artifact (flag name map is automatically built)
     const provider = new Provider();
@@ -176,16 +217,17 @@ rules:
   });
 
   it('should handle context in evaluation', async () => {
-    const definitions = parseDefinitions(definitionsFile);
-    const deploymentData = parseDeployment(deploymentFile);
-    const artifact = compile(deploymentData, definitions);
-    const bytes = serialize(artifact);
-    const buffer = Buffer.from(bytes);
+    // Compile using Rust CLI
+    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
     const loaded = await loadFromBuffer(buffer);
 
+    // Create flag name to index map from artifact
     const flagNameMap: Record<string, number> = {};
-    definitions.flags.forEach((flag, index) => {
-      flagNameMap[flag.name] = index;
+    loaded.flagNames.forEach((nameIndex, flagIndex) => {
+      const flagName = loaded.strs[nameIndex];
+      if (flagName) {
+        flagNameMap[flagName] = flagIndex;
+      }
     });
 
     const user: User = { id: 'user1', role: 'admin' };

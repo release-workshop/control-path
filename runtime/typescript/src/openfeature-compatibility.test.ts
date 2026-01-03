@@ -18,12 +18,70 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { OpenFeature } from '@openfeature/server-sdk';
-import { writeFile, mkdir, rm } from 'fs/promises';
+import { writeFile, mkdir, rm, readFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { compile, serialize } from '@controlpath/compiler';
-import { parseDefinitions, parseDeployment } from '@controlpath/compiler';
+import { spawnSync } from 'child_process';
 import { Provider } from './provider';
+
+/**
+ * Get the path to the Rust CLI binary
+ */
+function getRustCliPath(): string {
+  // Try release build first (faster for repeated runs)
+  const releasePath = join(__dirname, '../../../target/release/controlpath');
+  try {
+    require('fs').readFileSync(releasePath);
+    return releasePath;
+  } catch {
+    // Fall back to debug build
+    const debugPath = join(__dirname, '../../../target/debug/controlpath');
+    try {
+      require('fs').readFileSync(debugPath);
+      return debugPath;
+    } catch {
+      throw new Error(
+        'Rust CLI binary not found. Please build it first: cargo build --release --bin controlpath'
+      );
+    }
+  }
+}
+
+/**
+ * Compile using Rust CLI
+ */
+async function compileWithRustCli(
+  definitionsFile: string,
+  deploymentFile: string,
+  outputFile: string
+): Promise<Buffer> {
+  const rustCli = getRustCliPath();
+  const result = spawnSync(rustCli, [
+    'compile',
+    '--definitions',
+    definitionsFile,
+    '--deployment',
+    deploymentFile,
+    '--output',
+    outputFile,
+  ], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  });
+
+  if (result.error) {
+    throw new Error(`Failed to run Rust CLI: ${result.error.message}`);
+  }
+
+  if (result.status !== 0) {
+    const errorMsg = result.stderr?.toString() || result.stdout?.toString() || 'Unknown error';
+    throw new Error(`Rust CLI failed with exit code ${result.status}: ${errorMsg}`);
+  }
+
+  // Read the output file
+  const buffer = await readFile(outputFile);
+  return buffer;
+}
 // Type guard function moved inline since openfeature-types.ts was removed
 function isOpenFeatureProvider(
   provider: unknown
@@ -146,15 +204,8 @@ rules:
     await writeFile(definitionsFile, flagsDefinitions);
     await writeFile(deploymentFile, deployment);
 
-    // Compile AST
-    const definitions = parseDefinitions(definitionsFile);
-    const deploymentData = parseDeployment(deploymentFile);
-    const artifact = compile(deploymentData, definitions);
-    const bytes = serialize(artifact);
-    const buffer = Buffer.from(bytes);
-
-    // Write AST file and verify it exists
-    await writeFile(astFile, buffer);
+    // Compile AST using Rust CLI
+    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
 
     // Verify file was created successfully
     const { stat } = await import('fs/promises');

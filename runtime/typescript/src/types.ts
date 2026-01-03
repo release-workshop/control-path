@@ -7,13 +7,10 @@
 /**
  * Type definitions for Control Path runtime SDK.
  *
- * AST types are imported from @controlpath/compiler (dev dependency only, since types are compile-time).
+ * AST types are defined here to match the AST format specification.
  * OpenFeature types are imported from @openfeature/core (dev dependency only, type-only imports).
  * Runtime constants and type guards are defined here.
  */
-
-// Import types from compiler package (compile-time only, no runtime dependency)
-import type { Artifact, Rule, Expression, Variation } from '@controlpath/compiler';
 
 // Import types from OpenFeature (type-only imports, no runtime dependency)
 // @openfeature/server-sdk re-exports everything from @openfeature/core
@@ -25,8 +22,66 @@ import type {
   ErrorCode,
 } from '@openfeature/server-sdk';
 
-// Re-export types for consumers
-export type { Artifact, Rule, Expression, Variation };
+/**
+ * Artifact structure matching AST format.
+ * This is the root structure that gets serialized to MessagePack.
+ */
+export interface Artifact {
+  /** Format version (e.g., "1.0") */
+  v: string;
+  /** Environment name */
+  env: string;
+  /** String table - all strings referenced by index (uint16) */
+  strs: string[];
+  /** Array of flag rule arrays, indexed by flag definition order */
+  flags: Rule[][];
+  /** Flag names as string table indices (one per flag, same order as flags array) */
+  flagNames: number[];
+  /** Optional segment definitions as [name_index, expression] tuples */
+  segments?: [number, Expression][];
+  /** Optional Ed25519 signature */
+  sig?: Uint8Array;
+}
+
+/**
+ * Rule structure: [type, when?, payload]
+ * 
+ * Types:
+ * - serve: [0, undefined, string | number] or [0, Expression, string | number]
+ * - variations: [1, undefined, Variation[]] or [1, Expression, Variation[]]
+ * - rollout: [2, undefined, [string | number, number]] or [2, Expression, [string | number, number]]
+ */
+export type Rule =
+  | [0, undefined, string | number] // serve without when
+  | [0, Expression, string | number] // serve with when
+  | [1, undefined, Variation[]] // variations without when
+  | [1, Expression, Variation[]] // variations with when
+  | [2, undefined, [string | number, number]] // rollout without when
+  | [2, Expression, [string | number, number]]; // rollout with when
+
+/**
+ * Expression node structure: [type, ...]
+ * 
+ * Types:
+ * - binary_op: [0, op_code, left, right]
+ * - logical_op: [1, op_code, left, right?] (NOT has no right)
+ * - property: [2, prop_index]
+ * - literal: [3, value]
+ * - func: [4, func_code, args[]]
+ */
+export type Expression =
+  | [0, number, Expression, Expression] // binary_op
+  | [1, number, Expression, Expression?] // logical_op
+  | [2, number] // property
+  | [3, unknown] // literal
+  | [4, number, Expression[]]; // func
+
+/**
+ * Variation structure: [var_index, pct]
+ * - var_index: string table index (uint16)
+ * - pct: percentage (uint8, 0-100)
+ */
+export type Variation = [number, number];
 
 // Re-export OpenFeature types for convenience
 export type { EvaluationContext, ResolutionDetails, Logger, JsonValue, ErrorCode };

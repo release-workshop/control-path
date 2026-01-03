@@ -17,7 +17,7 @@
     },
     "build": {
       "dependsOn": ["format", "^build", "lint", "typecheck"],
-      "outputs": ["dist/**", "packages/cli/dist/**"]
+      "outputs": ["dist/**"]
     },
     "test": {
       "dependsOn": ["build"],

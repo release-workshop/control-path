@@ -136,8 +136,9 @@ Control Path uses **Conventional Commits** format. Commit messages are enforced 
 
 **Scopes** (optional but recommended):
 
-- `compiler`: Changes to `packages/compiler`
-- `cli`: Changes to `packages/cli`
+- `compiler`: Changes to `crates/compiler`
+- `cli`: Changes to `crates/cli`
+- `runtime`: Changes to `runtime/` packages
 - `repo`: Root-level config, workflows, docs
 - `ci`: CI/CD changes
 - `docs`: Documentation changes
@@ -147,6 +148,7 @@ Control Path uses **Conventional Commits** format. Commit messages are enforced 
 
 ```
 feat(compiler): add support for semver comparison in expressions
+feat(runtime): add support for hot reloading
 
 Implements SEMVER_EQ, SEMVER_GT, SEMVER_GTE, SEMVER_LT, and SEMVER_LTE
 functions in the expression engine.

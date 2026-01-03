@@ -16,16 +16,7 @@
     "@noble/ed25519": "^1.7.3",
     "msgpackr": "^1.9.0"
   },
-  "peerDependencies": {
-    "@controlpath/compiler": "*"
-  },
-  "peerDependenciesMeta": {
-    "@controlpath/compiler": {
-      "optional": true
-    }
-  },
   "devDependencies": {
-    "@controlpath/compiler": "workspace:*",
     "@openfeature/server-sdk": "^1.20.1",
     "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^1.0.0",

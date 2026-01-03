@@ -143,15 +143,11 @@ Control Path is a **Git-native feature flag system** that generates **type-safe 
 
 **1. Install the CLI**
 
+Download the pre-built binary from the [latest release](https://github.com/controlpath/control-path/releases/latest), or build from source:
+
 ```bash
-# Using npm
-npm install -g @controlpath/cli
-
-# Using pnpm
-pnpm add -g @controlpath/cli
-
-# Using deno
-deno install -A -n controlpath https://deno.land/x/controlpath/cli.ts
+# Build from source
+cargo build --release --bin controlpath
 ```
 
 **2. Initialize Your Project**
@@ -314,19 +310,19 @@ This is a monorepo managed with **pnpm** and **Turborepo**.
 
 ### Prerequisites
 
+- **Rust** (install from [rustup.rs](https://rustup.rs/))
+  - Required for building the CLI tool and compiler
 - **Node.js 24 LTS** or higher (install from [nodejs.org](https://nodejs.org/) or use [nvm](https://github.com/nvm-sh/nvm))
-  - Required for the compiler package and build tooling
+  - Required for the runtime SDK and build tooling
   - The project includes a `.nvmrc` file for automatic version switching with nvm
-- **Deno** (install from [deno.land](https://deno.land/) or use [dvm](https://github.com/justjavac/dvm))
-  - Required for the CLI tool runtime
 - **pnpm 8+** (install with `npm install -g pnpm`)
   - Required for package management and workspace resolution
 - **Turborepo** (installed automatically via pnpm, or install globally with `npm install -g turbo`)
 
 **Note**:
 
-- The project requires Node.js 24 LTS for the compiler package and build tooling
-- The CLI tool runs on Deno runtime (not Node.js)
+- The project requires Rust for the CLI tool and compiler
+- The project requires Node.js 24 LTS for the runtime SDK and build tooling
 - The preinstall hook will verify you're using the correct versions
 - If using nvm, run `nvm use` to automatically switch to the correct Node.js version
 - **Use Turborepo commands** (`turbo run <task>`) instead of pnpm scripts for optimal performance and caching
@@ -363,8 +359,8 @@ All build, test, lint, and format:check commands should be run through Turborepo
 
 **This project requires:**
 
-- **Node.js 24 LTS** or higher - Required for compiler package and build tooling
-- **Deno** - Required for CLI tool runtime (CLI runs on Deno, not Node.js)
+- **Rust** - Required for CLI tool and compiler
+- **Node.js 24 LTS** or higher - Required for runtime SDK and build tooling
 - **pnpm as the package manager** - Using npm or yarn will fail during installation
 
 The preinstall hook automatically checks Node.js LTS and pnpm requirements and provides helpful error messages if they're not met.
@@ -385,18 +381,14 @@ nvm use --lts
 # Verify Node.js LTS is installed (should be 24.x or higher)
 node --version
 
-# Install Deno (if not installed)
-# Using installer:
-curl -fsSL https://deno.land/install.sh | sh
+# Install Rust (if not installed)
+# Using rustup (recommended):
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Or using dvm (Deno Version Manager):
-dvm install
-dvm use
+# Or download from https://rustup.rs/
 
-# Or download from https://deno.land/
-
-# Verify Deno is installed
-deno --version
+# Verify Rust is installed
+rustc --version
 
 # Install pnpm (if not installed)
 npm install -g pnpm
@@ -457,17 +449,13 @@ This ensures:
 
 ```
 control-path/
-├── packages/
-│   ├── compiler/     # AST compiler (TypeScript library, Node.js runtime)
-│   │   ├── src/
-│   │   ├── package.json
-│   │   └── tsconfig.json
-│   └── cli/          # CLI tool (TypeScript, Deno runtime)
-│       ├── src/
-│       ├── package.json
-│       ├── deno.json
-│       └── tsconfig.json
-├── runtime/           # Runtime SDKs (future)
+├── crates/
+│   ├── compiler/     # AST compiler (Rust library)
+│   │   └── src/
+│   └── cli/          # CLI tool (Rust binary)
+│       └── src/
+├── runtime/           # Runtime SDKs
+│   └── typescript/   # TypeScript runtime SDK
 ├── schemas/           # JSON schemas
 ├── scripts/
 │   └── ensure-pnpm.js  # Preinstall hook to enforce pnpm usage
@@ -478,15 +466,15 @@ control-path/
 
 ### Runtime Architecture
 
-- **Compiler Package**: Runs on Node.js (uses Node.js APIs for file system, etc.)
-- **CLI Tool**: Runs on Deno runtime (uses Deno APIs, can be compiled to native binary)
-- Both packages use TypeScript and share code through workspace dependencies
+- **Compiler**: Rust library that compiles flag definitions and deployments to AST artifacts
+- **CLI Tool**: Rust binary that provides command-line interface for validation and compilation
+- **Runtime SDK**: TypeScript package for loading and evaluating AST artifacts in applications
 
 ### Code Quality
 
-- **ESLint**: Configured with TypeScript rules, Prettier integration (compiler package)
-- **Deno Lint**: Built-in linting for CLI package (Deno runtime)
-- **Prettier/Deno Fmt**: Code formatting with consistent style
+- **Rust**: Uses standard Rust tooling (cargo, rustfmt, clippy)
+- **ESLint**: Configured with TypeScript rules, Prettier integration (runtime SDK)
+- **Prettier**: Code formatting with consistent style
 - **TypeScript**: Strict mode enabled for type safety
 
 ## License

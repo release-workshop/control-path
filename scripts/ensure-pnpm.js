@@ -86,23 +86,8 @@ try {
   console.warn('⚠️  Warning: Could not verify pnpm version, but pnpm appears to be installed.');
 }
 
-// Check if Deno is installed (for CLI)
-try {
-  execSync('deno --version', { stdio: 'ignore' });
-  const denoVersion = execSync('deno --version', { encoding: 'utf-8' }).trim().split('\n')[0];
-
-  // Success
-  if (process.env.npm_config_user_agent) {
-    console.log(`✓ Node.js ${nodeVersion} (LTS)`);
-    console.log(`✓ ${denoVersion}`);
-    console.log('✓ Using pnpm as package manager');
-  }
-} catch (error) {
-  // Deno not installed - warn but don't fail (compiler package doesn't need it)
-  if (process.env.npm_config_user_agent) {
-    console.log(`✓ Node.js ${nodeVersion} (LTS)`);
-    console.log('✓ Using pnpm as package manager');
-    console.warn('⚠️  Warning: Deno is not installed. Required for CLI tool.');
-    console.warn('   Install with: curl -fsSL https://deno.land/install.sh | sh');
-  }
+// Success
+if (process.env.npm_config_user_agent) {
+  console.log(`✓ Node.js ${nodeVersion} (LTS)`);
+  console.log('✓ Using pnpm as package manager');
 }
