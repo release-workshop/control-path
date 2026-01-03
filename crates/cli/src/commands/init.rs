@@ -72,7 +72,10 @@ fn run_inner(options: Options) -> CliResult<bool> {
 
     ensure_controlpath_directory()?;
 
-    let create_definitions = !options.no_examples || options.example_flags;
+    // Create definitions file if:
+    // - example_flags is explicitly set to true, OR
+    // - no_examples is false (default behavior is to create examples)
+    let create_definitions = options.example_flags || !options.no_examples;
     if create_definitions {
         create_definitions_file()?;
     }
@@ -177,6 +180,10 @@ mod tests {
         // Change to temp directory
         std::env::set_current_dir(temp_path).unwrap();
 
+        // Verify temp directory is clean before running
+        assert!(!temp_path.join("flags.definitions.yaml").exists());
+        assert!(!temp_path.join(".controlpath").exists());
+
         let options = Options {
             force: false,
             example_flags: false,
@@ -187,7 +194,8 @@ mod tests {
         assert_eq!(exit_code, 0);
         
         // Use absolute paths from temp_path for assertions (files are created in temp directory)
-        assert!(!temp_path.join("flags.definitions.yaml").exists());
+        assert!(!temp_path.join("flags.definitions.yaml").exists(), 
+                "flags.definitions.yaml should not be created when --no-examples is set");
         assert!(temp_path.join(".controlpath/production.deployment.yaml").exists());
 
         // Restore original directory (ignore errors if directory no longer exists)
