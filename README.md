@@ -306,7 +306,7 @@ await evaluator.reloadArtifact('./.controlpath/production.ast');
 
 ## Development
 
-This is a monorepo managed with **pnpm** and **Turborepo**.
+This is a monorepo with **Rust** (for compiler/CLI) and **TypeScript** (for runtime SDK), managed with **pnpm** for the TypeScript package.
 
 ### Prerequisites
 
@@ -316,44 +316,13 @@ This is a monorepo managed with **pnpm** and **Turborepo**.
   - Required for the runtime SDK and build tooling
   - The project includes a `.nvmrc` file for automatic version switching with nvm
 - **pnpm 8+** (install with `npm install -g pnpm`)
-  - Required for package management and workspace resolution
-- **Turborepo** (installed automatically via pnpm, or install globally with `npm install -g turbo`)
+  - Required for the TypeScript runtime SDK package management
 
 **Note**:
 
 - The project requires Rust for the CLI tool and compiler
-- The project requires Node.js 24 LTS for the runtime SDK and build tooling
-- The preinstall hook will verify you're using the correct versions
+- The project requires Node.js 24 LTS for the TypeScript runtime SDK
 - If using nvm, run `nvm use` to automatically switch to the correct Node.js version
-- **Use Turborepo commands** (`turbo run <task>`) instead of pnpm scripts for optimal performance and caching
-
-### About Turborepo
-
-This project uses [Turborepo](https://turbo.build/) for build orchestration. **Always use Turborepo commands** (`turbo run <task>`) instead of pnpm scripts for the best experience.
-
-**Turborepo provides:**
-
-- **Parallel execution** - Tasks run in parallel across packages for faster builds
-- **Intelligent caching** - Skips tasks when inputs haven't changed
-- **Task dependencies** - Ensures correct execution order (lint → build → test)
-- **Incremental builds** - Only rebuilds what changed
-- **Remote caching** - Share cache across team and CI/CD (optional)
-
-**Recommended Commands (use these directly):**
-
-- `turbo run build` - Build all packages ⚡ (faster than `pnpm build`)
-- `turbo run test` - Run all tests ⚡ (faster than `pnpm test`)
-- `turbo run lint` - Lint all packages ⚡ (faster than `pnpm lint`)
-- `turbo run format:check` - Check formatting ⚡ (faster than `pnpm format:check`)
-
-**Why use Turborepo directly?**
-
-- Better caching - Turborepo caches results and skips unchanged work
-- Parallel execution - Tasks run in parallel across packages
-- Faster builds - Only rebuilds what changed
-- Better CI/CD integration - Remote caching support
-
-All build, test, lint, and format:check commands should be run through Turborepo for optimal performance.
 
 ### Important: Requirements
 
@@ -363,7 +332,7 @@ All build, test, lint, and format:check commands should be run through Turborepo
 - **Node.js 24 LTS** or higher - Required for runtime SDK and build tooling
 - **pnpm as the package manager** - Using npm or yarn will fail during installation
 
-The preinstall hook automatically checks Node.js LTS and pnpm requirements and provides helpful error messages if they're not met.
+Make sure you have Node.js 24 LTS and pnpm 8+ installed before working with the TypeScript runtime SDK.
 
 ### Initial Setup
 
@@ -396,54 +365,61 @@ npm install -g pnpm
 # Verify pnpm is installed and version 8+
 pnpm --version
 
-# Install dependencies (will automatically check for Node.js LTS and pnpm)
-# This will also install Turborepo as a dev dependency
+# Setup git hooks (optional but recommended)
+# This installs pre-commit checks, commit message validation, and git aliases
+bash scripts/setup-git-aliases.sh
+
+# Build Rust components
+cargo build --release
+
+# Install dependencies and build TypeScript runtime SDK
+cd runtime/typescript
 pnpm install
+pnpm build
+cd ../..
 
-# Verify Turborepo is available
-npx turbo --version
+# Run Rust tests
+cargo test --workspace
 
-# Build all packages (runs lint and format:check first, then builds)
-# Use turbo commands for optimal performance and caching
-turbo run build
+# Run TypeScript runtime SDK tests
+cd runtime/typescript
+pnpm test
+cd ../..
 
-# Run tests
-turbo run test
+# Lint TypeScript runtime SDK
+cd runtime/typescript
+pnpm lint
+cd ../..
 
-# Lint code
-turbo run lint
+# Typecheck TypeScript runtime SDK
+cd runtime/typescript
+pnpm typecheck
+cd ../..
 
-# Format code (still uses pnpm for root-level formatting)
+# Format TypeScript runtime SDK
+cd runtime/typescript
 pnpm format
+cd ../..
 
 # Check formatting
-turbo run format:check
+cd runtime/typescript
+pnpm format:check
+cd ../..
 ```
 
-### Build Pipeline (Turborepo)
+### Build Pipeline
 
-Turborepo orchestrates the build pipeline with the following task dependencies:
+The build process is straightforward:
 
-1. **Lint** - Code quality checks (runs first, in parallel across packages)
-2. **format:check** - Prettier formatting checks (runs in parallel with lint)
-3. **Build** - TypeScript compilation (depends on lint passing, runs after dependencies build)
-4. **Test** - Test execution (depends on build completing)
+1. **Rust components** (compiler and CLI) - Built with Cargo
+2. **TypeScript runtime SDK** - Built with TypeScript compiler (tsc)
 
-**Task Execution Order:**
+**Build Commands:**
 
-```
-lint ──┐
-       ├──> build ──> test
-format:check ──┘
-```
-
-This ensures:
-
-- Code quality checks run before building
-- Formatting is verified before compilation
-- Tests only run after successful builds
-- Tasks run in parallel when possible for faster execution
-- Turborepo caches results to skip unchanged work
+- `cargo build --release` - Build Rust compiler and CLI
+- `cd runtime/typescript && pnpm build` - Build TypeScript runtime SDK
+- `cargo test --workspace` - Run Rust tests
+- `cd runtime/typescript && pnpm test` - Run TypeScript runtime SDK tests
 
 ### Project Structure
 
@@ -457,11 +433,7 @@ control-path/
 ├── runtime/           # Runtime SDKs
 │   └── typescript/   # TypeScript runtime SDK
 ├── schemas/           # JSON schemas
-├── scripts/
-│   └── ensure-pnpm.js  # Preinstall hook to enforce pnpm usage
-├── .eslintrc.json     # ESLint configuration
-├── .prettierrc.json   # Prettier configuration
-└── turbo.json         # Turborepo configuration
+└── schemas/           # JSON schemas
 ```
 
 ### Runtime Architecture

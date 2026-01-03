@@ -46,18 +46,22 @@ async function compileWithRustCli(
   outputFile: string
 ): Promise<Buffer> {
   const rustCli = getRustCliPath();
-  const result = spawnSync(rustCli, [
-    'compile',
-    '--definitions',
-    definitionsFile,
-    '--deployment',
-    deploymentFile,
-    '--output',
-    outputFile,
-  ], {
-    encoding: 'utf-8',
-    stdio: 'pipe',
-  });
+  const result = spawnSync(
+    rustCli,
+    [
+      'compile',
+      '--definitions',
+      definitionsFile,
+      '--deployment',
+      deploymentFile,
+      '--output',
+      outputFile,
+    ],
+    {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    }
+  );
 
   if (result.error) {
     throw new Error(`Failed to run Rust CLI: ${result.error.message}`);

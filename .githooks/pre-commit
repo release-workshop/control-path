@@ -1,0 +1,61 @@
+#!/bin/bash
+# Pre-commit hook: Run checks before commit is created
+
+# Check if there are staged changes
+if git diff --cached --quiet; then
+  echo "No staged changes to commit."
+  exit 0
+fi
+
+echo "Verifying build and performing code checks..."
+
+# Ensure we're in the repo root
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# Rust checks
+echo "🦀 Checking Rust crates..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+  echo "⚠️  Warning: cargo not found. Skipping Rust checks."
+else
+  # Check compilation
+  echo "  Running cargo check..."
+  cargo check --workspace || {
+    echo "❌ Rust check failed."
+    exit 1
+  }
+
+  # Run clippy (if available)
+  if cargo clippy --version &> /dev/null; then
+    echo "  Running cargo clippy..."
+    cargo clippy --workspace -- -D warnings || {
+      echo "❌ Rust clippy check failed."
+      exit 1
+    }
+  fi
+
+  # Run fmt check
+  echo "  Checking code formatting..."
+  cargo fmt --all -- --check || {
+    echo "❌ Rust code formatting check failed. Run 'cargo fmt --all' to fix."
+    exit 1
+  }
+fi
+
+# TypeScript/JavaScript checks (optional, only if runtime/typescript exists)
+if [ -d "runtime/typescript" ] && command -v pnpm &> /dev/null; then
+  echo "📦 Checking TypeScript runtime SDK..."
+  cd runtime/typescript
+  if [ -f "package.json" ]; then
+    pnpm build || {
+      echo "❌ TypeScript build check failed."
+      exit 1
+    }
+  fi
+  cd ../..
+fi
+
+echo "✅ All pre-commit checks passed!"
+exit 0
+

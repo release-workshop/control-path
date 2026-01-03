@@ -1,4 +1,5 @@
-# Block direct pushes to main branch
+#!/bin/bash
+# Pre-push hook: Block direct pushes to main branch
 # Use 'git pushmain' instead to go through validation → auto-merge workflow
 
 protected_branch='main'

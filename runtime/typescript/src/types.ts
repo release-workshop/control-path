@@ -45,7 +45,7 @@ export interface Artifact {
 
 /**
  * Rule structure: [type, when?, payload]
- * 
+ *
  * Types:
  * - serve: [0, undefined, string | number] or [0, Expression, string | number]
  * - variations: [1, undefined, Variation[]] or [1, Expression, Variation[]]
@@ -61,7 +61,7 @@ export type Rule =
 
 /**
  * Expression node structure: [type, ...]
- * 
+ *
  * Types:
  * - binary_op: [0, op_code, left, right]
  * - logical_op: [1, op_code, left, right?] (NOT has no right)

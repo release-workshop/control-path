@@ -25,9 +25,9 @@ When you submit a pull request, you are agreeing to the terms of the CLA. For yo
 
 Before contributing, ensure you have:
 
-- **Node.js 24 LTS** or higher
-- **Deno** installed
-- **pnpm 8+** installed
+- **Rust** (install from [rustup.rs](https://rustup.rs/))
+- **Node.js 24 LTS** or higher (for TypeScript runtime SDK)
+- **pnpm 8+** installed (for TypeScript runtime SDK)
 - Git configured
 
 See the [README.md](README.md) for detailed setup instructions.
@@ -40,17 +40,32 @@ See the [README.md](README.md) for detailed setup instructions.
    git clone https://github.com/your-username/control-path.git
    cd control-path
    ```
-3. Install dependencies:
+3. Setup git hooks and aliases:
    ```bash
-   pnpm install
+   bash scripts/setup-git-aliases.sh
+   ```
+   This installs:
+   - Git hooks for pre-commit checks (Rust: cargo check, clippy, fmt; TypeScript: build)
+   - Commit message validation (Conventional Commits format)
+   - Pre-push hook to block direct pushes to main
+   - `git pushmain` alias for trunk-based development
+4. Install dependencies:
+   ```bash
+   cd runtime/typescript && pnpm install && cd ../..
    ```
 4. Build the project:
    ```bash
-   turbo run build
+   # Build Rust components
+   cargo build --release
+   # Build TypeScript runtime SDK
+   cd runtime/typescript && pnpm install && pnpm build && cd ../..
    ```
 5. Run tests:
    ```bash
-   turbo run test
+   # Run Rust tests
+   cargo test --workspace
+   # Run TypeScript runtime SDK tests
+   cd runtime/typescript && pnpm test && cd ../..
    ```
 
 ## Development Workflow
@@ -113,13 +128,13 @@ For external contributors, use the standard **Pull Request** workflow:
 ### Code Style
 
 - Follow the existing code style
-- Use TypeScript strict mode
-- Run `pnpm format` to format code before committing
+- Use TypeScript strict mode (for runtime SDK)
+- Run `cd runtime/typescript && pnpm format && cd ../..` to format code before committing
 - Ensure all lint checks pass
 
 ### Commit Messages
 
-Control Path uses **Conventional Commits** format. Commit messages are enforced by `commitlint` (both locally via Husky and in CI).
+Control Path uses **Conventional Commits** format. Commit messages are validated by git hooks (locally) and CI.
 
 **Format**: `type(scope): summary`
 
@@ -199,12 +214,12 @@ chore(ci): update GitHub Actions workflows for merge queues
 
 ```
 control-path/
-├── packages/
-│   ├── cli/          # CLI tool (Deno runtime)
-│   ├── compiler/     # AST compiler (Node.js runtime)
-│   └── runtime/      # Runtime SDKs (future)
-├── schemas/          # JSON schemas
-└── scripts/          # Build and utility scripts
+├── crates/
+│   ├── compiler/     # AST compiler (Rust library)
+│   └── cli/          # CLI tool (Rust binary)
+├── runtime/
+│   └── typescript/   # TypeScript runtime SDK
+└── schemas/          # JSON schemas
 ```
 
 ## Licensing

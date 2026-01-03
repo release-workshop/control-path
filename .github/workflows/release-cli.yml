@@ -313,8 +313,8 @@ jobs:
           echo "Packaging source tarball for version: ${VERSION}"
           echo "Current directory: $(pwd)"
           echo "Repository root check:"
-          if [ ! -f "Cargo.toml" ] && [ ! -f "package.json" ]; then
-            echo "⚠️  Warning: Not in repository root (no Cargo.toml or package.json found)"
+          if [ ! -f "Cargo.toml" ]; then
+            echo "⚠️  Warning: Not in repository root (no Cargo.toml found)"
           fi
 
           # Ensure artifacts directory exists and is writable

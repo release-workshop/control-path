@@ -41,6 +41,7 @@ jobs:
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
+      # Install dependencies for TypeScript runtime SDK only
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -62,11 +63,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Run Rust CLI tests
-        run: cargo test --bin controlpath --workspace
+      - name: Run Rust CLI and compiler tests
+        run: cargo test --workspace
 
-      - name: Run test suite with coverage
-        working-directory: packages/compiler
+      - name: Run runtime SDK tests with coverage
+        working-directory: runtime/typescript
         run: |
           pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov
           # Coverage thresholds are enforced automatically by Vitest
@@ -90,12 +91,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
-        with:
-          cache: true
-          deno-version: v2.x
-
+      # pnpm is only needed for the TypeScript runtime SDK (runtime/typescript/)
+      # The compiler and CLI are now Rust-based and use Cargo
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -109,17 +106,22 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-store.outputs.store_path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('runtime/typescript/pnpm-lock.yaml') }}
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
+      # Install dependencies for TypeScript runtime SDK only
       - name: Install dependencies
+        working-directory: runtime/typescript
         run: pnpm install --frozen-lockfile
 
+      # Lint and typecheck only affect the TypeScript runtime SDK
       - name: Lint
+        working-directory: runtime/typescript
         run: pnpm lint
 
       - name: Typecheck
+        working-directory: runtime/typescript
         run: pnpm typecheck
 
   # Merge job runs only if all validations pass

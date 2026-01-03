@@ -1,4 +1,5 @@
 #!/bin/bash
+# Setup script for git aliases and hooks
 
 # Copyright 2025 Release Workshop Ltd
 # Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.
@@ -73,7 +74,28 @@ git config alias.pushmain '!bash -c "
 
 echo "✓ Git alias 'pushmain' configured successfully!"
 echo ""
-echo "✓ Pre-push hook installed to block direct pushes to main"
+
+# Install git hooks
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+GITHOOKS_DIR="$REPO_ROOT/.githooks"
+GIT_HOOKS_DIR="$REPO_ROOT/.git/hooks"
+
+if [ -d "$GITHOOKS_DIR" ]; then
+  echo "Installing git hooks..."
+  mkdir -p "$GIT_HOOKS_DIR"
+  
+  for hook in pre-commit commit-msg pre-push; do
+    if [ -f "$GITHOOKS_DIR/$hook" ]; then
+      cp "$GITHOOKS_DIR/$hook" "$GIT_HOOKS_DIR/$hook"
+      chmod +x "$GIT_HOOKS_DIR/$hook"
+      echo "  ✓ Installed $hook hook"
+    fi
+  done
+  echo ""
+fi
+
+echo "✓ Git hooks installed successfully!"
 echo ""
 echo "Usage (for maintainers/trusted users with trunk-based development):"
 echo "  git checkout main"

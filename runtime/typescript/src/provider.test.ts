@@ -81,8 +81,8 @@ describe('Provider', () => {
       writeFileSync(testFile, buffer);
 
       // Verify file exists and is readable before loading
-      // Use retry mechanism to handle potential race conditions in CI/turbo environments
-      // Turbo may run tests in parallel, causing file system delays
+      // Use retry mechanism to handle potential race conditions in CI environments
+      // Tests may run in parallel, causing file system delays
       const { readFile } = await import('fs/promises');
       let retries = 30;
       let lastError: Error | null = null;
@@ -96,7 +96,7 @@ describe('Provider', () => {
         } catch (error) {
           lastError = error instanceof Error ? error : new Error(String(error));
           // File doesn't exist yet or isn't readable, wait a bit and retry
-          // Increase delay slightly for turbo environments
+          // Increase delay slightly for CI environments
           await new Promise((resolve) => setTimeout(resolve, 100));
           retries--;
         }
@@ -148,7 +148,7 @@ describe('Provider', () => {
       await mkdir(testDir, { recursive: true });
       writeFileSync(testFile, buffer);
 
-      // Verify file exists before loading (handles race conditions in turbo)
+      // Verify file exists before loading (handles race conditions in CI)
       const { readFile } = await import('fs/promises');
       let retries = 10;
       while (retries > 0) {
@@ -184,7 +184,7 @@ describe('Provider', () => {
       await mkdir(testDir, { recursive: true });
       writeFileSync(testFile, buffer);
 
-      // Verify file exists before loading (handles race conditions in turbo)
+      // Verify file exists before loading (handles race conditions in CI)
       const { readFile } = await import('fs/promises');
       let retries = 10;
       while (retries > 0) {
@@ -257,7 +257,7 @@ describe('Provider', () => {
       const buffer2 = Buffer.from(pack(artifact2));
       writeFileSync(testFile, buffer2);
 
-      // Verify file exists before reloading (handles race conditions in turbo)
+      // Verify file exists before reloading (handles race conditions in CI)
       const { readFile } = await import('fs/promises');
       let retries = 10;
       while (retries > 0) {

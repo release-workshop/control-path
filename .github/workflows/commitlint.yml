@@ -23,25 +23,38 @@ jobs:
         with:
           node-version: 24
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+      # Note: commitlint requires a package.json. Since we removed root package.json,
+      # we'll install commitlint globally or use npx
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
         with:
-          version: 8.15.0
+          node-version: 24
 
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "store_path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+      - name: Install commitlint
+        run: npm install -g @commitlint/cli@latest @commitlint/config-conventional@latest
 
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.store_path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Create temporary commitlint config
+        run: |
+          cat > commitlint.config.cjs << 'EOF'
+          module.exports = {
+            extends: ['@commitlint/config-conventional'],
+            rules: {
+              'scope-enum': [
+                2,
+                'always',
+                [
+                  'compiler', // Rust compiler crate
+                  'cli', // Rust CLI crate
+                  'runtime', // TypeScript runtime SDK
+                  'repo', // Root-level config, workflows, docs
+                  'ci', // CI/CD changes
+                  'docs', // Documentation changes
+                  'deps', // Dependency updates
+                ],
+              ],
+            },
+          };
+          EOF
 
       - name: Lint commit messages with commitlint
         env:
@@ -51,4 +64,4 @@ jobs:
           echo "Linting commits from base ${BASE_REF} to HEAD"
           git fetch origin "${BASE_REF}:${BASE_REF}" || true
           FROM_SHA="$(git merge-base HEAD "${BASE_REF}")"
-          pnpm exec commitlint --from="${FROM_SHA}" --to=HEAD
+          commitlint --from="${FROM_SHA}" --to=HEAD
