@@ -1,5 +1,8 @@
 name: Release CLI and source artifacts
 
+# This workflow builds and releases Rust CLI binaries only.
+# The Deno/TypeScript CLI is no longer built or released.
+
 on:
   push:
     tags:
@@ -15,7 +18,7 @@ on:
 
 jobs:
   build-cli-binaries:
-    name: Build CLI binary (${{ matrix.target_name }})
+    name: Build Rust CLI binary (${{ matrix.target_name }})
     runs-on: ${{ matrix.runner }}
 
     strategy:
@@ -152,32 +155,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "store_path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.store_path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Download CLI artifacts
+      - name: Download Rust CLI artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -221,7 +199,7 @@ jobs:
             core.setOutput('upload_url', release.upload_url);
             core.setOutput('tag_name', tag);
 
-      - name: Upload CLI archive (Linux x86_64)
+      - name: Upload Rust CLI archive (Linux x86_64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -231,7 +209,7 @@ jobs:
           asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-linux-x86_64.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload CLI archive (Linux ARM64)
+      - name: Upload Rust CLI archive (Linux ARM64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -241,7 +219,7 @@ jobs:
           asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-linux-aarch64.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload CLI archive (macOS x86_64)
+      - name: Upload Rust CLI archive (macOS x86_64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -251,7 +229,7 @@ jobs:
           asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-macos-x86_64.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload CLI archive (macOS ARM64)
+      - name: Upload Rust CLI archive (macOS ARM64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -261,7 +239,7 @@ jobs:
           asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-macos-aarch64.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload CLI archive (Windows x86_64)
+      - name: Upload Rust CLI archive (Windows x86_64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
