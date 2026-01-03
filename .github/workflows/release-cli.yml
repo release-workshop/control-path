@@ -218,25 +218,24 @@ jobs:
           fi
 
           # Create exclusion file for tar (more reliable than command-line exclusions)
-          cat > /tmp/tar-excludes <<'EOF'
-.git
-.git/**
-node_modules
-node_modules/**
-dist
-dist/**
-target
-target/**
-.github
-.husky
-*.log
-.DS_Store
-*.swp
-*.swo
-*~
-artifacts
-artifacts/**
-EOF
+          printf '%s\n' \
+            '.git' \
+            '.git/**' \
+            'node_modules' \
+            'node_modules/**' \
+            'dist' \
+            'dist/**' \
+            'target' \
+            'target/**' \
+            '.github' \
+            '.husky' \
+            '*.log' \
+            '.DS_Store' \
+            '*.swp' \
+            '*.swo' \
+            '*~' \
+            'artifacts' \
+            'artifacts/**' > /tmp/tar-excludes
 
           echo "Exclusion patterns:"
           cat /tmp/tar-excludes
