@@ -118,6 +118,7 @@ jobs:
           fi
 
       - name: Package CLI archive (${{ matrix.target_name }})
+        if: matrix.os != 'windows'
         shell: bash
         run: |
           mkdir -p artifacts
@@ -134,6 +135,20 @@ jobs:
           else
             zip -j "artifacts/controlpath-${VERSION}-${{ matrix.target_name }}.zip" "dist/${{ matrix.output }}"
           fi
+
+      - name: Package CLI archive Windows (${{ matrix.target_name }})
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          if ("${{ github.event_name }}" -eq "release") {
+            $VERSION = "${{ github.event.release.tag_name }}"
+          } elseif ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $VERSION = "${{ github.event.inputs.tag_name }}"
+          } else {
+            $VERSION = "${{ github.ref_name }}"
+          }
+          Compress-Archive -Path "dist\${{ matrix.output }}" -DestinationPath "artifacts\controlpath-$VERSION-${{ matrix.target_name }}.zip" -Force
 
       - name: Upload CLI artifact (${{ matrix.target_name }})
         uses: actions/upload-artifact@v4
