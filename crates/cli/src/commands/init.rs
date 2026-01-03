@@ -90,8 +90,10 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+    use serial_test::serial;
 
     #[test]
+    #[serial]
     fn test_check_existing_project() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
@@ -101,15 +103,13 @@ mod tests {
         std::env::set_current_dir(temp_path).unwrap();
         assert!(!check_existing_project());
 
-        // Create definitions file
-        let definitions_path = temp_path.join("flags.definitions.yaml");
-        fs::write(&definitions_path, "flags: []").unwrap();
+        // Create definitions file (using relative path since we changed directory)
+        fs::write("flags.definitions.yaml", "flags: []").unwrap();
         assert!(check_existing_project());
 
         // Remove and create .controlpath directory
-        fs::remove_file(&definitions_path).ok();
-        let controlpath_dir = temp_path.join(".controlpath");
-        fs::create_dir(&controlpath_dir).unwrap();
+        fs::remove_file("flags.definitions.yaml").ok();
+        fs::create_dir_all(".controlpath").unwrap();
         assert!(check_existing_project());
 
         // Restore original directory (ignore errors if directory no longer exists)
@@ -117,12 +117,13 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_command_success() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
         let original_dir = std::env::current_dir().unwrap();
         
-        // Change to temp directory
+        // Change to temp directory right before running command
         std::env::set_current_dir(temp_path).unwrap();
 
         let options = Options {
@@ -134,15 +135,21 @@ mod tests {
         let exit_code = run(options);
         assert_eq!(exit_code, 0);
         
-        // Use absolute paths from temp_path for assertions (files are created in temp directory)
-        assert!(temp_path.join("flags.definitions.yaml").exists());
-        assert!(temp_path.join(".controlpath/production.deployment.yaml").exists());
+        // Immediately check files while still in temp directory
+        // Use absolute paths to avoid issues with parallel test execution
+        let definitions_path = temp_path.join("flags.definitions.yaml");
+        let deployment_path = temp_path.join(".controlpath/production.deployment.yaml");
+        assert!(definitions_path.exists(),
+                "flags.definitions.yaml should exist at {:?}", definitions_path);
+        assert!(deployment_path.exists(),
+                "production.deployment.yaml should exist at {:?}", deployment_path);
 
         // Restore original directory (ignore errors if directory no longer exists)
         let _ = std::env::set_current_dir(&original_dir);
     }
 
     #[test]
+    #[serial]
     fn test_init_command_with_force() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
@@ -151,9 +158,8 @@ mod tests {
         // Change to temp directory
         std::env::set_current_dir(temp_path).unwrap();
 
-        // Create existing file
-        let definitions_path = temp_path.join("flags.definitions.yaml");
-        fs::write(&definitions_path, "flags: []").unwrap();
+        // Create existing file (using relative path since we changed directory)
+        fs::write("flags.definitions.yaml", "flags: []").unwrap();
 
         let options = Options {
             force: true,
@@ -164,28 +170,28 @@ mod tests {
         let exit_code = run(options);
         assert_eq!(exit_code, 0);
         
-        // Use absolute path from temp_path for assertion (file is created in temp directory)
-        assert!(temp_path.join("flags.definitions.yaml").exists());
+        // Use absolute path to avoid issues with parallel test execution
+        let definitions_path = temp_path.join("flags.definitions.yaml");
+        assert!(definitions_path.exists(),
+                "flags.definitions.yaml should exist at {:?}", definitions_path);
 
         // Restore original directory (ignore errors if directory no longer exists)
         let _ = std::env::set_current_dir(&original_dir);
     }
 
     #[test]
+    #[serial]
     fn test_init_command_without_examples() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
         let original_dir = std::env::current_dir().unwrap();
         
-        // Change to temp directory and verify we're in the right place
+        // Change to temp directory
         std::env::set_current_dir(temp_path).unwrap();
-        assert_eq!(std::env::current_dir().unwrap(), temp_path);
 
-        // Verify temp directory is clean before running
-        assert!(!temp_path.join("flags.definitions.yaml").exists(),
+        // Verify temp directory doesn't have the definitions file before running
+        assert!(!Path::new("flags.definitions.yaml").exists(),
                 "Temp directory should not have flags.definitions.yaml before test");
-        assert!(!temp_path.join(".controlpath").exists(),
-                "Temp directory should not have .controlpath before test");
 
         let options = Options {
             force: false,
@@ -196,15 +202,13 @@ mod tests {
         let exit_code = run(options);
         assert_eq!(exit_code, 0, "Init command should succeed");
         
-        // Verify current directory is still the temp directory
-        assert_eq!(std::env::current_dir().unwrap(), temp_path,
-                   "Current directory should still be temp directory after init");
-        
-        // Use absolute paths from temp_path for assertions (files are created in temp directory)
-        assert!(!temp_path.join("flags.definitions.yaml").exists(), 
-                "flags.definitions.yaml should not be created when --no-examples is set");
-        assert!(temp_path.join(".controlpath/production.deployment.yaml").exists(),
-                "production.deployment.yaml should be created");
+        // Use absolute paths to avoid issues with parallel test execution
+        let definitions_path = temp_path.join("flags.definitions.yaml");
+        let deployment_path = temp_path.join(".controlpath/production.deployment.yaml");
+        assert!(!definitions_path.exists(), 
+                "flags.definitions.yaml should not be created when --no-examples is set, but found at {:?}", definitions_path);
+        assert!(deployment_path.exists(),
+                "production.deployment.yaml should be created at {:?}", deployment_path);
 
         // Restore original directory (ignore errors if directory no longer exists)
         let _ = std::env::set_current_dir(&original_dir);

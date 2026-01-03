@@ -153,8 +153,10 @@ pub fn compile(
 /// # Example
 /// 
 /// ```rust,no_run
-/// use controlpath_compiler::{compile, serialize};
+/// use controlpath_compiler::{parse_deployment, parse_definitions, compile, serialize};
 /// 
+/// let definitions = parse_definitions("flags: []")?;
+/// let deployment = parse_deployment("environment: test\nrules: {}")?;
 /// let artifact = compile(&deployment, &definitions)?;
 /// let bytes = serialize(&artifact)?;
 /// # Ok::<(), controlpath_compiler::CompilerError>(())
