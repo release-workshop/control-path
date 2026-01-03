@@ -65,21 +65,10 @@ jobs:
       - name: Run Rust CLI tests
         run: cargo test --bin controlpath --workspace
 
-      - name: Compute affected tests with TIA
-        id: tia
-        run: |
-          node scripts/tia-runner.js --base main
-
-      - name: Run targeted tests with coverage
+      - name: Run test suite with coverage
         working-directory: packages/compiler
         run: |
-          if [ -z "${{ steps.tia.outputs.affected_tests }}" ]; then
-            echo "No specific affected tests were found by TIA; running full test suite."
-            pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov
-          else
-            echo "Running affected tests from TIA: ${{ steps.tia.outputs.affected_tests }}"
-            pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov ${{ steps.tia.outputs.affected_tests }}
-          fi
+          pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov
           # Coverage thresholds are enforced automatically by Vitest
           # If thresholds are not met, vitest will exit with code 1
 
