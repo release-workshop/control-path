@@ -41,6 +41,13 @@ else
     echo "❌ Rust code formatting check failed. Run 'cargo fmt --all' to fix."
     exit 1
   }
+
+  # Run tests
+  echo "  Running cargo test..."
+  cargo test --workspace || {
+    echo "❌ Rust tests failed."
+    exit 1
+  }
 fi
 
 # TypeScript/JavaScript checks (optional, only if runtime/typescript exists)
@@ -50,6 +57,18 @@ if [ -d "runtime/typescript" ] && command -v pnpm &> /dev/null; then
   if [ -f "package.json" ]; then
     pnpm build || {
       echo "❌ TypeScript build check failed."
+      exit 1
+    }
+    pnpm lint || {
+      echo "❌ TypeScript lint check failed."
+      exit 1
+    }
+    pnpm typecheck || {
+      echo "❌ TypeScript typecheck failed."
+      exit 1
+    }
+    pnpm test || {
+      echo "❌ TypeScript tests failed."
       exit 1
     }
   fi
