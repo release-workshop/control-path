@@ -9,10 +9,45 @@ if git diff --cached --quiet; then
 fi
 
 echo "Verifying build and performing code checks..."
+
+# Ensure we're in the repo root
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# TypeScript/JavaScript checks
+echo "📦 Checking TypeScript packages..."
 pnpm build || {
-  echo "❌ Build check failed."
+  echo "❌ TypeScript build check failed."
   exit 1
 }
+
+# Rust checks
+echo "🦀 Checking Rust crates..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+  echo "⚠️  Warning: cargo not found. Skipping Rust checks."
+else
+  # Check compilation
+  echo "  Running cargo check..."
+  cargo check --workspace || {
+    echo "❌ Rust check failed."
+    exit 1
+  }
+
+  # Run tests
+  echo "  Running cargo test..."
+  cargo test --workspace || {
+    echo "❌ Rust tests failed."
+    exit 1
+  }
+
+  # Build crates
+  echo "  Running cargo build..."
+  cargo build --workspace || {
+    echo "❌ Rust build failed."
+    exit 1
+  }
+fi
 
 # Reminder about commit message format (actual validation happens in commit-msg hook)
 echo "💡 Remember: Use Conventional Commits format (e.g., 'feat(scope): description')"

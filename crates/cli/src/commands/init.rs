@@ -177,12 +177,15 @@ mod tests {
         let temp_path = temp_dir.path();
         let original_dir = std::env::current_dir().unwrap();
         
-        // Change to temp directory
+        // Change to temp directory and verify we're in the right place
         std::env::set_current_dir(temp_path).unwrap();
+        assert_eq!(std::env::current_dir().unwrap(), temp_path);
 
         // Verify temp directory is clean before running
-        assert!(!temp_path.join("flags.definitions.yaml").exists());
-        assert!(!temp_path.join(".controlpath").exists());
+        assert!(!temp_path.join("flags.definitions.yaml").exists(),
+                "Temp directory should not have flags.definitions.yaml before test");
+        assert!(!temp_path.join(".controlpath").exists(),
+                "Temp directory should not have .controlpath before test");
 
         let options = Options {
             force: false,
@@ -191,12 +194,17 @@ mod tests {
         };
 
         let exit_code = run(options);
-        assert_eq!(exit_code, 0);
+        assert_eq!(exit_code, 0, "Init command should succeed");
+        
+        // Verify current directory is still the temp directory
+        assert_eq!(std::env::current_dir().unwrap(), temp_path,
+                   "Current directory should still be temp directory after init");
         
         // Use absolute paths from temp_path for assertions (files are created in temp directory)
         assert!(!temp_path.join("flags.definitions.yaml").exists(), 
                 "flags.definitions.yaml should not be created when --no-examples is set");
-        assert!(temp_path.join(".controlpath/production.deployment.yaml").exists());
+        assert!(temp_path.join(".controlpath/production.deployment.yaml").exists(),
+                "production.deployment.yaml should be created");
 
         // Restore original directory (ignore errors if directory no longer exists)
         let _ = std::env::set_current_dir(&original_dir);
