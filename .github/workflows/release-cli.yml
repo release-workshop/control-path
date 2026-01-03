@@ -16,7 +16,7 @@ name: Release CLI and source artifacts
 on:
   push:
     tags:
-      - 'v*'
+      - '*'
   release:
     types: [published]
   workflow_dispatch:
@@ -30,6 +30,7 @@ jobs:
   build-cli-binaries:
     name: Build Rust CLI binary (${{ matrix.target_name }})
     runs-on: ${{ matrix.runner }}
+    if: github.ref_type == 'tag' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
 
     strategy:
       fail-fast: true
@@ -268,6 +269,7 @@ jobs:
     name: Create GitHub Release
     runs-on: ubuntu-latest
     needs: build-cli-binaries
+    if: github.ref_type == 'tag' || github.event_name == 'release' || github.event_name == 'workflow_dispatch'
 
     permissions:
       contents: write
