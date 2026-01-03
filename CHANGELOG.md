@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/release-workshop/control-path/compare/control-path-v0.6.0...control-path-v0.7.0) (2026-01-03)
+
+
+### Features
+
+* adds code signing for macos ([87581d5](https://github.com/release-workshop/control-path/commit/87581d52f5022592eb152f4d5f9ef4e6b4af5e83))
+
 ## [0.6.0](https://github.com/release-workshop/control-path/compare/control-path-v0.5.0...control-path-v0.6.0) (2026-01-03)
 
 
