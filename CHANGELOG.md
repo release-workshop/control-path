@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/release-workshop/control-path/compare/control-path-v0.5.0...control-path-v0.6.0) (2026-01-03)
+
+
+### Features
+
+* force version update ([2f0dd5e](https://github.com/release-workshop/control-path/commit/2f0dd5eac65f63ff70a32ae42690a2898f09a07d))
+
+
+### Bug Fixes
+
+* ci error ([ae35fd7](https://github.com/release-workshop/control-path/commit/ae35fd75b2bb278cf4157f5d594d8cebdacbdd7c))
+
 ## [0.5.0](https://github.com/release-workshop/control-path/compare/control-path-v0.4.0...control-path-v0.5.0) (2026-01-03)
 
 
