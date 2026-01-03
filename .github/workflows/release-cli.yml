@@ -129,9 +129,15 @@ jobs:
           fi
 
       - name: Code sign macOS binary (${{ matrix.target_name }})
-        if: matrix.os == 'macos' && secrets.MACOS_CERTIFICATE_P12 != ''
+        if: matrix.os == 'macos'
         shell: bash
         run: |
+          # Check if certificate secret is available
+          if [ -z "${{ secrets.MACOS_CERTIFICATE_P12 }}" ]; then
+            echo "⚠️  macOS certificate not configured, skipping code signing"
+            exit 0
+          fi
+          
           BINARY_PATH="dist/${{ matrix.output }}"
           
           # Import certificate
@@ -190,9 +196,15 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" || true
 
       - name: Notarize macOS binary (${{ matrix.target_name }})
-        if: matrix.os == 'macos' && secrets.MACOS_CERTIFICATE_P12 != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != ''
+        if: matrix.os == 'macos'
         shell: bash
         run: |
+          # Check if all required secrets are available
+          if [ -z "${{ secrets.MACOS_CERTIFICATE_P12 }}" ] || [ -z "${{ secrets.APPLE_ID }}" ] || [ -z "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" ]; then
+            echo "⚠️  macOS notarization secrets not configured, skipping notarization"
+            exit 0
+          fi
+          
           BINARY_PATH="dist/${{ matrix.output }}"
           
           # Create zip for notarization (required format)
