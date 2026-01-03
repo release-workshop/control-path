@@ -186,7 +186,7 @@ jobs:
 
       - name: Package source tarball
         run: |
-          set -euo pipefail
+          set -eo pipefail
           
           # Determine version
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -198,12 +198,17 @@ jobs:
           fi
 
           # Validate version is set
-          if [ -z "${VERSION}" ]; then
+          if [ -z "${VERSION:-}" ]; then
             echo "❌ Error: VERSION is empty"
             exit 1
           fi
 
           echo "Packaging source tarball for version: ${VERSION}"
+          echo "Current directory: $(pwd)"
+          echo "Repository root check:"
+          if [ ! -f "Cargo.toml" ] && [ ! -f "package.json" ]; then
+            echo "⚠️  Warning: Not in repository root (no Cargo.toml or package.json found)"
+          fi
 
           # Ensure artifacts directory exists and is writable
           mkdir -p artifacts
@@ -212,43 +217,80 @@ jobs:
             exit 1
           fi
 
-          # Create tarball with comprehensive exclusions
-          # Using --exclude patterns that work reliably
-          tar -czf "artifacts/control-path-source-${VERSION}.tar.gz" \
-            --exclude='.git' \
-            --exclude='.git/**' \
-            --exclude='node_modules' \
-            --exclude='node_modules/**' \
-            --exclude='dist' \
-            --exclude='dist/**' \
-            --exclude='target' \
-            --exclude='target/**' \
-            --exclude='.github' \
-            --exclude='.husky' \
-            --exclude='*.log' \
-            --exclude='.DS_Store' \
-            --exclude='*.swp' \
-            --exclude='*.swo' \
-            --exclude='*~' \
-            . || {
-            echo "❌ Error: Failed to create source tarball"
+          # Create exclusion file for tar (more reliable than command-line exclusions)
+          cat > /tmp/tar-excludes <<'EOF'
+.git
+.git/**
+node_modules
+node_modules/**
+dist
+dist/**
+target
+target/**
+.github
+.husky
+*.log
+.DS_Store
+*.swp
+*.swo
+*~
+artifacts
+artifacts/**
+EOF
+
+          echo "Exclusion patterns:"
+          cat /tmp/tar-excludes
+
+          # Create tarball using exclusion file
+          echo "Creating tarball..."
+          TARBALL_PATH="artifacts/control-path-source-${VERSION}.tar.gz"
+          
+          # Try creating tarball with output captured for debugging
+          if tar -czf "${TARBALL_PATH}" \
+            --exclude-from=/tmp/tar-excludes \
+            . > /tmp/tar-output.log 2>&1; then
+            echo "✓ Tar command completed successfully"
+            echo "Tar output (last 20 lines):"
+            tail -20 /tmp/tar-output.log || true
+          else
+            TAR_EXIT_CODE=$?
+            echo "❌ Error: tar command failed with exit code ${TAR_EXIT_CODE}"
+            echo "Tar output:"
+            cat /tmp/tar-output.log || echo "No tar output log found"
+            echo ""
             echo "Current directory: $(pwd)"
             echo "Directory contents:"
-            ls -la
+            ls -la | head -20
             echo "Artifacts directory:"
             ls -la artifacts/ || echo "Artifacts directory does not exist"
-            exit 1
-          }
+            echo "Exclusion file contents:"
+            cat /tmp/tar-excludes
+            exit ${TAR_EXIT_CODE}
+          fi
 
           # Verify tarball was created and has reasonable size
           if [ ! -f "artifacts/control-path-source-${VERSION}.tar.gz" ]; then
             echo "❌ Error: Tarball was not created"
+            echo "Artifacts directory contents:"
+            ls -la artifacts/ || echo "Artifacts directory does not exist"
             exit 1
           fi
 
-          TARBALL_SIZE=$(stat -f%z "artifacts/control-path-source-${VERSION}.tar.gz" 2>/dev/null || stat -c%s "artifacts/control-path-source-${VERSION}.tar.gz" 2>/dev/null || echo "0")
-          if [ "${TARBALL_SIZE}" -eq 0 ]; then
-            echo "❌ Error: Tarball is empty (size: ${TARBALL_SIZE})"
+          # Get file size (cross-platform)
+          if command -v stat >/dev/null 2>&1; then
+            if stat -f%z "artifacts/control-path-source-${VERSION}.tar.gz" >/dev/null 2>&1; then
+              TARBALL_SIZE=$(stat -f%z "artifacts/control-path-source-${VERSION}.tar.gz")
+            elif stat -c%s "artifacts/control-path-source-${VERSION}.tar.gz" >/dev/null 2>&1; then
+              TARBALL_SIZE=$(stat -c%s "artifacts/control-path-source-${VERSION}.tar.gz")
+            else
+              TARBALL_SIZE=$(wc -c < "artifacts/control-path-source-${VERSION}.tar.gz" | tr -d ' ')
+            fi
+          else
+            TARBALL_SIZE=$(wc -c < "artifacts/control-path-source-${VERSION}.tar.gz" | tr -d ' ')
+          fi
+
+          if [ -z "${TARBALL_SIZE}" ] || [ "${TARBALL_SIZE}" -eq 0 ]; then
+            echo "❌ Error: Tarball is empty (size: ${TARBALL_SIZE:-unknown})"
             exit 1
           fi
 
