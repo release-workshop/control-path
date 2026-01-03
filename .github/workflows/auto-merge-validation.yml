@@ -37,12 +37,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.pnpm-store.outputs.store_path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('runtime/typescript/pnpm-lock.yaml') }}
           restore-keys: |
             pnpm-store-${{ runner.os }}-
 
       # Install dependencies for TypeScript runtime SDK only
       - name: Install dependencies
+        working-directory: runtime/typescript
         run: pnpm install --frozen-lockfile
 
       - name: Setup Rust toolchain
