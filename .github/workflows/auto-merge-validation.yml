@@ -149,23 +149,72 @@ jobs:
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
       - name: Rebase validation branch onto main for clean history
+        env:
+          GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
         run: |
           # Rebase the validation branch onto main to enable fast-forward merge
           # This ensures no merge commit is created - just your original commits
           # git rebase preserves the original commit author by default
 
+          # Configure git to use the token for authentication
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
           # Set git config for the rebase operation (committer will be bot, author is preserved)
           git config user.name "chrisbot-release-workshop"
           git config user.email "chris+bot@releaseworkshop.com"
 
-          # Rebase - author information is automatically preserved from original commits
-          git rebase origin/main || {
-            echo "❌ Rebase failed. This should not happen if validation branch was created from main."
+          VALIDATION_BRANCH="${{ github.ref_name }}"
+          MAX_RETRIES=3
+          RETRY_DELAY=5
+
+          # Function to retry git operations
+          retry_git_operation() {
+            local operation="$1"
+            local max_attempts=$2
+            local attempt=1
+
+            while [ $attempt -le $max_attempts ]; do
+              echo "Attempt $attempt of $max_attempts: $operation"
+              if eval "$operation"; then
+                return 0
+              fi
+              if [ $attempt -lt $max_attempts ]; then
+                echo "Operation failed, waiting ${RETRY_DELAY}s before retry..."
+                sleep $RETRY_DELAY
+                # Fetch latest changes before retry
+                git fetch origin main --quiet || true
+              fi
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
+          # Fetch latest main to ensure we're up to date
+          echo "Fetching latest changes from main..."
+          retry_git_operation "git fetch origin main" $MAX_RETRIES || {
+            echo "❌ Failed to fetch main after $MAX_RETRIES attempts"
             exit 1
           }
 
-          # Force push the rebased branch (safe since it's a temporary validation branch)
-          git push origin HEAD:${{ github.ref_name }} --force-with-lease
+          # Check if validation branch is already up to date with main
+          if git merge-base --is-ancestor origin/main "origin/${VALIDATION_BRANCH}"; then
+            echo "✓ Validation branch is already up to date with main, skipping rebase"
+          else
+            # Rebase - author information is automatically preserved from original commits
+            echo "Rebasing ${VALIDATION_BRANCH} onto main..."
+            retry_git_operation "git rebase origin/main" $MAX_RETRIES || {
+              echo "❌ Rebase failed after $MAX_RETRIES attempts. This should not happen if validation branch was created from main."
+              echo "This might indicate a conflict or that main has diverged significantly."
+              exit 1
+            }
+
+            # Force push the rebased branch (safe since it's a temporary validation branch)
+            echo "Pushing rebased branch..."
+            retry_git_operation "git push origin HEAD:${VALIDATION_BRANCH} --force-with-lease" $MAX_RETRIES || {
+              echo "❌ Failed to push rebased branch after $MAX_RETRIES attempts"
+              exit 1
+            }
+          fi
 
       - name: Fast-forward merge into main (no merge commit)
         env:
@@ -175,25 +224,78 @@ jobs:
           # This ensures no merge commit is created
 
           VALIDATION_BRANCH="${{ github.ref_name }}"
-
-          echo "Checking out main branch..."
-          git checkout main
-          git reset --hard origin/main
-
-          echo "Attempting fast-forward merge of ${VALIDATION_BRANCH} into main..."
-          git merge --ff-only "origin/${VALIDATION_BRANCH}" || {
-            echo "❌ Fast-forward merge failed. This should not happen after rebase."
-            exit 1
-          }
+          MAX_RETRIES=3
+          RETRY_DELAY=5
 
           # Configure git to use the token for authentication
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          echo "Pushing main with fast-forward merge..."
-          git push origin main --no-verify
+          # Function to retry git operations
+          retry_git_operation() {
+            local operation="$1"
+            local max_attempts=$2
+            local attempt=1
 
-          echo "✓ Fast-forward merge successful - no merge commit created"
-          echo "Your original commits are now in main with their original messages"
+            while [ $attempt -le $max_attempts ]; do
+              echo "Attempt $attempt of $max_attempts: $operation"
+              if eval "$operation"; then
+                return 0
+              fi
+              if [ $attempt -lt $max_attempts ]; then
+                echo "Operation failed, waiting ${RETRY_DELAY}s before retry..."
+                sleep $RETRY_DELAY
+                # Fetch latest changes before retry
+                git fetch origin main "${VALIDATION_BRANCH}" --quiet || true
+              fi
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
+          # Fetch latest changes before merge
+          echo "Fetching latest changes..."
+          retry_git_operation "git fetch origin main ${VALIDATION_BRANCH}" $MAX_RETRIES || {
+            echo "❌ Failed to fetch latest changes after $MAX_RETRIES attempts"
+            exit 1
+          }
+
+          echo "Checking out main branch..."
+          git checkout main
+          retry_git_operation "git reset --hard origin/main" $MAX_RETRIES || {
+            echo "❌ Failed to reset main branch after $MAX_RETRIES attempts"
+            exit 1
+          }
+
+          # Verify validation branch exists and is ahead of main
+          if ! git rev-parse --verify "origin/${VALIDATION_BRANCH}" >/dev/null 2>&1; then
+            echo "❌ Validation branch origin/${VALIDATION_BRANCH} does not exist"
+            exit 1
+          fi
+
+          # Check if merge is needed (validation branch might already be merged)
+          if git merge-base --is-ancestor "origin/${VALIDATION_BRANCH}" origin/main; then
+            echo "✓ Validation branch is already merged into main, skipping merge"
+          else
+            echo "Attempting fast-forward merge of ${VALIDATION_BRANCH} into main..."
+            retry_git_operation "git merge --ff-only \"origin/${VALIDATION_BRANCH}\"" $MAX_RETRIES || {
+              echo "❌ Fast-forward merge failed after $MAX_RETRIES attempts."
+              echo "This might indicate:"
+              echo "  - Main has moved forward since rebase"
+              echo "  - There are conflicts that need resolution"
+              echo "  - The rebase step may have failed silently"
+              exit 1
+            }
+
+            echo "Pushing main with fast-forward merge..."
+            retry_git_operation "git push origin main --no-verify" $MAX_RETRIES || {
+              echo "❌ Failed to push main after $MAX_RETRIES attempts"
+              echo "This might indicate a race condition with another merge"
+              exit 1
+            }
+
+            echo "✓ Fast-forward merge successful - no merge commit created"
+            echo "Your original commits are now in main with their original messages"
+          fi
 
           # Delete the validation branch after successful merge
           echo "Deleting validation branch ${VALIDATION_BRANCH}..."

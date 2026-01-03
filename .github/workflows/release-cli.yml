@@ -176,9 +176,19 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: |
+          echo "Downloaded artifacts structure:"
+          find artifacts -type f -o -type d | head -20 || true
+          echo ""
+          echo "Artifacts directory contents:"
+          ls -la artifacts/ || echo "Artifacts directory does not exist"
+
       - name: Package source tarball
         run: |
-          mkdir -p artifacts
+          set -euo pipefail
+          
+          # Determine version
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
           elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -187,11 +197,62 @@ jobs:
             VERSION="${GITHUB_REF_NAME}"
           fi
 
+          # Validate version is set
+          if [ -z "${VERSION}" ]; then
+            echo "❌ Error: VERSION is empty"
+            exit 1
+          fi
+
+          echo "Packaging source tarball for version: ${VERSION}"
+
+          # Ensure artifacts directory exists and is writable
+          mkdir -p artifacts
+          if [ ! -w artifacts ]; then
+            echo "❌ Error: artifacts directory is not writable"
+            exit 1
+          fi
+
+          # Create tarball with comprehensive exclusions
+          # Using --exclude patterns that work reliably
           tar -czf "artifacts/control-path-source-${VERSION}.tar.gz" \
             --exclude='.git' \
+            --exclude='.git/**' \
             --exclude='node_modules' \
+            --exclude='node_modules/**' \
             --exclude='dist' \
-            .
+            --exclude='dist/**' \
+            --exclude='target' \
+            --exclude='target/**' \
+            --exclude='.github' \
+            --exclude='.husky' \
+            --exclude='*.log' \
+            --exclude='.DS_Store' \
+            --exclude='*.swp' \
+            --exclude='*.swo' \
+            --exclude='*~' \
+            . || {
+            echo "❌ Error: Failed to create source tarball"
+            echo "Current directory: $(pwd)"
+            echo "Directory contents:"
+            ls -la
+            echo "Artifacts directory:"
+            ls -la artifacts/ || echo "Artifacts directory does not exist"
+            exit 1
+          }
+
+          # Verify tarball was created and has reasonable size
+          if [ ! -f "artifacts/control-path-source-${VERSION}.tar.gz" ]; then
+            echo "❌ Error: Tarball was not created"
+            exit 1
+          fi
+
+          TARBALL_SIZE=$(stat -f%z "artifacts/control-path-source-${VERSION}.tar.gz" 2>/dev/null || stat -c%s "artifacts/control-path-source-${VERSION}.tar.gz" 2>/dev/null || echo "0")
+          if [ "${TARBALL_SIZE}" -eq 0 ]; then
+            echo "❌ Error: Tarball is empty (size: ${TARBALL_SIZE})"
+            exit 1
+          fi
+
+          echo "✓ Source tarball created successfully: control-path-source-${VERSION}.tar.gz (${TARBALL_SIZE} bytes)"
 
       - name: Lookup existing GitHub Release
         id: find_release
@@ -207,13 +268,77 @@ jobs:
             } else {
               tag = context.ref.replace('refs/tags/', '');
             }
-            const { data: release } = await github.rest.repos.getReleaseByTag({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag
-            });
+
+            if (!tag) {
+              core.setFailed('Tag name is empty or could not be determined');
+              return;
+            }
+
+            console.log(`Looking up release for tag: ${tag}`);
+
+            let release;
+            try {
+              const response = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag
+              });
+              release = response.data;
+            } catch (error) {
+              if (error.status === 404) {
+                core.setFailed(`Release not found for tag: ${tag}. Please create the release first.`);
+                return;
+              }
+              throw error;
+            }
+
+            if (!release || !release.upload_url) {
+              core.setFailed(`Release found but upload_url is missing for tag: ${tag}`);
+              return;
+            }
+
+            console.log(`Found release: ${release.id}, upload_url: ${release.upload_url}`);
             core.setOutput('upload_url', release.upload_url);
             core.setOutput('tag_name', tag);
+
+      - name: Verify artifacts exist
+        run: |
+          set -euo pipefail
+          TAG_NAME="${{ steps.find_release.outputs.tag_name }}"
+          
+          echo "Verifying artifacts for tag: ${TAG_NAME}"
+          echo "Artifacts directory structure:"
+          find artifacts -type f -name "*.tar.gz" -o -name "*.zip" | sort || true
+          
+          # Check CLI artifacts
+          CLI_ARTIFACTS=(
+            "artifacts/cli-linux-x86_64/controlpath-${TAG_NAME}-linux-x86_64.tar.gz"
+            "artifacts/cli-linux-aarch64/controlpath-${TAG_NAME}-linux-aarch64.tar.gz"
+            "artifacts/cli-macos-x86_64/controlpath-${TAG_NAME}-macos-x86_64.tar.gz"
+            "artifacts/cli-macos-aarch64/controlpath-${TAG_NAME}-macos-aarch64.tar.gz"
+            "artifacts/cli-windows-x86_64/controlpath-${TAG_NAME}-windows-x86_64.zip"
+          )
+          
+          MISSING_ARTIFACTS=()
+          for artifact in "${CLI_ARTIFACTS[@]}"; do
+            if [ ! -f "${artifact}" ]; then
+              MISSING_ARTIFACTS+=("${artifact}")
+            fi
+          done
+          
+          # Check source tarball
+          SOURCE_TARBALL="artifacts/control-path-source-${TAG_NAME}.tar.gz"
+          if [ ! -f "${SOURCE_TARBALL}" ]; then
+            MISSING_ARTIFACTS+=("${SOURCE_TARBALL}")
+          fi
+          
+          if [ ${#MISSING_ARTIFACTS[@]} -gt 0 ]; then
+            echo "❌ Error: Missing artifacts:"
+            printf '  - %s\n' "${MISSING_ARTIFACTS[@]}"
+            exit 1
+          fi
+          
+          echo "✓ All artifacts verified"
 
       - name: Upload Rust CLI archive (Linux x86_64)
         uses: actions/upload-release-asset@v1
