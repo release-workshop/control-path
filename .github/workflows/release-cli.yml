@@ -23,20 +23,35 @@ jobs:
       matrix:
         include:
           - target_name: linux-x86_64
-            deno_target: x86_64-unknown-linux-gnu
+            rust_target: x86_64-unknown-linux-gnu
             output: controlpath-linux
             archive: tar
             runner: ubuntu-latest
+            os: linux
+          - target_name: linux-aarch64
+            rust_target: aarch64-unknown-linux-gnu
+            output: controlpath-linux
+            archive: tar
+            runner: ubuntu-latest
+            os: linux
           - target_name: macos-x86_64
-            deno_target: x86_64-apple-darwin
+            rust_target: x86_64-apple-darwin
             output: controlpath-macos
             archive: tar
             runner: macos-latest
+            os: macos
+          - target_name: macos-aarch64
+            rust_target: aarch64-apple-darwin
+            output: controlpath-macos
+            archive: tar
+            runner: macos-latest
+            os: macos
           - target_name: windows-x86_64
-            deno_target: x86_64-pc-windows-msvc
+            rust_target: x86_64-pc-windows-msvc
             output: controlpath-windows.exe
             archive: zip
-            runner: ubuntu-latest
+            runner: windows-latest
+            os: windows
 
     steps:
       - name: Checkout repository
@@ -44,35 +59,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: 24
+          toolchain: stable
 
-      - name: Install Deno
-        uses: denoland/setup-deno@v2
+      - name: Install cross-compilation toolchain
+        run: |
+          rustup target add ${{ matrix.rust_target }}
+          # For Linux ARM64, install cross-compilation dependencies
+          if [ "${{ matrix.os }}" != "windows" ] && [ "${{ matrix.rust_target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get update
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
         with:
-          cache: true
-          deno-version: v2.x
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.rust_target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.rust_target }}-
+            ${{ runner.os }}-cargo-
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build compiler (for CLI dependency)
-        run: pnpm --filter @controlpath/compiler build
-
-      - name: Build CLI binary (${{ matrix.target_name }})
-        working-directory: packages/cli
-        env:
-          # Set DENO_DIR to a directory we control with proper permissions
-          # This is critical for cross-compilation as Deno downloads denort binaries here
-          DENO_DIR: ${{ github.workspace }}/.deno-cache
-          TMPDIR: ${{ runner.temp }}
+      - name: Build Rust CLI binary (${{ matrix.target_name }})
+        shell: bash
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION="${{ github.event.release.tag_name }}"
@@ -81,31 +99,23 @@ jobs:
           else
             VERSION="${GITHUB_REF_NAME}"
           fi
-          echo "Building CLI for target ${{ matrix.target_name }} (version ${VERSION})"
+          echo "Building Rust CLI for target ${{ matrix.target_name }} (version ${VERSION})"
 
-          # Create DENO_DIR with proper permissions for cross-compilation
-          # Deno needs this to download and extract denort binaries for target platforms
-          mkdir -p "$DENO_DIR"
-          chmod 755 "$DENO_DIR"
+          # Build the binary for the target platform
+          cargo build --release --bin controlpath --target ${{ matrix.rust_target }}
 
-          # Create dist directory before compilation to ensure it exists
-          # Deno creates temp files in the same directory as the output
+          # Create dist directory for artifacts
           mkdir -p dist
-          chmod 755 dist
 
-          OUTPUT_PATH="dist/${{ matrix.output }}"
-
-          # Ensure Deno can resolve Node.js modules
-          # The import map in deno.json maps Node.js dependencies to npm: specifiers
-          # Use --sloppy-imports to handle imports without file extensions in compiler source
-          # Exclude node_modules to avoid platform-specific binary incompatibilities during cross-compilation
-          deno compile --no-check --sloppy-imports --allow-read --allow-write --allow-net \
-            --target ${{ matrix.deno_target }} \
-            --exclude=node_modules \
-            --output "$OUTPUT_PATH" \
-            src/index.ts
+          # Copy binary to dist with appropriate name
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            cp target/${{ matrix.rust_target }}/release/controlpath.exe dist/${{ matrix.output }}
+          else
+            cp target/${{ matrix.rust_target }}/release/controlpath dist/${{ matrix.output }}
+          fi
 
       - name: Package CLI archive (${{ matrix.target_name }})
+        shell: bash
         run: |
           mkdir -p artifacts
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -117,9 +127,9 @@ jobs:
           fi
 
           if [ "${{ matrix.archive }}" = "tar" ]; then
-            tar -czf "artifacts/controlpath-${VERSION}-${{ matrix.target_name }}.tar.gz" -C packages/cli/dist "${{ matrix.output }}"
+            tar -czf "artifacts/controlpath-${VERSION}-${{ matrix.target_name }}.tar.gz" -C dist "${{ matrix.output }}"
           else
-            zip -j "artifacts/controlpath-${VERSION}-${{ matrix.target_name }}.zip" "packages/cli/dist/${{ matrix.output }}"
+            zip -j "artifacts/controlpath-${VERSION}-${{ matrix.target_name }}.zip" "dist/${{ matrix.output }}"
           fi
 
       - name: Upload CLI artifact (${{ matrix.target_name }})
@@ -211,7 +221,7 @@ jobs:
             core.setOutput('upload_url', release.upload_url);
             core.setOutput('tag_name', tag);
 
-      - name: Upload CLI archive (Linux)
+      - name: Upload CLI archive (Linux x86_64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -221,7 +231,17 @@ jobs:
           asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-linux-x86_64.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload CLI archive (macOS)
+      - name: Upload CLI archive (Linux ARM64)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.find_release.outputs.upload_url }}
+          asset_path: artifacts/cli-linux-aarch64/controlpath-${{ steps.find_release.outputs.tag_name }}-linux-aarch64.tar.gz
+          asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-linux-aarch64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload CLI archive (macOS x86_64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -231,7 +251,17 @@ jobs:
           asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-macos-x86_64.tar.gz
           asset_content_type: application/gzip
 
-      - name: Upload CLI archive (Windows)
+      - name: Upload CLI archive (macOS ARM64)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.find_release.outputs.upload_url }}
+          asset_path: artifacts/cli-macos-aarch64/controlpath-${{ steps.find_release.outputs.tag_name }}-macos-aarch64.tar.gz
+          asset_name: controlpath-${{ steps.find_release.outputs.tag_name }}-macos-aarch64.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload CLI archive (Windows x86_64)
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
