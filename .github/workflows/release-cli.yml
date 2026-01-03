@@ -296,7 +296,7 @@ EOF
 
           echo "✓ Source tarball created successfully: control-path-source-${VERSION}.tar.gz (${TARBALL_SIZE} bytes)"
 
-      - name: Lookup existing GitHub Release
+      - name: Lookup or create GitHub Release
         id: find_release
         uses: actions/github-script@v7
         with:
@@ -326,12 +326,51 @@ EOF
                 tag
               });
               release = response.data;
+              console.log(`Found existing release: ${release.id}`);
             } catch (error) {
               if (error.status === 404) {
-                core.setFailed(`Release not found for tag: ${tag}. Please create the release first.`);
-                return;
+                // Release doesn't exist - create it if this is a manual run
+                if (context.eventName === 'workflow_dispatch') {
+                  console.log(`Release not found for tag: ${tag}. Creating new release...`);
+                  
+                  // First, verify the tag exists
+                  try {
+                    await github.rest.git.getRef({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      ref: `tags/${tag}`
+                    });
+                  } catch (tagError) {
+                    if (tagError.status === 404) {
+                      core.setFailed(`Tag ${tag} does not exist. Please create the tag first.`);
+                      return;
+                    }
+                    throw tagError;
+                  }
+
+                  // Create the release
+                  try {
+                    const createResponse = await github.rest.repos.createRelease({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      tag_name: tag,
+                      name: tag,
+                      draft: false,
+                      prerelease: tag.includes('-') || tag.includes('alpha') || tag.includes('beta') || tag.includes('rc')
+                    });
+                    release = createResponse.data;
+                    console.log(`Created new release: ${release.id}`);
+                  } catch (createError) {
+                    core.setFailed(`Failed to create release: ${createError.message}`);
+                    return;
+                  }
+                } else {
+                  core.setFailed(`Release not found for tag: ${tag}. Please create the release first.`);
+                  return;
+                }
+              } else {
+                throw error;
               }
-              throw error;
             }
 
             if (!release || !release.upload_url) {
@@ -339,14 +378,19 @@ EOF
               return;
             }
 
-            console.log(`Found release: ${release.id}, upload_url: ${release.upload_url}`);
+            console.log(`Using release: ${release.id}, upload_url: ${release.upload_url}`);
             core.setOutput('upload_url', release.upload_url);
             core.setOutput('tag_name', tag);
 
       - name: Verify artifacts exist
         run: |
-          set -euo pipefail
+          set -eo pipefail
           TAG_NAME="${{ steps.find_release.outputs.tag_name }}"
+          
+          if [ -z "${TAG_NAME:-}" ]; then
+            echo "❌ Error: TAG_NAME is empty"
+            exit 1
+          fi
           
           echo "Verifying artifacts for tag: ${TAG_NAME}"
           echo "Artifacts directory structure:"
