@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/release-workshop/control-path/compare/control-path-v0.4.0...control-path-v0.5.0) (2026-01-03)
+
+
+### Features
+
+* adds rust based cli ([44478c3](https://github.com/release-workshop/control-path/commit/44478c327384c14e5bbb0c52ce8386ea832fcc62))
+
 ## [0.4.0](https://github.com/release-workshop/control-path/compare/control-path-v0.3.0...control-path-v0.4.0) (2026-01-03)
 
 
