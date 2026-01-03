@@ -2,6 +2,7 @@ name: Release CLI and source artifacts
 
 # This workflow builds and releases Rust CLI binaries only.
 # The Deno/TypeScript CLI is no longer built or released.
+# Updated: Windows packaging now uses PowerShell Compress-Archive
 
 on:
   push:
