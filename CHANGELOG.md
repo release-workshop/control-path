@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0](https://github.com/release-workshop/control-path/compare/control-path-v0.3.0...control-path-v0.4.0) (2026-01-03)
+
+
+### Features
+
+* completes rust version ([3471c0d](https://github.com/release-workshop/control-path/commit/3471c0d6819e17c46de7727017f6e6c2a0c77230))
+* rust migration setup and parsing ([1d6be3d](https://github.com/release-workshop/control-path/commit/1d6be3d231b29e87fedaf62d5ecb5acb9981bad1))
+
+
+### Bug Fixes
+
+* concurrent test problems ([f4f573a](https://github.com/release-workshop/control-path/commit/f4f573a616db08e806b5c8539ad564c89750123e))
+
 ## [0.3.0](https://github.com/release-workshop/control-path/compare/control-path-v0.2.1...control-path-v0.3.0) (2025-12-30)
 
 
