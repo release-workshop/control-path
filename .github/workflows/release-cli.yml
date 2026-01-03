@@ -3,6 +3,15 @@ name: Release CLI and source artifacts
 # This workflow builds and releases Rust CLI binaries only.
 # The Deno/TypeScript CLI is no longer built or released.
 # Updated: Windows packaging now uses PowerShell Compress-Archive
+#
+# macOS Code Signing (optional but recommended):
+# To enable code signing and notarization for macOS binaries, set these GitHub secrets:
+#   - MACOS_CERTIFICATE_P12: Base64-encoded .p12 certificate file
+#   - MACOS_CERTIFICATE_PASSWORD: Password for the .p12 certificate (can be empty)
+#   - APPLE_ID: Your Apple ID email
+#   - APPLE_TEAM_ID: Your Apple Developer Team ID
+#   - APPLE_APP_SPECIFIC_PASSWORD: App-specific password for notarization
+# If these secrets are not set, macOS binaries will be built but not signed/notarized.
 
 on:
   push:
@@ -117,6 +126,104 @@ jobs:
           else
             cp target/${{ matrix.rust_target }}/release/controlpath dist/${{ matrix.output }}
           fi
+
+      - name: Code sign macOS binary (${{ matrix.target_name }})
+        if: matrix.os == 'macos' && secrets.MACOS_CERTIFICATE_P12 != ''
+        shell: bash
+        run: |
+          BINARY_PATH="dist/${{ matrix.output }}"
+          
+          # Import certificate
+          echo "Importing code signing certificate..."
+          CERT_PASSWORD="${{ secrets.MACOS_CERTIFICATE_PASSWORD }}"
+          if [ -z "$CERT_PASSWORD" ]; then
+            CERT_PASSWORD=""
+          fi
+          
+          # Create keychain
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 12)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          
+          # Import certificate
+          echo "${{ secrets.MACOS_CERTIFICATE_P12 }}" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$CERT_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security || true
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" || true
+          
+          # Find signing identity
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$SIGNING_IDENTITY" ]; then
+            SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          fi
+          
+          if [ -z "$SIGNING_IDENTITY" ]; then
+            echo "❌ Error: No signing identity found"
+            security list-keychains
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+            exit 1
+          fi
+          
+          echo "Using signing identity: $SIGNING_IDENTITY"
+          
+          # Sign the binary
+          echo "Signing binary: $BINARY_PATH"
+          codesign --force --verbose --sign "$SIGNING_IDENTITY" --options runtime --timestamp "$BINARY_PATH" || {
+            echo "❌ Code signing failed"
+            exit 1
+          }
+          
+          # Verify signature
+          echo "Verifying signature..."
+          codesign --verify --verbose "$BINARY_PATH" || {
+            echo "❌ Signature verification failed"
+            exit 1
+          }
+          
+          # Display signature info
+          codesign -dv --verbose=4 "$BINARY_PATH" || true
+          
+          # Clean up
+          rm -f "$RUNNER_TEMP/certificate.p12"
+          security delete-keychain "$KEYCHAIN_PATH" || true
+
+      - name: Notarize macOS binary (${{ matrix.target_name }})
+        if: matrix.os == 'macos' && secrets.MACOS_CERTIFICATE_P12 != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != ''
+        shell: bash
+        run: |
+          BINARY_PATH="dist/${{ matrix.output }}"
+          
+          # Create zip for notarization (required format)
+          NOTARIZE_ZIP="$RUNNER_TEMP/notarize.zip"
+          zip -j "$NOTARIZE_ZIP" "$BINARY_PATH"
+          
+          # Submit for notarization
+          echo "Submitting binary for notarization..."
+          xcrun notarytool submit "$NOTARIZE_ZIP" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --team-id "${{ secrets.APPLE_TEAM_ID }}" \
+            --password "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" \
+            --wait \
+            --timeout 30m || {
+            echo "❌ Notarization failed"
+            exit 1
+          }
+          
+          # Staple the notarization ticket
+          echo "Stapling notarization ticket..."
+          xcrun stapler staple "$BINARY_PATH" || {
+            echo "⚠️  Warning: Failed to staple notarization ticket"
+          }
+          
+          # Verify notarization
+          echo "Verifying notarization..."
+          xcrun stapler validate "$BINARY_PATH" || {
+            echo "⚠️  Warning: Notarization validation failed"
+          }
+          
+          # Clean up
+          rm -f "$NOTARIZE_ZIP"
 
       - name: Package CLI archive (${{ matrix.target_name }})
         if: matrix.os != 'windows'
