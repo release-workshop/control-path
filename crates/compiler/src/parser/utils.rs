@@ -7,66 +7,68 @@
  * Works only with in-memory strings (no file I/O).
  */
 
+use crate::parser::error::ParseError;
 use serde_json::Value;
 use yaml_rust::{Yaml, YamlLoader};
-use crate::parser::error::ParseError;
 
 /// Parse YAML or JSON content from a string.
-/// 
+///
 /// Automatically detects format based on file extension (if provided) or tries JSON first, then YAML.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `content` - The YAML or JSON content as a string
 /// * `file_path` - Optional file path (for error messages and format detection)
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns the parsed value as `serde_json::Value`, or a `ParseError` if parsing fails.
+///
+/// # Errors
+///
+/// Returns `ParseError` if parsing fails.
 pub fn parse_yaml_or_json(content: &str, file_path: Option<&str>) -> Result<Value, ParseError> {
     // Try to detect format from file extension
     if let Some(path) = file_path {
-        let path_lower = path.to_lowercase();
-        if path_lower.ends_with(".json") {
-            return parse_json(content).map_err(ParseError::InvalidJson);
-        }
-        if path_lower.ends_with(".yaml") || path_lower.ends_with(".yml") {
-            return parse_yaml(content).map_err(ParseError::InvalidYaml);
+        let path = std::path::Path::new(path);
+        if let Some(ext) = path.extension() {
+            if ext.eq_ignore_ascii_case("json") {
+                return parse_json(content).map_err(ParseError::InvalidJson);
+            }
+            if ext.eq_ignore_ascii_case("yaml") || ext.eq_ignore_ascii_case("yml") {
+                return parse_yaml(content).map_err(ParseError::InvalidYaml);
+            }
         }
     }
-    
+
     // Unknown extension: try JSON first (more strict), then YAML
-    match parse_json(content) {
-        Ok(value) => Ok(value),
-        Err(_) => parse_yaml(content).map_err(ParseError::InvalidYaml),
-    }
+    parse_json(content)
+        .map_err(ParseError::InvalidJson)
+        .or_else(|_| parse_yaml(content).map_err(ParseError::InvalidYaml))
 }
 
 /// Parse JSON content from a string.
 fn parse_json(content: &str) -> Result<Value, String> {
-    serde_json::from_str(content)
-        .map_err(|e| format!("JSON parse error: {}", e))
+    serde_json::from_str(content).map_err(|e| format!("JSON parse error: {e}"))
 }
 
 /// Parse YAML content from a string.
-/// 
+///
 /// Uses `yaml-rust` to parse YAML, then converts to `serde_json::Value`.
 fn parse_yaml(content: &str) -> Result<Value, String> {
-    let docs = YamlLoader::load_from_str(content)
-        .map_err(|e| format!("YAML parse error: {}", e))?;
-    
+    let docs = YamlLoader::load_from_str(content).map_err(|e| format!("YAML parse error: {e}"))?;
+
     if docs.is_empty() {
         return Err("YAML document is empty".to_string());
     }
-    
+
     // Convert first document to serde_json::Value
-    yaml_to_json_value(&docs[0])
-        .ok_or_else(|| "Failed to convert YAML to JSON value".to_string())
+    yaml_to_json_value(&docs[0]).ok_or_else(|| "Failed to convert YAML to JSON value".to_string())
 }
 
-/// Convert a YAML value to a serde_json::Value.
-/// 
-/// This recursively converts yaml-rust's Yaml enum to serde_json::Value.
+/// Convert a YAML value to a `serde_json::Value`.
+///
+/// This recursively converts yaml-rust's Yaml enum to `serde_json::Value`.
 fn yaml_to_json_value(yaml: &Yaml) -> Option<Value> {
     match yaml {
         Yaml::Real(s) => {
@@ -75,7 +77,9 @@ fn yaml_to_json_value(yaml: &Yaml) -> Option<Value> {
                 .ok()
                 .and_then(|f| {
                     // Try to convert to u64 first (if it's a whole number)
+                    #[allow(clippy::cast_precision_loss)]
                     if f.fract() == 0.0 && f >= 0.0 && f <= u64::MAX as f64 {
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                         Some(Value::Number(serde_json::Number::from(f as u64)))
                     } else {
                         // Use serde_json::to_value to handle f64 properly
@@ -89,51 +93,44 @@ fn yaml_to_json_value(yaml: &Yaml) -> Option<Value> {
             // Try as i64 first (for negative numbers), then u64 (for positive)
             if *i >= 0 {
                 // Positive integer: use u64
+                #[allow(clippy::cast_sign_loss)]
                 Some(Value::Number(serde_json::Number::from(*i as u64)))
             } else {
                 // Negative integer: need to check if it fits in i64
                 // Since Yaml::Integer is i64, we can use it directly
                 // But serde_json::Number doesn't have from_i64, so we need to convert
                 // For negative numbers, we'll use from_f64 which should preserve the value
-                serde_json::Number::from_f64(*i as f64)
-                    .map(Value::Number)
+                #[allow(clippy::cast_precision_loss)]
+                serde_json::Number::from_f64(*i as f64).map(Value::Number)
             }
         }
         Yaml::String(s) => Some(Value::String(s.clone())),
         Yaml::Boolean(b) => Some(Value::Bool(*b)),
         Yaml::Array(arr) => {
-            let json_arr: Vec<Value> = arr
-                .iter()
-                .filter_map(yaml_to_json_value)
-                .collect();
+            let json_arr: Vec<Value> = arr.iter().filter_map(yaml_to_json_value).collect();
             Some(Value::Array(json_arr))
         }
         Yaml::Hash(hash) => {
             let mut map = serde_json::Map::new();
             for (k, v) in hash {
-                if let (Some(key), Some(value)) = (
-                    yaml_to_string(k),
-                    yaml_to_json_value(v)
-                ) {
+                if let (Some(key), Some(value)) = (yaml_to_string(k), yaml_to_json_value(v)) {
                     map.insert(key, value);
                 }
             }
             Some(Value::Object(map))
         }
         Yaml::Null => Some(Value::Null),
-        Yaml::BadValue => None,
-        Yaml::Alias(_) => None, // Aliases not supported in JSON
+        Yaml::BadValue | Yaml::Alias(_) => None, // Aliases not supported in JSON
     }
 }
 
 /// Convert a YAML value to a string key.
-/// 
+///
 /// Used for hash map keys in YAML.
 fn yaml_to_string(yaml: &Yaml) -> Option<String> {
     match yaml {
-        Yaml::String(s) => Some(s.clone()),
         Yaml::Integer(i) => Some(i.to_string()),
-        Yaml::Real(s) => Some(s.clone()),
+        Yaml::String(s) | Yaml::Real(s) => Some(s.clone()),
         Yaml::Boolean(b) => Some(b.to_string()),
         _ => None,
     }
@@ -184,7 +181,7 @@ boolean: true
         let json = r#"{"test": "value"}"#;
         let result = parse_yaml_or_json(json, None).unwrap();
         assert_eq!(result["test"], "value");
-        
+
         // Then try YAML
         let yaml = r#"test: value"#;
         let result = parse_yaml_or_json(yaml, None).unwrap();
@@ -203,4 +200,3 @@ boolean: true
         assert!(parse_yaml(invalid).is_err());
     }
 }
-

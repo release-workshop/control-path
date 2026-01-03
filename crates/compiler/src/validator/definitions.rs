@@ -11,11 +11,7 @@ use crate::validator::error::{ValidationError, ValidationResult};
 use crate::validator::type_guards::{has_name, is_flag_definition, is_flag_definitions};
 
 /// Validate flag definitions against the definitions schema.
-pub fn validate_definitions(
-    schema: &Value,
-    file_path: &str,
-    data: &Value,
-) -> ValidationResult {
+pub fn validate_definitions(schema: &Value, file_path: &str, data: &Value) -> ValidationResult {
     validate_with_schema(schema, file_path, data, validate_flag_specific_rules)
 }
 
@@ -51,8 +47,8 @@ fn validate_duplicate_flag_names(file_path: &str, flags: &[Value]) -> Vec<Valida
                     file: file_path.to_string(),
                     line: None,
                     column: None,
-                    message: format!("Duplicate flag name: '{}'", name),
-                    path: Some(format!("/flags/{}/name", index)),
+                    message: format!("Duplicate flag name: '{name}'"),
+                    path: Some(format!("/flags/{index}/name")),
                     suggestion: Some(
                         "Flag names must be unique. Rename this flag or remove the duplicate."
                             .to_string(),
@@ -99,10 +95,9 @@ fn validate_multivariate_flags(file_path: &str, flags: &[Value]) -> Vec<Validati
                 line: None,
                 column: None,
                 message: format!(
-                    "Multivariate flag '{}' must have at least one variation. Missing variations array.",
-                    flag_name
+                    "Multivariate flag '{flag_name}' must have at least one variation. Missing variations array."
                 ),
-                path: Some(format!("/flags/{}/variations", index)),
+                path: Some(format!("/flags/{index}/variations")),
                 suggestion: Some("Add a 'variations' array with at least one variation.".to_string()),
             });
             continue;
@@ -111,10 +106,7 @@ fn validate_multivariate_flags(file_path: &str, flags: &[Value]) -> Vec<Validati
         // Validate duplicate variation names
         if let Some(variations) = variations {
             errors.extend(validate_duplicate_variation_names(
-                file_path,
-                flag_name,
-                variations,
-                index,
+                file_path, flag_name, variations, index,
             ));
         }
     }
@@ -139,17 +131,11 @@ fn validate_duplicate_variation_names(
                     file: file_path.to_string(),
                     line: None,
                     column: None,
-                    message: format!(
-                        "Duplicate variation name '{}' in flag '{}'",
-                        name, flag_name
-                    ),
+                    message: format!("Duplicate variation name '{name}' in flag '{flag_name}'"),
                     path: Some(format!(
-                        "/flags/{}/variations/{}/name",
-                        flag_index, variation_index
+                        "/flags/{flag_index}/variations/{variation_index}/name"
                     )),
-                    suggestion: Some(
-                        "Variation names must be unique within a flag.".to_string(),
-                    ),
+                    suggestion: Some("Variation names must be unique within a flag.".to_string()),
                 });
             } else {
                 variation_names.insert(name.to_string());
@@ -159,4 +145,3 @@ fn validate_duplicate_variation_names(
 
     errors
 }
-

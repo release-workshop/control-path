@@ -27,7 +27,7 @@ Before contributing, ensure you have:
 
 - **Rust** (install from [rustup.rs](https://rustup.rs/))
 - **Node.js 24 LTS** or higher (for TypeScript runtime SDK)
-- **pnpm 8+** installed (for TypeScript runtime SDK)
+- **npm** (comes with Node.js, for TypeScript runtime SDK)
 - Git configured
 
 See the [README.md](README.md) for detailed setup instructions.
@@ -51,21 +51,21 @@ See the [README.md](README.md) for detailed setup instructions.
    - `git pushmain` alias for trunk-based development
 4. Install dependencies:
    ```bash
-   cd runtime/typescript && pnpm install && cd ../..
+   cd runtime/typescript && npm install && cd ../..
    ```
 4. Build the project:
    ```bash
    # Build Rust components
    cargo build --release
    # Build TypeScript runtime SDK
-   cd runtime/typescript && pnpm install && pnpm build && cd ../..
+   cd runtime/typescript && npm install && npm run build && cd ../..
    ```
 5. Run tests:
    ```bash
    # Run Rust tests
    cargo test --workspace
    # Run TypeScript runtime SDK tests
-   cd runtime/typescript && pnpm test && cd ../..
+   cd runtime/typescript && npm test && cd ../..
    ```
 
 ## Development Workflow
@@ -129,7 +129,7 @@ For external contributors, use the standard **Pull Request** workflow:
 
 - Follow the existing code style
 - Use TypeScript strict mode (for runtime SDK)
-- Run `cd runtime/typescript && pnpm format && cd ../..` to format code before committing
+- Run `cd runtime/typescript && npm run format && cd ../..` to format code before committing
 - Ensure all lint checks pass
 
 ### Commit Messages

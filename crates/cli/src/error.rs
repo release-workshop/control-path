@@ -15,4 +15,3 @@ pub enum CliError {
 }
 
 pub type CliResult<T> = Result<T, CliError>;
-

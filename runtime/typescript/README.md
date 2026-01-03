@@ -5,7 +5,7 @@ Low-level runtime SDK for Control Path. This package provides AST artifact loadi
 ## Installation
 
 ```bash
-pnpm add @controlpath/runtime
+npm install @controlpath/runtime
 ```
 
 ## Usage
@@ -164,16 +164,16 @@ OpenFeature-compliant provider for flag evaluation.
 
 ```bash
 # Build
-pnpm build
+npm run build
 
 # Test
-pnpm test
+npm test
 
 # Type check
-pnpm typecheck
+npm run typecheck
 
 # Lint
-pnpm lint
+npm run lint
 ```
 
 ## License

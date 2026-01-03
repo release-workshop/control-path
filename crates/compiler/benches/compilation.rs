@@ -10,13 +10,13 @@
 //! - Segments
 //! - More variation in rule complexity
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use controlpath_compiler::{parse_definitions, parse_deployment, compile, serialize};
+use controlpath_compiler::{compile, parse_definitions, parse_deployment, serialize};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 /// Generate flag definitions YAML for testing
 fn generate_flag_definitions(count: usize) -> String {
     let mut flags = Vec::new();
-    
+
     for i in 0..count {
         if i % 3 == 0 {
             // Multivariate flag every 3rd flag
@@ -43,14 +43,14 @@ fn generate_flag_definitions(count: usize) -> String {
             ));
         }
     }
-    
+
     format!("flags:\n{}", flags.join("\n"))
 }
 
 /// Generate deployment YAML for testing
 fn generate_deployment(flag_count: usize) -> String {
     let mut rules = Vec::new();
-    
+
     for i in 0..flag_count {
         let rule = if i % 5 == 0 {
             // Simple serve rule (20% of flags)
@@ -95,24 +95,21 @@ fn generate_deployment(flag_count: usize) -> String {
         };
         rules.push(rule);
     }
-    
-    format!(
-        "environment: production\nrules:\n{}",
-        rules.join("\n")
-    )
+
+    format!("environment: production\nrules:\n{}", rules.join("\n"))
 }
 
 /// Benchmark compilation time for different flag counts
 fn benchmark_compilation(c: &mut Criterion) {
     let flag_counts = vec![10, 50, 100, 250, 500];
-    
+
     let mut group = c.benchmark_group("compilation");
     group.sample_size(20); // More samples for better accuracy
-    
+
     for count in flag_counts {
         let definitions_yaml = generate_flag_definitions(count);
         let deployment_yaml = generate_deployment(count);
-        
+
         group.bench_with_input(
             BenchmarkId::new("compile", count),
             &(definitions_yaml, deployment_yaml),
@@ -129,21 +126,21 @@ fn benchmark_compilation(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 /// Benchmark full compilation pipeline (parse + compile + serialize)
 fn benchmark_full_pipeline(c: &mut Criterion) {
     let flag_counts = vec![10, 50, 100, 250, 500];
-    
+
     let mut group = c.benchmark_group("full_pipeline");
     group.sample_size(20);
-    
+
     for count in flag_counts {
         let definitions_yaml = generate_flag_definitions(count);
         let deployment_yaml = generate_deployment(count);
-        
+
         group.bench_with_input(
             BenchmarkId::new("parse_compile_serialize", count),
             &(definitions_yaml, deployment_yaml),
@@ -162,23 +159,23 @@ fn benchmark_full_pipeline(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
 /// Benchmark artifact size for different flag counts
-/// 
+///
 /// Note: This benchmark measures size, but uses iter() for consistency with other benchmarks.
 /// The timing is not relevant, only the size value.
 fn benchmark_artifact_size(c: &mut Criterion) {
     let flag_counts = vec![10, 50, 100, 250, 500, 1000];
-    
+
     let mut group = c.benchmark_group("artifact_size");
-    
+
     for count in flag_counts {
         let definitions_yaml = generate_flag_definitions(count);
         let deployment_yaml = generate_deployment(count);
-        
+
         group.bench_function(BenchmarkId::new("size_bytes", count), |b| {
             b.iter(|| {
                 let definitions = parse_definitions(black_box(&definitions_yaml))
@@ -193,21 +190,21 @@ fn benchmark_artifact_size(c: &mut Criterion) {
             });
         });
     }
-    
+
     group.finish();
 }
 
 /// Benchmark parsing performance
 fn benchmark_parsing(c: &mut Criterion) {
     let flag_counts = vec![10, 50, 100, 250, 500];
-    
+
     let mut group = c.benchmark_group("parsing");
     group.sample_size(20);
-    
+
     for count in flag_counts {
         let definitions_yaml = generate_flag_definitions(count);
         let deployment_yaml = generate_deployment(count);
-        
+
         group.bench_with_input(
             BenchmarkId::new("parse_definitions", count),
             &definitions_yaml,
@@ -219,7 +216,7 @@ fn benchmark_parsing(c: &mut Criterion) {
                 });
             },
         );
-        
+
         group.bench_with_input(
             BenchmarkId::new("parse_deployment", count),
             &deployment_yaml,
@@ -232,7 +229,7 @@ fn benchmark_parsing(c: &mut Criterion) {
             },
         );
     }
-    
+
     group.finish();
 }
 
@@ -244,4 +241,3 @@ criterion_group!(
     benchmark_parsing
 );
 criterion_main!(benches);
-

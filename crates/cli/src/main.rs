@@ -75,34 +75,42 @@ fn main() {
             deployment,
             env,
             all,
-        } => validate::run(validate::Options {
-            definitions,
-            deployment,
-            env,
-            all,
-        }),
+        } => {
+            let opts = validate::Options {
+                definitions,
+                deployment,
+                env,
+                all,
+            };
+            validate::run(&opts)
+        }
         Commands::Compile {
             deployment,
             env,
             output,
             definitions,
-        } => compile::run(compile::Options {
-            deployment,
-            env,
-            output,
-            definitions,
-        }),
+        } => {
+            let opts = compile::Options {
+                deployment,
+                env,
+                output,
+                definitions,
+            };
+            compile::run(&opts)
+        }
         Commands::Init {
             force,
             example_flags,
             no_examples,
-        } => init::run(init::Options {
-            force,
-            example_flags,
-            no_examples,
-        }),
+        } => {
+            let opts = init::Options {
+                force,
+                example_flags,
+                no_examples,
+            };
+            init::run(&opts)
+        }
     };
 
     std::process::exit(exit_code);
 }
-

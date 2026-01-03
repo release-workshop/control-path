@@ -57,4 +57,3 @@ pub fn is_deployment(value: &Value) -> bool {
     }
     false
 }
-

@@ -81,12 +81,12 @@ impl ExpressionParser {
         let result = self.parse_logical_or()?;
         if !self.is_at_end() {
             let token = self.peek();
-            return Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                format!(
+            return Err(CompilerError::Compilation(
+                CompilationError::ExpressionParsing(format!(
                     "Unexpected token at position {}: {:?}",
                     token.position, token.token_type
-                ),
-            )));
+                )),
+            ));
         }
         Ok(result)
     }
@@ -122,12 +122,12 @@ impl ExpressionParser {
                     i += 1;
                 }
                 if i >= chars.len() {
-                    return Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                        format!(
+                    return Err(CompilerError::Compilation(
+                        CompilationError::ExpressionParsing(format!(
                             "Unterminated string literal at position {}",
                             start_pos - 1
-                        ),
-                    )));
+                        )),
+                    ));
                 }
                 tokens.push(Token {
                     token_type: TokenType::String(value),
@@ -147,9 +147,10 @@ impl ExpressionParser {
                 }
                 // Parse as f64 first to handle both integers and floats, and avoid overflow issues
                 let num = value.parse::<f64>().map_err(|e| {
-                    CompilerError::Compilation(CompilationError::ExpressionParsing(
-                        format!("Invalid number at position {}: {}", start_pos, e),
-                    ))
+                    CompilerError::Compilation(CompilationError::ExpressionParsing(format!(
+                        "Invalid number at position {}: {}",
+                        start_pos, e
+                    )))
                 })?;
                 tokens.push(Token {
                     token_type: TokenType::Number(num),
@@ -300,9 +301,12 @@ impl ExpressionParser {
                 continue;
             }
 
-            return Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                format!("Unexpected character at position {}: {}", i, char),
-            )));
+            return Err(CompilerError::Compilation(
+                CompilationError::ExpressionParsing(format!(
+                    "Unexpected character at position {}: {}",
+                    i, char
+                )),
+            ));
         }
 
         tokens.push(Token {
@@ -435,17 +439,21 @@ impl ExpressionParser {
             TokenType::Boolean(b) => {
                 let value = *b;
                 self.advance(); // consume token
-                Ok(IntermediateExpression::Literal(serde_json::Value::Bool(value)))
+                Ok(IntermediateExpression::Literal(serde_json::Value::Bool(
+                    value,
+                )))
             }
             TokenType::String(s) => {
                 let value = s.clone();
                 self.advance(); // consume token
-                Ok(IntermediateExpression::Literal(serde_json::Value::String(value)))
+                Ok(IntermediateExpression::Literal(serde_json::Value::String(
+                    value,
+                )))
             }
             TokenType::Number(n) => {
                 let num = *n;
                 self.advance(); // consume token
-                // Convert to integer if it's a whole number and fits in i64, otherwise keep as float
+                                // Convert to integer if it's a whole number and fits in i64, otherwise keep as float
                 if num.fract() == 0.0 && num >= (i64::MIN as f64) && num <= (i64::MAX as f64) {
                     Ok(IntermediateExpression::Literal(serde_json::Value::Number(
                         serde_json::Number::from(num as i64),
@@ -467,7 +475,7 @@ impl ExpressionParser {
             TokenType::Identifier(ident) => {
                 let value = ident.clone();
                 self.advance(); // consume identifier
-                // Check if it's a function call
+                                // Check if it's a function call
                 if self.check_token_type(&TokenType::LeftParen) {
                     self.parse_function_call(value)
                 } else {
@@ -479,16 +487,19 @@ impl ExpressionParser {
                 self.advance(); // consume '('
                 let expr = self.parse_logical_or()?;
                 if !self.check_token_type(&TokenType::RightParen) {
-                    return Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                        format!("Expected ')' at position {}", self.peek().position),
-                    )));
+                    return Err(CompilerError::Compilation(
+                        CompilationError::ExpressionParsing(format!(
+                            "Expected ')' at position {}",
+                            self.peek().position
+                        )),
+                    ));
                 }
                 self.advance(); // consume ')'
                 Ok(expr)
             }
             TokenType::LeftBracket => {
                 self.advance(); // consume '['
-                // Array literal
+                                // Array literal
                 let mut elements = Vec::new();
                 if !self.check_token_type(&TokenType::RightBracket) {
                     loop {
@@ -496,14 +507,14 @@ impl ExpressionParser {
                         let elem = self.parse_primary()?;
                         match elem {
                             IntermediateExpression::Literal(v) => elements.push(v),
-                                other => {
-                                    return Err(CompilerError::Compilation(
-                                        CompilationError::ExpressionParsing(format!(
-                                            "Array elements must be literals, found: {:?}",
-                                            other
-                                        )),
-                                    ));
-                                }
+                            other => {
+                                return Err(CompilerError::Compilation(
+                                    CompilationError::ExpressionParsing(format!(
+                                        "Array elements must be literals, found: {:?}",
+                                        other
+                                    )),
+                                ));
+                            }
                         }
                         if self.check_token_type(&TokenType::RightBracket) {
                             break;
@@ -520,14 +531,19 @@ impl ExpressionParser {
                     }
                 }
                 self.advance(); // consume ']'
-                Ok(IntermediateExpression::Literal(serde_json::Value::Array(elements)))
+                Ok(IntermediateExpression::Literal(serde_json::Value::Array(
+                    elements,
+                )))
             }
             _ => {
                 let position = self.peek().position;
                 let token_type = format!("{:?}", self.peek().token_type);
-                Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                    format!("Unexpected token at position {}: {}", position, token_type),
-                )))
+                Err(CompilerError::Compilation(
+                    CompilationError::ExpressionParsing(format!(
+                        "Unexpected token at position {}: {}",
+                        position, token_type
+                    )),
+                ))
             }
         }
     }
@@ -551,9 +567,12 @@ impl ExpressionParser {
                     break;
                 }
                 if !self.check_token_type(&TokenType::Comma) {
-                    return Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                        format!("Expected ',' or ')' at position {}", self.peek().position),
-                    )));
+                    return Err(CompilerError::Compilation(
+                        CompilationError::ExpressionParsing(format!(
+                            "Expected ',' or ')' at position {}",
+                            self.peek().position
+                        )),
+                    ));
                 }
                 self.advance(); // consume ','
             }
@@ -561,10 +580,7 @@ impl ExpressionParser {
 
         self.advance(); // consume ')'
 
-        Ok(IntermediateExpression::Func {
-            func_code,
-            args,
-        })
+        Ok(IntermediateExpression::Func { func_code, args })
     }
 
     /// Get function code from function name
@@ -595,9 +611,9 @@ impl ExpressionParser {
             "CURRENT_MONTH_UTC" => Ok(FuncCode::Month as u8),
             "CURRENT_TIMESTAMP" => Ok(FuncCode::CurrentTimestamp as u8),
             "IN_SEGMENT" => Ok(FuncCode::InSegment as u8),
-            _ => Err(CompilerError::Compilation(CompilationError::ExpressionParsing(
-                format!("Unknown function: {}", func_name),
-            ))),
+            _ => Err(CompilerError::Compilation(
+                CompilationError::ExpressionParsing(format!("Unknown function: {}", func_name)),
+            )),
         }
     }
 
@@ -646,7 +662,11 @@ mod tests {
     fn test_parse_simple_comparison() {
         let result = parse_expression("user.role == 'admin'").unwrap();
         match result {
-            IntermediateExpression::BinaryOp { op_code, left, right } => {
+            IntermediateExpression::BinaryOp {
+                op_code,
+                left,
+                right,
+            } => {
                 assert_eq!(op_code, BinaryOp::Eq as u8);
                 match *left {
                     IntermediateExpression::Property(ref prop) => {
@@ -667,7 +687,8 @@ mod tests {
 
     #[test]
     fn test_parse_logical_and() {
-        let result = parse_expression("user.role == 'admin' AND environment == 'production'").unwrap();
+        let result =
+            parse_expression("user.role == 'admin' AND environment == 'production'").unwrap();
         match result {
             IntermediateExpression::LogicalOp { op_code, right, .. } => {
                 assert_eq!(op_code, LogicalOp::And as u8);
@@ -702,7 +723,10 @@ mod tests {
 
     #[test]
     fn test_parse_parentheses() {
-        let result = parse_expression("(user.role == 'admin' AND environment == 'production') OR user.role == 'moderator'").unwrap();
+        let result = parse_expression(
+            "(user.role == 'admin' AND environment == 'production') OR user.role == 'moderator'",
+        )
+        .unwrap();
         match result {
             IntermediateExpression::LogicalOp { op_code, .. } => {
                 assert_eq!(op_code, LogicalOp::Or as u8);
@@ -768,12 +792,10 @@ mod tests {
     fn test_parse_null_literal() {
         let result = parse_expression("user.preferred_theme == null").unwrap();
         match result {
-            IntermediateExpression::BinaryOp { right, .. } => {
-                match *right {
-                    IntermediateExpression::Literal(serde_json::Value::Null) => {}
-                    _ => panic!("Expected Null literal"),
-                }
-            }
+            IntermediateExpression::BinaryOp { right, .. } => match *right {
+                IntermediateExpression::Literal(serde_json::Value::Null) => {}
+                _ => panic!("Expected Null literal"),
+            },
             _ => panic!("Expected BinaryOp"),
         }
     }
@@ -874,7 +896,9 @@ mod tests {
 
             let result = parse_expression(&expr);
             match result {
-                Ok(IntermediateExpression::Func { func_code: code, .. }) => {
+                Ok(IntermediateExpression::Func {
+                    func_code: code, ..
+                }) => {
                     assert_eq!(code, func_code as u8, "Failed for function: {}", func_name);
                 }
                 Ok(_) => panic!("Expected Func for function: {}", func_name),
@@ -906,14 +930,12 @@ mod tests {
         // Test escaped single quote
         let result = parse_expression("user.name == 'it\\'s a test'").unwrap();
         match result {
-            IntermediateExpression::BinaryOp { right, .. } => {
-                match *right {
-                    IntermediateExpression::Literal(serde_json::Value::String(s)) => {
-                        assert_eq!(s, "it's a test");
-                    }
-                    _ => panic!("Expected string literal"),
+            IntermediateExpression::BinaryOp { right, .. } => match *right {
+                IntermediateExpression::Literal(serde_json::Value::String(s)) => {
+                    assert_eq!(s, "it's a test");
                 }
-            }
+                _ => panic!("Expected string literal"),
+            },
             _ => panic!("Expected BinaryOp"),
         }
 
@@ -931,14 +953,12 @@ mod tests {
     fn test_parse_empty_string() {
         let result = parse_expression("user.name == ''").unwrap();
         match result {
-            IntermediateExpression::BinaryOp { right, .. } => {
-                match *right {
-                    IntermediateExpression::Literal(serde_json::Value::String(s)) => {
-                        assert_eq!(s, "");
-                    }
-                    _ => panic!("Expected empty string literal"),
+            IntermediateExpression::BinaryOp { right, .. } => match *right {
+                IntermediateExpression::Literal(serde_json::Value::String(s)) => {
+                    assert_eq!(s, "");
                 }
-            }
+                _ => panic!("Expected empty string literal"),
+            },
             _ => panic!("Expected BinaryOp"),
         }
     }
@@ -964,14 +984,12 @@ mod tests {
     fn test_parse_deep_property_access() {
         let result = parse_expression("user.profile.settings.theme == 'dark'").unwrap();
         match result {
-            IntermediateExpression::BinaryOp { left, .. } => {
-                match *left {
-                    IntermediateExpression::Property(prop) => {
-                        assert_eq!(prop, "user.profile.settings.theme");
-                    }
-                    _ => panic!("Expected Property"),
+            IntermediateExpression::BinaryOp { left, .. } => match *left {
+                IntermediateExpression::Property(prop) => {
+                    assert_eq!(prop, "user.profile.settings.theme");
                 }
-            }
+                _ => panic!("Expected Property"),
+            },
             _ => panic!("Expected BinaryOp"),
         }
     }
@@ -999,7 +1017,9 @@ mod tests {
         // Test infix syntax with array literal
         let result = parse_expression("user.role IN ['admin', 'moderator']").unwrap();
         match result {
-            IntermediateExpression::Func { func_code, args, .. } => {
+            IntermediateExpression::Func {
+                func_code, args, ..
+            } => {
                 assert_eq!(func_code, FuncCode::In as u8);
                 assert_eq!(args.len(), 2);
             }
@@ -1009,7 +1029,9 @@ mod tests {
         // Test function call syntax
         let result = parse_expression("IN(user.role, ['admin', 'moderator'])").unwrap();
         match result {
-            IntermediateExpression::Func { func_code, args, .. } => {
+            IntermediateExpression::Func {
+                func_code, args, ..
+            } => {
                 assert_eq!(func_code, FuncCode::In as u8);
                 assert_eq!(args.len(), 2);
             }
@@ -1020,7 +1042,10 @@ mod tests {
     #[test]
     fn test_parse_complex_precedence() {
         // Test that AND has higher precedence than OR
-        let result = parse_expression("user.role == 'admin' OR user.role == 'moderator' AND environment == 'production'").unwrap();
+        let result = parse_expression(
+            "user.role == 'admin' OR user.role == 'moderator' AND environment == 'production'",
+        )
+        .unwrap();
         // Should parse as: (user.role == 'admin') OR ((user.role == 'moderator') AND (environment == 'production'))
         match result {
             IntermediateExpression::LogicalOp { op_code, .. } => {
@@ -1033,7 +1058,10 @@ mod tests {
     #[test]
     fn test_parse_parentheses_override_precedence() {
         // Test that parentheses override operator precedence
-        let result = parse_expression("(user.role == 'admin' OR user.role == 'moderator') AND environment == 'production'").unwrap();
+        let result = parse_expression(
+            "(user.role == 'admin' OR user.role == 'moderator') AND environment == 'production'",
+        )
+        .unwrap();
         // Should parse as: ((user.role == 'admin') OR (user.role == 'moderator')) AND (environment == 'production')
         match result {
             IntermediateExpression::LogicalOp { op_code, .. } => {
@@ -1047,7 +1075,9 @@ mod tests {
     fn test_parse_zero_argument_function() {
         let result = parse_expression("CURRENT_TIMESTAMP()").unwrap();
         match result {
-            IntermediateExpression::Func { func_code, args, .. } => {
+            IntermediateExpression::Func {
+                func_code, args, ..
+            } => {
                 assert_eq!(func_code, FuncCode::CurrentTimestamp as u8);
                 assert_eq!(args.len(), 0);
             }
@@ -1055,4 +1085,3 @@ mod tests {
         }
     }
 }
-

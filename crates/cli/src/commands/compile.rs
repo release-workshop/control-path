@@ -1,7 +1,10 @@
 //! Compile command implementation
 
 use crate::error::{CliError, CliResult};
-use controlpath_compiler::{compile, parse_definitions, parse_deployment, serialize, validate_definitions, validate_deployment};
+use controlpath_compiler::{
+    compile, parse_definitions, parse_deployment, serialize, validate_definitions,
+    validate_deployment,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,78 +16,85 @@ pub struct Options {
 }
 
 fn determine_deployment_path(options: &Options) -> Result<PathBuf, CliError> {
-    if let Some(ref deployment) = options.deployment {
-        Ok(PathBuf::from(deployment))
-    } else if let Some(ref env) = options.env {
-        Ok(PathBuf::from(format!(".controlpath/{}.deployment.yaml", env)))
-    } else {
-        Err(CliError::Message(
-            "Either --deployment <file> or --env <env> must be provided".to_string(),
-        ))
-    }
+    options.deployment.as_ref().map_or_else(
+        || {
+            options.env.as_ref().map_or_else(
+                || {
+                    Err(CliError::Message(
+                        "Either --deployment <file> or --env <env> must be provided".to_string(),
+                    ))
+                },
+                |env| Ok(PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))),
+            )
+        },
+        |deployment| Ok(PathBuf::from(deployment)),
+    )
 }
 
 fn determine_output_path(options: &Options, deployment_path: &Path) -> PathBuf {
-    if let Some(ref output) = options.output {
-        PathBuf::from(output)
-    } else if let Some(ref env) = options.env {
-        PathBuf::from(format!(".controlpath/{}.ast", env))
-    } else {
-        // Infer from deployment path
-        let deployment_dir = deployment_path.parent().unwrap_or(Path::new("."));
-        let deployment_stem = deployment_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("deployment")
-            .replace(".deployment", "");
-        deployment_dir.join(format!("{}.ast", deployment_stem))
-    }
+    options.output.as_ref().map_or_else(
+        || {
+            options.env.as_ref().map_or_else(
+                || {
+                    // Infer from deployment path
+                    let deployment_dir = deployment_path.parent().unwrap_or_else(|| Path::new("."));
+                    let deployment_stem = deployment_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("deployment")
+                        .replace(".deployment", "");
+                    deployment_dir.join(format!("{deployment_stem}.ast"))
+                },
+                |env| PathBuf::from(format!(".controlpath/{env}.ast")),
+            )
+        },
+        PathBuf::from,
+    )
 }
 
 fn determine_definitions_path(options: &Options) -> PathBuf {
     PathBuf::from(
         options
             .definitions
-            .as_ref()
-            .map(|s| s.as_str())
+            .as_deref()
             .unwrap_or("flags.definitions.yaml"),
     )
 }
 
-pub fn run(options: Options) -> i32 {
+pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("✗ Compilation failed");
-            eprintln!("  Error: {}", e);
+            eprintln!("  Error: {e}");
             1
         }
     }
 }
 
-fn run_inner(options: Options) -> CliResult<()> {
+fn run_inner(options: &Options) -> CliResult<()> {
     // Determine file paths
-    let deployment_path = determine_deployment_path(&options)?;
-    let output_path = determine_output_path(&options, &deployment_path);
-    let definitions_path = determine_definitions_path(&options);
+    let deployment_path = determine_deployment_path(options)?;
+    let output_path = determine_output_path(options, &deployment_path);
+    let definitions_path = determine_definitions_path(options);
 
     // Read and parse definitions
     let definitions_content = fs::read_to_string(&definitions_path)
-        .map_err(|e| CliError::Message(format!("Failed to read definitions file: {}", e)))?;
+        .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
     let definitions = parse_definitions(&definitions_content)?;
 
     // Validate definitions
     validate_definitions(&definitions)
-        .map_err(|e| CliError::Message(format!("Definitions file is invalid: {}", e)))?;
+        .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
 
     // Read and parse deployment
     let deployment_content = fs::read_to_string(&deployment_path)
-        .map_err(|e| CliError::Message(format!("Failed to read deployment file: {}", e)))?;
+        .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
     let deployment = parse_deployment(&deployment_content)?;
 
     // Validate deployment
     validate_deployment(&deployment)
-        .map_err(|e| CliError::Message(format!("Deployment file is invalid: {}", e)))?;
+        .map_err(|e| CliError::Message(format!("Deployment file is invalid: {e}")))?;
 
     // Compile to AST
     let artifact = compile(&deployment, &definitions)?;
@@ -133,7 +143,10 @@ mod tests {
             definitions: None,
         };
         let path = determine_deployment_path(&options).unwrap();
-        assert_eq!(path, PathBuf::from(".controlpath/production.deployment.yaml"));
+        assert_eq!(
+            path,
+            PathBuf::from(".controlpath/production.deployment.yaml")
+        );
     }
 
     #[test]
@@ -219,23 +232,23 @@ mod tests {
         let definitions_path = temp_path.join("flags.definitions.yaml");
         fs::write(
             &definitions_path,
-            r#"flags:
+            r"flags:
   - name: test_flag
     type: boolean
     defaultValue: false
-"#,
+",
         )
         .unwrap();
 
         let deployment_path = temp_path.join("test.deployment.yaml");
         fs::write(
             &deployment_path,
-            r#"environment: test
+            r"environment: test
 rules:
   test_flag:
     rules:
       - serve: true
-"#,
+",
         )
         .unwrap();
 
@@ -248,7 +261,7 @@ rules:
             definitions: Some(definitions_path.to_str().unwrap().to_string()),
         };
 
-        let exit_code = run(options);
+        let exit_code = run(&options);
         assert_eq!(exit_code, 0);
         assert!(output_path.exists());
     }

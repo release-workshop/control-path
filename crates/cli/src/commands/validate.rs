@@ -1,7 +1,9 @@
 //! Validate command implementation
 
 use crate::error::{CliError, CliResult};
-use controlpath_compiler::{parse_definitions, parse_deployment, validate_definitions, validate_deployment};
+use controlpath_compiler::{
+    parse_definitions, parse_deployment, validate_definitions, validate_deployment,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -31,8 +33,7 @@ fn collect_files_from_options(options: &Options) -> Vec<FileToValidate> {
 
     if let Some(ref env) = options.env {
         files.push(FileToValidate::Deployment(PathBuf::from(format!(
-            ".controlpath/{}.deployment.yaml",
-            env
+            ".controlpath/{env}.deployment.yaml"
         ))));
     }
 
@@ -71,15 +72,17 @@ fn auto_detect_files() -> Vec<FileToValidate> {
 fn validate_file(file: &FileToValidate) -> CliResult<()> {
     match file {
         FileToValidate::Definitions(path) => {
-            let content = fs::read_to_string(path)
-                .map_err(|e| CliError::Message(format!("Failed to read {}: {}", path.display(), e)))?;
+            let content = fs::read_to_string(path).map_err(|e| {
+                CliError::Message(format!("Failed to read {}: {e}", path.display()))
+            })?;
             let definitions = parse_definitions(&content)?;
             validate_definitions(&definitions)?;
             Ok(())
         }
         FileToValidate::Deployment(path) => {
-            let content = fs::read_to_string(path)
-                .map_err(|e| CliError::Message(format!("Failed to read {}: {}", path.display(), e)))?;
+            let content = fs::read_to_string(path).map_err(|e| {
+                CliError::Message(format!("Failed to read {}: {e}", path.display()))
+            })?;
             let deployment = parse_deployment(&content)?;
             validate_deployment(&deployment)?;
             Ok(())
@@ -87,7 +90,7 @@ fn validate_file(file: &FileToValidate) -> CliResult<()> {
     }
 }
 
-pub fn run(options: Options) -> i32 {
+pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
         Ok(valid_count) => {
             if valid_count > 0 {
@@ -106,15 +109,15 @@ pub fn run(options: Options) -> i32 {
         }
         Err(e) => {
             eprintln!("✗ Validation failed");
-            eprintln!("  Error: {}", e);
+            eprintln!("  Error: {e}");
             1
         }
     }
 }
 
-fn run_inner(options: Options) -> CliResult<usize> {
+fn run_inner(options: &Options) -> CliResult<usize> {
     // Collect files to validate
-    let mut files_to_validate = collect_files_from_options(&options);
+    let mut files_to_validate = collect_files_from_options(options);
 
     // Auto-detect if no flags provided or --all flag is used
     if files_to_validate.is_empty() || options.all {
@@ -138,15 +141,17 @@ fn run_inner(options: Options) -> CliResult<usize> {
                 valid_count += 1;
             }
             Err(e) => {
-                eprintln!("✗ Failed to validate {:?}", file);
-                eprintln!("  Error: {}", e);
+                eprintln!("✗ Failed to validate {file:?}");
+                eprintln!("  Error: {e}");
                 has_errors = true;
             }
         }
     }
 
     if has_errors {
-        return Err(CliError::Message("One or more files failed validation".to_string()));
+        return Err(CliError::Message(
+            "One or more files failed validation".to_string(),
+        ));
     }
 
     Ok(valid_count)
@@ -184,7 +189,7 @@ mod tests {
             FileToValidate::Deployment(path) => {
                 assert!(path.to_str().unwrap().contains("production"));
             }
-            _ => panic!("Expected deployment file"),
+            FileToValidate::Definitions(_) => panic!("Expected deployment file"),
         }
     }
 
@@ -197,23 +202,23 @@ mod tests {
         let definitions_path = temp_path.join("flags.definitions.yaml");
         fs::write(
             &definitions_path,
-            r#"flags:
+            r"flags:
   - name: test_flag
     type: boolean
     defaultValue: false
-"#,
+",
         )
         .unwrap();
 
         let deployment_path = temp_path.join("test.deployment.yaml");
         fs::write(
             &deployment_path,
-            r#"environment: test
+            r"environment: test
 rules:
   test_flag:
     rules:
       - serve: true
-"#,
+",
         )
         .unwrap();
 
@@ -224,8 +229,7 @@ rules:
             all: false,
         };
 
-        let exit_code = run(options);
+        let exit_code = run(&options);
         assert_eq!(exit_code, 0);
     }
 }
-

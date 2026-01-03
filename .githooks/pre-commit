@@ -51,23 +51,23 @@ else
 fi
 
 # TypeScript/JavaScript checks (optional, only if runtime/typescript exists)
-if [ -d "runtime/typescript" ] && command -v pnpm &> /dev/null; then
+if [ -d "runtime/typescript" ] && command -v npm &> /dev/null; then
   echo "📦 Checking TypeScript runtime SDK..."
   cd runtime/typescript
   if [ -f "package.json" ]; then
-    pnpm build || {
+    npm run build || {
       echo "❌ TypeScript build check failed."
       exit 1
     }
-    pnpm lint || {
+    npm run lint || {
       echo "❌ TypeScript lint check failed."
       exit 1
     }
-    pnpm typecheck || {
+    npm run typecheck || {
       echo "❌ TypeScript typecheck failed."
       exit 1
     }
-    pnpm test || {
+    npm test || {
       echo "❌ TypeScript tests failed."
       exit 1
     }

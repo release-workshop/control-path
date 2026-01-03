@@ -24,9 +24,9 @@ impl StringTable {
 
     /// Add a string to the table and return its index.
     /// If the string already exists, returns the existing index.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns an error if the string table exceeds the maximum size (65536 strings).
     pub fn add(&mut self, str: &str) -> Result<u16, crate::error::CompilerError> {
         if let Some(&index) = self.index_map.get(str) {
@@ -41,32 +41,39 @@ impl StringTable {
                 ),
             ));
         }
-        let index = index as u16;
+        let index = u16::try_from(index).map_err(|_| {
+            crate::error::CompilerError::Compilation(crate::error::CompilationError::InvalidRule(
+                "String table index exceeds u16::MAX".to_string(),
+            ))
+        })?;
         self.strings.push(str.to_string());
         self.index_map.insert(str.to_string(), index);
         Ok(index)
     }
 
     /// Get the string at the given index.
+    #[must_use]
     pub fn get(&self, index: u16) -> Option<&str> {
-        self.strings.get(index as usize).map(|s| s.as_str())
+        self.strings.get(index as usize).map(String::as_str)
     }
 
     /// Get all strings as a vector (for the artifact).
+    #[must_use]
     pub fn to_vec(&self) -> Vec<String> {
         self.strings.clone()
     }
 
     /// Get the current size of the string table.
+    #[must_use]
     pub fn size(&self) -> usize {
         self.strings.len()
     }
 
     /// Extract all strings from an expression and add them to the table.
     /// Returns a new expression with string references replaced by indices.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns an error if the string table exceeds the maximum size.
     pub fn process_expression(
         &mut self,
@@ -89,9 +96,10 @@ impl StringTable {
             } => Ok(Expression::LogicalOp {
                 op_code: *op_code,
                 left: Box::new(self.process_expression(left)?),
-                right: right.as_ref().map(|r| {
-                    self.process_expression(r).map(Box::new)
-                }).transpose()?,
+                right: right
+                    .as_ref()
+                    .map(|r| self.process_expression(r).map(Box::new))
+                    .transpose()?,
             }),
             IntermediateExpression::Property(prop_path) => {
                 let prop_index = self.add(prop_path)?;
@@ -177,7 +185,7 @@ mod tests {
         let mut table = StringTable::new();
         let expr = IntermediateExpression::Property("user.role".to_string());
         let processed = table.process_expression(&expr).unwrap();
-        
+
         match processed {
             Expression::Property { prop_index } => {
                 assert_eq!(prop_index, 0);
@@ -192,7 +200,7 @@ mod tests {
         let mut table = StringTable::new();
         let expr = IntermediateExpression::Literal(serde_json::Value::String("admin".to_string()));
         let processed = table.process_expression(&expr).unwrap();
-        
+
         match processed {
             Expression::Literal { value } => {
                 if let serde_json::Value::Number(n) = value {
@@ -212,12 +220,18 @@ mod tests {
         let expr = IntermediateExpression::BinaryOp {
             op_code: BinaryOp::Eq as u8,
             left: Box::new(IntermediateExpression::Property("user.role".to_string())),
-            right: Box::new(IntermediateExpression::Literal(serde_json::Value::String("admin".to_string()))),
+            right: Box::new(IntermediateExpression::Literal(serde_json::Value::String(
+                "admin".to_string(),
+            ))),
         };
         let processed = table.process_expression(&expr).unwrap();
-        
+
         match processed {
-            Expression::BinaryOp { op_code, left, right } => {
+            Expression::BinaryOp {
+                op_code,
+                left,
+                right,
+            } => {
                 assert_eq!(op_code, BinaryOp::Eq as u8);
                 match *left {
                     Expression::Property { prop_index } => {
@@ -247,7 +261,7 @@ mod tests {
         let mut table = StringTable::new();
         let expr = IntermediateExpression::Literal(serde_json::Value::Number(42.into()));
         let processed = table.process_expression(&expr).unwrap();
-        
+
         match processed {
             Expression::Literal { value } => {
                 if let serde_json::Value::Number(n) = value {
@@ -265,7 +279,7 @@ mod tests {
         let mut table = StringTable::new();
         let expr = IntermediateExpression::Literal(serde_json::Value::Bool(true));
         let processed = table.process_expression(&expr).unwrap();
-        
+
         match processed {
             Expression::Literal { value } => {
                 if let serde_json::Value::Bool(b) = value {
@@ -286,7 +300,7 @@ mod tests {
             serde_json::Value::String("moderator".to_string()),
         ]));
         let processed = table.process_expression(&expr).unwrap();
-        
+
         match processed {
             Expression::Literal { value } => {
                 // Arrays remain as arrays (not converted to indices) - this matches TypeScript behavior.
@@ -304,4 +318,3 @@ mod tests {
         }
     }
 }
-

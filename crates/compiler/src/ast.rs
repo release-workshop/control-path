@@ -7,7 +7,7 @@
  * These structures match the format specified in specs/ast-format.md.
  *
  * The AST uses compact array-based formats optimized for:
- * - Small size (MessagePack encoded)
+ * - Small size (`MessagePack` encoded)
  * - Fast evaluation (direct array access)
  * - Minimal memory footprint
  */
@@ -15,7 +15,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_bytes;
 
 /// Top-level AST artifact structure.
-/// This is the root structure that gets serialized to MessagePack.
+/// This is the root structure that gets serialized to `MessagePack`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Artifact {
     /// Format version (e.g., "1.0")
@@ -33,13 +33,19 @@ pub struct Artifact {
     /// Flag names as string table indices (one per flag, same order as flags array)
     #[serde(rename = "flagNames")]
     pub flag_names: Vec<u16>,
-    /// Optional segment definitions as [name_index, expression] tuples
+    /// Optional segment definitions as `[name_index, expression]` tuples
     #[serde(rename = "segments", skip_serializing_if = "Option::is_none", default)]
     pub segments: Option<Vec<(u16, Expression)>>,
     /// Optional Ed25519 signature
-    /// Serialized as MessagePack binary type (not array) for compatibility with TypeScript
-    /// Note: Using custom serializer to ensure binary format matches TypeScript Uint8Array
-    #[serde(rename = "sig", skip_serializing_if = "Option::is_none", default, serialize_with = "serialize_signature", deserialize_with = "deserialize_signature")]
+    /// Serialized as `MessagePack` binary type (not array) for compatibility with TypeScript
+    /// Note: Using custom serializer to ensure binary format matches TypeScript `Uint8Array`
+    #[serde(
+        rename = "sig",
+        skip_serializing_if = "Option::is_none",
+        default,
+        serialize_with = "serialize_signature",
+        deserialize_with = "deserialize_signature"
+    )]
     pub signature: Option<Vec<u8>>,
 }
 
@@ -51,32 +57,32 @@ pub enum RuleType {
     Serve = 0,
     /// Variations rule - payload is Variation[]
     Variations = 1,
-    /// Rollout rule - payload is [value_index, pct] tuple
+    /// Rollout rule - payload is `[value_index, pct]` tuple
     Rollout = 2,
 }
 
-/// Rule structure: [type, when?, payload]
-/// 
+/// Rule structure: `[type, when?, payload]`
+///
 /// Types:
-/// - serve: [0, undefined, string | number] or [0, Expression, string | number]
-/// - variations: [1, undefined, Variation[]] or [1, Expression, Variation[]]
-/// - rollout: [2, undefined, [string | number, number]] or [2, Expression, [string | number, number]]
-/// 
+/// - `serve`: `[0, undefined, string | number]` or `[0, Expression, string | number]`
+/// - `variations`: `[1, undefined, Variation[]]` or `[1, Expression, Variation[]]`
+/// - `rollout`: `[2, undefined, [string | number, number]]` or `[2, Expression, [string | number, number]]`
+///
 /// Note: Rules are serialized as arrays to match TypeScript format.
-/// We use serde_json::Value for the payload to handle flexible types during serialization.
+/// We use `serde_json::Value` for the payload to handle flexible types during serialization.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Rule {
-    /// serve without when: [0, undefined, string | number]
+    /// `serve` without when: `[0, undefined, string | number]`
     ServeWithoutWhen(ServePayload),
-    /// serve with when: [0, Expression, string | number]
+    /// `serve` with when: `[0, Expression, string | number]`
     ServeWithWhen(Expression, ServePayload),
-    /// variations without when: [1, undefined, Variation[]]
+    /// `variations` without when: `[1, undefined, Variation[]]`
     VariationsWithoutWhen(Vec<Variation>),
-    /// variations with when: [1, Expression, Variation[]]
+    /// `variations` with when: `[1, Expression, Variation[]]`
     VariationsWithWhen(Expression, Vec<Variation>),
-    /// rollout without when: [2, undefined, [string | number, number]]
+    /// `rollout` without when: `[2, undefined, [string | number, number]]`
     RolloutWithoutWhen(RolloutPayload),
-    /// rollout with when: [2, Expression, [string | number, number]]
+    /// `rollout` with when: `[2, Expression, [string | number, number]]`
     RolloutWithWhen(Expression, RolloutPayload),
 }
 
@@ -88,7 +94,7 @@ impl Serialize for Rule {
         use serde::ser::SerializeSeq;
         let mut seq = serializer.serialize_seq(None)?;
         match self {
-            Rule::ServeWithoutWhen(payload) => {
+            Self::ServeWithoutWhen(payload) => {
                 seq.serialize_element(&0u8)?;
                 seq.serialize_element::<Option<Expression>>(&None)?;
                 match payload {
@@ -96,7 +102,7 @@ impl Serialize for Rule {
                     ServePayload::Number(n) => seq.serialize_element(n)?,
                 }
             }
-            Rule::ServeWithWhen(when, payload) => {
+            Self::ServeWithWhen(when, payload) => {
                 seq.serialize_element(&0u8)?;
                 seq.serialize_element(when)?;
                 match payload {
@@ -104,31 +110,43 @@ impl Serialize for Rule {
                     ServePayload::Number(n) => seq.serialize_element(n)?,
                 }
             }
-            Rule::VariationsWithoutWhen(variations) => {
+            Self::VariationsWithoutWhen(variations) => {
                 seq.serialize_element(&1u8)?;
                 seq.serialize_element::<Option<Expression>>(&None)?;
                 seq.serialize_element(variations)?;
             }
-            Rule::VariationsWithWhen(when, variations) => {
+            Self::VariationsWithWhen(when, variations) => {
                 seq.serialize_element(&1u8)?;
                 seq.serialize_element(when)?;
                 seq.serialize_element(variations)?;
             }
-            Rule::RolloutWithoutWhen(payload) => {
+            Self::RolloutWithoutWhen(payload) => {
                 seq.serialize_element(&2u8)?;
                 seq.serialize_element::<Option<Expression>>(&None)?;
                 let rollout_array: [serde_json::Value; 2] = match &payload.value_index {
-                    RolloutValue::String(s) => [serde_json::Value::String(s.clone()), serde_json::Value::Number(payload.percentage.into())],
-                    RolloutValue::Number(n) => [serde_json::Value::Number((*n).into()), serde_json::Value::Number(payload.percentage.into())],
+                    RolloutValue::String(s) => [
+                        serde_json::Value::String(s.clone()),
+                        serde_json::Value::Number(payload.percentage.into()),
+                    ],
+                    RolloutValue::Number(n) => [
+                        serde_json::Value::Number((*n).into()),
+                        serde_json::Value::Number(payload.percentage.into()),
+                    ],
                 };
                 seq.serialize_element(&rollout_array)?;
             }
-            Rule::RolloutWithWhen(when, payload) => {
+            Self::RolloutWithWhen(when, payload) => {
                 seq.serialize_element(&2u8)?;
                 seq.serialize_element(when)?;
                 let rollout_array: [serde_json::Value; 2] = match &payload.value_index {
-                    RolloutValue::String(s) => [serde_json::Value::String(s.clone()), serde_json::Value::Number(payload.percentage.into())],
-                    RolloutValue::Number(n) => [serde_json::Value::Number((*n).into()), serde_json::Value::Number(payload.percentage.into())],
+                    RolloutValue::String(s) => [
+                        serde_json::Value::String(s.clone()),
+                        serde_json::Value::Number(payload.percentage.into()),
+                    ],
+                    RolloutValue::Number(n) => [
+                        serde_json::Value::Number((*n).into()),
+                        serde_json::Value::Number(payload.percentage.into()),
+                    ],
                 };
                 seq.serialize_element(&rollout_array)?;
             }
@@ -158,15 +176,20 @@ impl<'de> Deserialize<'de> for Rule {
             where
                 A: de::SeqAccess<'de>,
             {
-                let rule_type: u8 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let rule_type: u8 = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
                 let when: Option<Expression> = seq.next_element()?.unwrap_or(None);
-                let payload: serde_json::Value = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let payload: serde_json::Value = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
 
                 match rule_type {
                     0 => {
                         let serve_payload = if payload.is_string() {
                             ServePayload::String(payload.as_str().unwrap().to_string())
                         } else if payload.is_u64() {
+                            #[allow(clippy::cast_possible_truncation)]
                             ServePayload::Number(payload.as_u64().unwrap() as u16)
                         } else {
                             return Err(de::Error::custom("Invalid serve payload type"));
@@ -178,7 +201,8 @@ impl<'de> Deserialize<'de> for Rule {
                         }
                     }
                     1 => {
-                        let variations: Vec<Variation> = serde_json::from_value(payload).map_err(de::Error::custom)?;
+                        let variations: Vec<Variation> =
+                            serde_json::from_value(payload).map_err(de::Error::custom)?;
                         if let Some(when_expr) = when {
                             Ok(Rule::VariationsWithWhen(when_expr, variations))
                         } else {
@@ -186,23 +210,29 @@ impl<'de> Deserialize<'de> for Rule {
                         }
                     }
                     2 => {
-                        let rollout_array: [serde_json::Value; 2] = serde_json::from_value(payload).map_err(de::Error::custom)?;
+                        let rollout_array: [serde_json::Value; 2] =
+                            serde_json::from_value(payload).map_err(de::Error::custom)?;
                         let value_index = if rollout_array[0].is_string() {
                             RolloutValue::String(rollout_array[0].as_str().unwrap().to_string())
                         } else if rollout_array[0].is_u64() {
+                            #[allow(clippy::cast_possible_truncation)]
                             RolloutValue::Number(rollout_array[0].as_u64().unwrap() as u16)
                         } else {
                             return Err(de::Error::custom("Invalid rollout value_index type"));
                         };
+                        #[allow(clippy::cast_possible_truncation)]
                         let percentage = rollout_array[1].as_u64().unwrap() as u8;
-                        let rollout_payload = RolloutPayload { value_index, percentage };
+                        let rollout_payload = RolloutPayload {
+                            value_index,
+                            percentage,
+                        };
                         if let Some(when_expr) = when {
                             Ok(Rule::RolloutWithWhen(when_expr, rollout_payload))
                         } else {
                             Ok(Rule::RolloutWithoutWhen(rollout_payload))
                         }
                     }
-                    _ => Err(de::Error::custom(format!("Invalid rule type: {}", rule_type))),
+                    _ => Err(de::Error::custom(format!("Invalid rule type: {rule_type}"))),
                 }
             }
         }
@@ -212,30 +242,30 @@ impl<'de> Deserialize<'de> for Rule {
 }
 
 /// Serve rule payload: string | number (string table index)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ServePayload {
     String(String),
     Number(u16), // string table index
 }
 
-/// Rollout rule payload: [value_index, pct]
-#[derive(Debug, Clone, PartialEq)]
+/// Rollout rule payload: `[value_index, pct]`
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RolloutPayload {
     pub value_index: RolloutValue,
     pub percentage: u8,
 }
 
 /// Rollout value: string | number (string table index)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RolloutValue {
     String(String),
     Number(u16), // string table index
 }
 
-/// Variation structure: [var_index, pct]
-/// - var_index: string table index (uint16)
-/// - pct: percentage (uint8, 0-100)
-#[derive(Debug, Clone, PartialEq)]
+/// Variation structure: `[var_index, pct]`
+/// - `var_index`: string table index (uint16)
+/// - `pct`: percentage (uint8, 0-100)
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Variation {
     pub var_index: u16,
     pub percentage: u8,
@@ -275,9 +305,16 @@ impl<'de> Deserialize<'de> for Variation {
             where
                 A: de::SeqAccess<'de>,
             {
-                let var_index: u16 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                let percentage: u8 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                Ok(Variation { var_index, percentage })
+                let var_index: u16 = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let percentage: u8 = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                Ok(Variation {
+                    var_index,
+                    percentage,
+                })
             }
         }
 
@@ -289,19 +326,19 @@ impl<'de> Deserialize<'de> for Variation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum ExpressionType {
-    /// Binary operator: [0, op_code, left, right]
+    /// Binary operator: `[0, op_code, left, right]`
     BinaryOp = 0,
-    /// Logical operator: [1, op_code, left, right?] (NOT has no right)
+    /// Logical operator: `[1, op_code, left, right?]` (NOT has no right)
     LogicalOp = 1,
-    /// Property access: [2, prop_index]
+    /// Property access: `[2, prop_index]`
     Property = 2,
-    /// Literal value: [3, value]
+    /// Literal value: `[3, value]`
     Literal = 3,
-    /// Function call: [4, func_code, args[]]
+    /// Function call: `[4, func_code, args[]]`
     Func = 4,
 }
 
-/// Binary operator codes (second element of binary_op expression)
+/// Binary operator codes (second element of `binary_op` expression)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum BinaryOp {
@@ -313,7 +350,7 @@ pub enum BinaryOp {
     Lte = 5, // <=
 }
 
-/// Logical operator codes (second element of logical_op expression)
+/// Logical operator codes (second element of `logical_op` expression)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum LogicalOp {
@@ -345,45 +382,41 @@ pub enum FuncCode {
     IsBetween = 16,
     IsAfter = 17,
     IsBefore = 18,
-    DayOfWeek = 19, // Maps from CURRENT_DAY_OF_WEEK_UTC
-    HourOfDay = 20, // Maps from CURRENT_HOUR_UTC
+    DayOfWeek = 19,  // Maps from CURRENT_DAY_OF_WEEK_UTC
+    HourOfDay = 20,  // Maps from CURRENT_HOUR_UTC
     DayOfMonth = 21, // Maps from CURRENT_DAY_OF_MONTH_UTC
-    Month = 22, // Maps from CURRENT_MONTH_UTC
+    Month = 22,      // Maps from CURRENT_MONTH_UTC
     CurrentTimestamp = 23,
     InSegment = 24,
 }
 
-/// Expression structure: [type, ...operands]
-/// 
+/// Expression structure: `[type, ...operands]`
+///
 /// Types:
-/// - binary_op: [0, op_code, left_expr, right_expr]
-/// - logical_op: [1, op_code, left_expr, right_expr?] (NOT has no right)
-/// - property: [2, prop_index] (prop_index is string table index)
-/// - literal: [3, value] (value can be string table index for strings)
-/// - func: [4, func_code, [arg_expr, ...]]
+/// - `binary_op`: `[0, op_code, left_expr, right_expr]`
+/// - `logical_op`: `[1, op_code, left_expr, right_expr?]` (NOT has no right)
+/// - `property`: `[2, prop_index]` (`prop_index` is string table index)
+/// - `literal`: `[3, value]` (value can be string table index for strings)
+/// - `func`: `[4, func_code, [arg_expr, ...]]`
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
-    /// binary_op: [0, op_code, left, right]
+    /// `binary_op`: `[0, op_code, left, right]`
     BinaryOp {
         op_code: u8,
         left: Box<Expression>,
         right: Box<Expression>,
     },
-    /// logical_op: [1, op_code, left, right?] (NOT has no right)
+    /// `logical_op`: `[1, op_code, left, right?]` (NOT has no right)
     LogicalOp {
         op_code: u8,
         left: Box<Expression>,
         right: Option<Box<Expression>>,
     },
-    /// property: [2, prop_index]
-    Property {
-        prop_index: u16,
-    },
-    /// literal: [3, value]
-    Literal {
-        value: serde_json::Value,
-    },
-    /// func: [4, func_code, args[]]
+    /// `property`: `[2, prop_index]`
+    Property { prop_index: u16 },
+    /// `literal`: `[3, value]`
+    Literal { value: serde_json::Value },
+    /// `func`: `[4, func_code, args[]]`
     Func {
         func_code: u8,
         args: Vec<Expression>,
@@ -398,13 +431,21 @@ impl Serialize for Expression {
         use serde::ser::SerializeSeq;
         let mut seq = serializer.serialize_seq(None)?;
         match self {
-            Expression::BinaryOp { op_code, left, right } => {
+            Expression::BinaryOp {
+                op_code,
+                left,
+                right,
+            } => {
                 seq.serialize_element(&0u8)?;
                 seq.serialize_element(op_code)?;
                 seq.serialize_element(left)?;
                 seq.serialize_element(right)?;
             }
-            Expression::LogicalOp { op_code, left, right } => {
+            Expression::LogicalOp {
+                op_code,
+                left,
+                right,
+            } => {
                 seq.serialize_element(&1u8)?;
                 seq.serialize_element(op_code)?;
                 seq.serialize_element(left)?;
@@ -451,13 +492,21 @@ impl<'de> Deserialize<'de> for Expression {
             where
                 A: de::SeqAccess<'de>,
             {
-                let expr_type: u8 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(0, &self))?;
-                
+                let expr_type: u8 = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+
                 match expr_type {
                     0 => {
-                        let op_code: u8 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                        let left: Expression = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(2, &self))?;
-                        let right: Expression = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                        let op_code: u8 = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                        let left: Expression = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                        let right: Expression = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(3, &self))?;
                         Ok(Expression::BinaryOp {
                             op_code,
                             left: Box::new(left),
@@ -465,8 +514,12 @@ impl<'de> Deserialize<'de> for Expression {
                         })
                     }
                     1 => {
-                        let op_code: u8 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                        let left: Expression = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                        let op_code: u8 = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                        let left: Expression = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(2, &self))?;
                         let right: Option<Expression> = seq.next_element()?;
                         Ok(Expression::LogicalOp {
                             op_code,
@@ -475,19 +528,30 @@ impl<'de> Deserialize<'de> for Expression {
                         })
                     }
                     2 => {
-                        let prop_index: u16 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                        let prop_index: u16 = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(1, &self))?;
                         Ok(Expression::Property { prop_index })
                     }
                     3 => {
-                        let value: serde_json::Value = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                        let value: serde_json::Value = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(1, &self))?;
                         Ok(Expression::Literal { value })
                     }
                     4 => {
-                        let func_code: u8 = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(1, &self))?;
-                        let args: Vec<Expression> = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                        let func_code: u8 = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                        let args: Vec<Expression> = seq
+                            .next_element()?
+                            .ok_or_else(|| de::Error::invalid_length(2, &self))?;
                         Ok(Expression::Func { func_code, args })
                     }
-                    _ => Err(de::Error::custom(format!("Invalid expression type: {}", expr_type))),
+                    _ => Err(de::Error::custom(format!(
+                        "Invalid expression type: {}",
+                        expr_type
+                    ))),
                 }
             }
         }
@@ -542,4 +606,3 @@ where
 
     deserializer.deserialize_option(SignatureVisitor)
 }
-

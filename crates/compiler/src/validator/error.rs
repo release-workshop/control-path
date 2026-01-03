@@ -43,16 +43,16 @@ impl ValidationResult {
 }
 
 /// Convert a jsonschema ValidationError to our ValidationError format.
-/// 
+///
 /// This function converts errors from the `jsonschema` crate to our `ValidationError` format
 /// that matches the TypeScript `ValidationError` interface.
-/// 
+///
 /// # Note on Line/Column Information
-/// 
+///
 /// The `jsonschema` crate does not provide line/column information in the same way that
 /// AJV (used by TypeScript) does. Therefore, `line` and `column` fields are always `None`.
 /// This is a known limitation and acceptable for WASM compatibility.
-/// 
+///
 /// Error messages may also differ slightly in formatting compared to TypeScript due to
 /// the different JSON Schema libraries (AJV vs jsonschema crate), but they are
 /// functionally equivalent.
@@ -80,7 +80,7 @@ pub fn convert_jsonschema_error(
 }
 
 /// Generate a helpful suggestion based on jsonschema error.
-/// 
+///
 /// This attempts to provide helpful suggestions similar to the TypeScript implementation,
 /// though they may be less specific due to differences between AJV and jsonschema error formats.
 fn generate_suggestion_from_error(error: &jsonschema::ValidationError) -> Option<String> {
@@ -89,7 +89,7 @@ fn generate_suggestion_from_error(error: &jsonschema::ValidationError) -> Option
 
     if keyword.contains("required") {
         if let Some(instance_path) = error.instance_path.last() {
-            Some(format!("Add missing required field '{:?}'", instance_path))
+            Some(format!("Add missing required field '{instance_path:?}'"))
         } else {
             Some("Add missing required field".to_string())
         }
@@ -105,4 +105,3 @@ fn generate_suggestion_from_error(error: &jsonschema::ValidationError) -> Option
         None
     }
 }
-

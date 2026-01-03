@@ -306,7 +306,7 @@ await evaluator.reloadArtifact('./.controlpath/production.ast');
 
 ## Development
 
-This is a monorepo with **Rust** (for compiler/CLI) and **TypeScript** (for runtime SDK), managed with **pnpm** for the TypeScript package.
+This is a monorepo with **Rust** (for compiler/CLI) and **TypeScript** (for runtime SDK), managed with **npm** for the TypeScript package.
 
 ### Prerequisites
 
@@ -315,7 +315,7 @@ This is a monorepo with **Rust** (for compiler/CLI) and **TypeScript** (for runt
 - **Node.js 24 LTS** or higher (install from [nodejs.org](https://nodejs.org/) or use [nvm](https://github.com/nvm-sh/nvm))
   - Required for the runtime SDK and build tooling
   - The project includes a `.nvmrc` file for automatic version switching with nvm
-- **pnpm 8+** (install with `npm install -g pnpm`)
+- **npm** (comes with Node.js)
   - Required for the TypeScript runtime SDK package management
 
 **Note**:
@@ -330,9 +330,9 @@ This is a monorepo with **Rust** (for compiler/CLI) and **TypeScript** (for runt
 
 - **Rust** - Required for CLI tool and compiler
 - **Node.js 24 LTS** or higher - Required for runtime SDK and build tooling
-- **pnpm as the package manager** - Using npm or yarn will fail during installation
+- **npm as the package manager** - Standard npm is used for the TypeScript runtime SDK
 
-Make sure you have Node.js 24 LTS and pnpm 8+ installed before working with the TypeScript runtime SDK.
+Make sure you have Node.js 24 LTS installed before working with the TypeScript runtime SDK.
 
 ### Initial Setup
 
@@ -359,11 +359,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Verify Rust is installed
 rustc --version
 
-# Install pnpm (if not installed)
-npm install -g pnpm
-
-# Verify pnpm is installed and version 8+
-pnpm --version
+# Verify npm is installed (comes with Node.js)
+npm --version
 
 # Setup git hooks (optional but recommended)
 # This installs pre-commit checks, commit message validation, and git aliases
@@ -374,8 +371,8 @@ cargo build --release
 
 # Install dependencies and build TypeScript runtime SDK
 cd runtime/typescript
-pnpm install
-pnpm build
+npm install
+npm run build
 cd ../..
 
 # Run Rust tests
@@ -383,27 +380,27 @@ cargo test --workspace
 
 # Run TypeScript runtime SDK tests
 cd runtime/typescript
-pnpm test
+npm test
 cd ../..
 
 # Lint TypeScript runtime SDK
 cd runtime/typescript
-pnpm lint
+npm run lint
 cd ../..
 
 # Typecheck TypeScript runtime SDK
 cd runtime/typescript
-pnpm typecheck
+npm run typecheck
 cd ../..
 
 # Format TypeScript runtime SDK
 cd runtime/typescript
-pnpm format
+npm run format
 cd ../..
 
 # Check formatting
 cd runtime/typescript
-pnpm format:check
+npm run format:check
 cd ../..
 ```
 
@@ -417,9 +414,9 @@ The build process is straightforward:
 **Build Commands:**
 
 - `cargo build --release` - Build Rust compiler and CLI
-- `cd runtime/typescript && pnpm build` - Build TypeScript runtime SDK
+- `cd runtime/typescript && npm run build` - Build TypeScript runtime SDK
 - `cargo test --workspace` - Run Rust tests
-- `cd runtime/typescript && pnpm test` - Run TypeScript runtime SDK tests
+- `cd runtime/typescript && npm test` - Run TypeScript runtime SDK tests
 
 ### Project Structure
 

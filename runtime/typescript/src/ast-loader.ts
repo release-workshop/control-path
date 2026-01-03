@@ -290,7 +290,29 @@ export interface LoadOptions {
  * @throws Error if the artifact is invalid or signature verification fails
  */
 export async function loadFromBuffer(buffer: Buffer, options?: LoadOptions): Promise<Artifact> {
-  const artifact: unknown = unpack(buffer);
+  let artifact: unknown;
+  try {
+    artifact = unpack(buffer);
+  } catch (error) {
+    throw new Error(
+      `Failed to unpack MessagePack: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+
+  // Debug: Check what we got
+  if (!isRecordLike(artifact)) {
+    const type = Array.isArray(artifact) ? 'array' : typeof artifact;
+    const preview = Array.isArray(artifact)
+      ? `array[${artifact.length}]`
+      : artifact === null
+        ? 'null'
+        : artifact === undefined
+          ? 'undefined'
+          : String(artifact).substring(0, 100);
+    throw new Error(
+      `Invalid AST format: expected object, got ${type} (${preview}). The Rust CLI may need to be rebuilt with the fixed serialization.`
+    );
+  }
   const validatedArtifact = validateArtifact(artifact);
 
   // Verify signature if public key is provided

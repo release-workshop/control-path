@@ -9,4 +9,3 @@ pub const MAX_PERCENTAGE: u32 = 100;
 
 /// Minimum percentage for rollouts.
 pub const MIN_PERCENTAGE: u32 = 0;
-

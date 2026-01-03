@@ -28,7 +28,7 @@ where
                 file: file_path.to_string(),
                 line: None,
                 column: None,
-                message: format!("Failed to compile schema: {}", err),
+                message: format!("Failed to compile schema: {err}"),
                 path: None,
                 suggestion: None,
             }]);
@@ -55,5 +55,3 @@ where
         errors: all_errors,
     }
 }
-
-

@@ -77,12 +77,13 @@ export function evaluateRule(
 
   // Rule is a tuple type, so we can safely access elements
   // The type is: [type, when?, payload] where type is 0, 1, or 2
+  // Note: Rust serializes None as null, so we need to check for both undefined and null
   const ruleType = rule[0];
-  const when: Expression | undefined = rule.length > 1 ? rule[1] : undefined;
+  const when: Expression | undefined | null = rule.length > 1 ? rule[1] : undefined;
   const payload: unknown = rule.length > 2 ? rule[2] : undefined;
 
-  // Evaluate when clause if present
-  if (when !== undefined) {
+  // Evaluate when clause if present (check for both undefined and null since Rust serializes None as null)
+  if (when !== undefined && when !== null) {
     const whenResult = evaluateExpression(when, artifact, user, context);
     if (!whenResult) {
       // When clause doesn't match, skip this rule

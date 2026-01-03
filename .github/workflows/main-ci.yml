@@ -70,6 +70,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
 

@@ -1,0 +1,9 @@
+# commitlint requires package.json - install globally or use npx
+if command -v commitlint &> /dev/null; then
+  commitlint --edit "$1"
+elif command -v npx &> /dev/null; then
+  npx --yes @commitlint/cli@latest --edit "$1"
+else
+  echo "⚠️  Warning: commitlint not found. Install with: npm install -g @commitlint/cli"
+  exit 0
+fi

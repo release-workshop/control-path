@@ -13,14 +13,13 @@ use thiserror::Error;
 pub enum ParseError {
     #[error("Invalid YAML: {0}")]
     InvalidYaml(String),
-    
+
     #[error("Invalid JSON: {0}")]
     InvalidJson(String),
-    
+
     #[error("Missing required field: {0}")]
     MissingField(String),
-    
+
     #[error("Invalid field type: {0}")]
     InvalidFieldType(String),
 }
-

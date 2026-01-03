@@ -8,7 +8,9 @@
 pub mod expressions;
 pub mod string_table;
 
-use crate::ast::{Artifact, Expression, Rule, ServePayload, Variation, RolloutPayload, RolloutValue};
+use crate::ast::{
+    Artifact, Expression, RolloutPayload, RolloutValue, Rule, ServePayload, Variation,
+};
 use crate::compiler::expressions::parse_expression;
 use crate::compiler::string_table::StringTable;
 use crate::error::{CompilationError, CompilerError};
@@ -28,10 +30,7 @@ use serde_json::Value;
 /// # Errors
 ///
 /// Returns `CompilerError::Compilation` if compilation fails.
-pub fn compile(
-    deployment: &Value,
-    definitions: &Value,
-) -> Result<Artifact, CompilerError> {
+pub fn compile(deployment: &Value, definitions: &Value) -> Result<Artifact, CompilerError> {
     let mut string_table = StringTable::new();
     let mut flags: Vec<Vec<Rule>> = Vec::new();
     let mut segments: Vec<(u16, Expression)> = Vec::new();
@@ -83,8 +82,7 @@ pub fn compile(
     for (flag_name, flag_rules) in rules_obj {
         let flag_index = flag_index_map.get(flag_name.as_str()).ok_or_else(|| {
             CompilerError::Compilation(CompilationError::InvalidRule(format!(
-                "Flag \"{}\" not found in flag definitions",
-                flag_name
+                "Flag \"{flag_name}\" not found in flag definitions"
             )))
         })?;
 
@@ -94,7 +92,9 @@ pub fn compile(
         // Compile each rule
         if let Some(rules_array) = flag_rules.get("rules").and_then(|r| r.as_array()) {
             for rule in rules_array {
-                if let Some(compiled_rule) = compile_rule(rule, flag_name, flag_def, &mut string_table)? {
+                if let Some(compiled_rule) =
+                    compile_rule(rule, flag_name, flag_def, &mut string_table)?
+                {
                     compiled_rules.push(compiled_rule);
                 }
             }
@@ -105,10 +105,7 @@ pub fn compile(
 
     // Append default serve rule for every flag using its definition defaultValue.
     for (flag_index, flag_def) in flag_defs.iter().enumerate() {
-        let default_value = normalize_value(
-            flag_def.get("defaultValue"),
-            flag_def,
-        )?;
+        let default_value = normalize_value(flag_def.get("defaultValue"), flag_def);
         let default_index = string_table.add(&default_value)?;
         flags[flag_index].push(Rule::ServeWithoutWhen(ServePayload::Number(default_index)));
     }
@@ -139,7 +136,11 @@ pub fn compile(
         string_table: string_table.to_vec(),
         flags,
         flag_names,
-        segments: if segments.is_empty() { None } else { Some(segments) },
+        segments: if segments.is_empty() {
+            None
+        } else {
+            Some(segments)
+        },
         signature: None,
     };
 
@@ -157,19 +158,42 @@ fn compile_rule(
     string_table: &mut StringTable,
 ) -> Result<Option<Rule>, CompilerError> {
     // Parse when clause if present
-    let when_expr: Option<Expression> = if let Some(when_str) = rule.get("when").and_then(|w| w.as_str()) {
-        let parsed_expr = parse_expression(when_str)?;
-        Some(string_table.process_expression(&parsed_expr)?)
-    } else {
-        None
-    };
+    let when_expr: Option<Expression> =
+        if let Some(when_str) = rule.get("when").and_then(|w| w.as_str()) {
+            let parsed_expr = parse_expression(when_str)?;
+            Some(string_table.process_expression(&parsed_expr)?)
+        } else {
+            None
+        };
 
     // Compile serve rule
     if let Some(serve_value) = rule.get("serve") {
-        let value = normalize_value(Some(serve_value), flag_def)?;
+        let flag_type = flag_def
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("boolean");
+
+        // For serve rules, we store the value as-is (don't look up variations)
+        // This allows serve: BLUE to store "BLUE" (variation name) rather than "blue" (variation value)
+        // For multivariate flags, if serve_value is a string, we keep it as-is (it might be a variation name)
+        // For boolean flags, normalize_value will handle the conversion (true -> "ON", etc.)
+        let value = if flag_type == "multivariate" {
+            // For multivariate flags, if serve_value is a string, use it directly
+            // This preserves variation names like "BLUE" instead of looking them up
+            if let Some(serve_str) = serve_value.as_str() {
+                serve_str.to_string()
+            } else {
+                // Not a string, normalize normally (for numbers, etc.)
+                normalize_value(Some(serve_value), flag_def)
+            }
+        } else {
+            // For boolean flags, normalize normally (true -> "ON", etc.)
+            normalize_value(Some(serve_value), flag_def)
+        };
+
         let value_index = string_table.add(&value)?;
         let payload = ServePayload::Number(value_index);
-        
+
         return Ok(Some(if let Some(when) = when_expr {
             Rule::ServeWithWhen(when, payload)
         } else {
@@ -197,8 +221,7 @@ fn compile_rule(
                         .and_then(|v| v.as_array())
                         .ok_or_else(|| {
                             CompilerError::Compilation(CompilationError::InvalidRule(format!(
-                                "Flag \"{}\" does not have variations defined, but rule uses variations",
-                                flag_name
+                                "Flag \"{flag_name}\" does not have variations defined, but rule uses variations"
                             )))
                         })?;
 
@@ -207,19 +230,19 @@ fn compile_rule(
                         .find(|v| v.get("name").and_then(|n| n.as_str()) == Some(variation_name))
                         .ok_or_else(|| {
                             CompilerError::Compilation(CompilationError::InvalidRule(format!(
-                                "Variation \"{}\" not found in flag \"{}\"",
-                                variation_name, flag_name
+                                "Variation \"{variation_name}\" not found in flag \"{flag_name}\""
                             )))
                         })?;
 
-                    let var_value = normalize_value(var_def.get("value"), flag_def)?;
+                    let var_value = normalize_value(var_def.get("value"), flag_def);
                     let var_index = string_table.add(&var_value)?;
-                    
+
                     let weight = var
                         .get("weight")
-                        .and_then(|w| w.as_f64())
+                        .and_then(serde_json::Value::as_f64)
                         .unwrap_or(0.0);
                     // Match TypeScript behavior: just round, don't clamp
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                     let percentage = weight.round() as u8;
 
                     Ok(Variation {
@@ -230,7 +253,7 @@ fn compile_rule(
                 .collect();
 
             let variations = variations?;
-            
+
             return Ok(Some(if let Some(when) = when_expr {
                 Rule::VariationsWithWhen(when, variations)
             } else {
@@ -257,7 +280,10 @@ fn compile_rule(
 
         let value_index: u16 = if flag_type == "boolean" {
             // For boolean flags, rollout.variation is the value (ON/OFF), not a variation name
-            let value = normalize_value(Some(&serde_json::Value::String(variation_name.to_string())), flag_def)?;
+            let value = normalize_value(
+                Some(&serde_json::Value::String(variation_name.to_string())),
+                flag_def,
+            );
             string_table.add(&value)?
         } else {
             // For multivariate flags, rollout.variation is a variation name
@@ -266,8 +292,7 @@ fn compile_rule(
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| {
                     CompilerError::Compilation(CompilationError::InvalidRule(format!(
-                        "Flag \"{}\" does not have variations defined, but rule uses rollout",
-                        flag_name
+                        "Flag \"{flag_name}\" does not have variations defined, but rule uses rollout"
                     )))
                 })?;
 
@@ -276,20 +301,20 @@ fn compile_rule(
                 .find(|v| v.get("name").and_then(|n| n.as_str()) == Some(variation_name))
                 .ok_or_else(|| {
                     CompilerError::Compilation(CompilationError::InvalidRule(format!(
-                        "Variation \"{}\" not found in flag \"{}\"",
-                        variation_name, flag_name
+                        "Variation \"{variation_name}\" not found in flag \"{flag_name}\""
                     )))
                 })?;
 
-            let var_value = normalize_value(var_def.get("value"), flag_def)?;
+            let var_value = normalize_value(var_def.get("value"), flag_def);
             string_table.add(&var_value)?
         };
 
         let percentage = rollout_obj
             .get("percentage")
-            .and_then(|p| p.as_f64())
+            .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
         // Match TypeScript behavior: just round, don't clamp
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let percentage = percentage.round() as u8;
 
         let payload = RolloutPayload {
@@ -310,7 +335,7 @@ fn compile_rule(
 
 /// Normalize a flag value to a string representation.
 /// For boolean flags, converts boolean to string.
-fn normalize_value(value: Option<&Value>, flag_def: &Value) -> Result<String, CompilerError> {
+fn normalize_value(value: Option<&Value>, flag_def: &Value) -> String {
     let flag_type = flag_def
         .get("type")
         .and_then(|t| t.as_str())
@@ -320,31 +345,30 @@ fn normalize_value(value: Option<&Value>, flag_def: &Value) -> Result<String, Co
         // For boolean flags, normalize to string representation
         if let Some(val) = value {
             if let Some(b) = val.as_bool() {
-                return Ok(if b { "ON".to_string() } else { "OFF".to_string() });
+                return if b {
+                    "ON".to_string()
+                } else {
+                    "OFF".to_string()
+                };
             }
             if let Some(s) = val.as_str() {
                 let upper = s.to_uppercase();
                 if upper == "ON" || upper == "TRUE" || upper == "1" {
-                    return Ok("ON".to_string());
+                    return "ON".to_string();
                 }
                 if upper == "OFF" || upper == "FALSE" || upper == "0" {
-                    return Ok("OFF".to_string());
+                    return "OFF".to_string();
                 }
             }
         }
     }
 
     // For other types, convert to string
-    if let Some(val) = value {
-        Ok(match val {
-            Value::String(s) => s.clone(),
-            Value::Number(n) => n.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::Null => "null".to_string(),
-            _ => serde_json::to_string(val).unwrap_or_else(|_| "".to_string()),
-        })
-    } else {
-        Ok("".to_string())
-    }
+    value.map_or_else(String::new, |val| match val {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        Value::Null => "null".to_string(),
+        _ => serde_json::to_string(val).unwrap_or_else(|_| String::new()),
+    })
 }
-

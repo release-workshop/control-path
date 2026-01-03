@@ -42,11 +42,8 @@ mod tests {
 
         let result = validator.validate_definitions("test.yaml", &invalid_data);
         assert!(!result.valid, "Invalid definitions should fail validation");
-        assert!(result.errors.len() > 0);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.message.contains("required")));
+        assert!(!result.errors.is_empty());
+        assert!(result.errors.iter().any(|e| e.message.contains("required")));
     }
 
     #[test]
@@ -161,10 +158,9 @@ mod tests {
 
         let result = validator.validate_deployment("test.yaml", &invalid_data);
         assert!(!result.valid);
-        assert!(result
-            .errors
-            .iter()
-            .any(|e| e.message.contains("serve") || e.message.contains("variations") || e.message.contains("rollout")));
+        assert!(result.errors.iter().any(|e| e.message.contains("serve")
+            || e.message.contains("variations")
+            || e.message.contains("rollout")));
     }
 
     #[test]
@@ -191,7 +187,7 @@ mod tests {
         assert!(result
             .errors
             .iter()
-            .any(|e| e.message.contains("exceed") && e.message.contains("%")));
+            .any(|e| e.message.contains("exceed") && e.message.contains('%')));
     }
 
     #[test]
@@ -220,4 +216,3 @@ mod tests {
             .any(|e| e.message.contains("percentage") && e.message.contains("between")));
     }
 }
-

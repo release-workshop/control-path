@@ -12,6 +12,7 @@ pub mod error;
 pub mod type_guards;
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests;
 
 use serde_json::Value;
@@ -30,7 +31,7 @@ pub struct Validator {
 
 impl Validator {
     /// Create a new Validator instance with embedded schemas.
-    /// 
+    ///
     /// This constructor loads schemas embedded at compile time (WASM-compatible).
     pub fn new() -> Self {
         Self {
@@ -40,7 +41,7 @@ impl Validator {
     }
 
     /// Create a new Validator instance with custom schemas.
-    /// 
+    ///
     /// This is useful for testing or when schemas need to be provided dynamically.
     pub fn with_schemas(definitions_schema: Value, deployment_schema: Value) -> Self {
         Self {
@@ -72,11 +73,11 @@ impl Validator {
             error_lines.push(format!("  Error: {}", error.message));
 
             if let Some(path) = &error.path {
-                error_lines.push(format!("  Path: {}", path));
+                error_lines.push(format!("  Path: {path}"));
             }
 
             if let Some(suggestion) = &error.suggestion {
-                error_lines.push(format!("  Suggestion: {}", suggestion));
+                error_lines.push(format!("  Suggestion: {suggestion}"));
             }
 
             error_lines.push(String::new());
@@ -88,11 +89,8 @@ impl Validator {
     /// Format error location with file path and optional line/column.
     fn format_error_location(&self, error: &ValidationError) -> String {
         if let Some(line) = error.line {
-            let column = error
-                .column
-                .map(|c| format!(":{}", c))
-                .unwrap_or_default();
-            format!("{}:{}{}", error.file, line, column)
+            let column = error.column.map(|c| format!(":{c}")).unwrap_or_default();
+            format!("{}:{line}{column}", error.file)
         } else {
             error.file.clone()
         }
@@ -104,4 +102,3 @@ impl Default for Validator {
         Self::new()
     }
 }
-

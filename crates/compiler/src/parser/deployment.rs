@@ -6,24 +6,24 @@
  * Parser for deployments from YAML/JSON strings.
  */
 
-use serde_json::Value;
 use crate::parser::error::ParseError;
 use crate::parser::utils::parse_yaml_or_json;
+use serde_json::Value;
 
 /// Parse deployment from a YAML/JSON string.
-/// 
+///
 /// Supports both YAML and JSON formats. The input can be YAML or JSON.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `content` - The YAML or JSON content as a string
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns the parsed deployment as `serde_json::Value`, or a `ParseError` if parsing fails.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Returns `ParseError` if:
 /// - The content is invalid YAML/JSON
 /// - The content is not an object
@@ -34,25 +34,29 @@ pub fn parse_deployment(content: &str) -> Result<Value, ParseError> {
 }
 
 /// Parse deployment from a string with optional file path for error messages.
-/// 
+///
 /// Supports both YAML and JSON formats.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `content` - The YAML or JSON content as a string
 /// * `file_path` - Optional file path (for error messages and format detection)
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns the parsed deployment as `serde_json::Value`, or a `ParseError` if parsing fails.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Returns `ParseError` if:
 /// - The content is invalid YAML/JSON
 /// - The content is not an object
 /// - The "environment" field is missing or not a string
 /// - The "rules" field is missing or not an object
+///
+/// # Panics
+///
+/// Panics if the parsed data is not an object (this should not happen after validation).
 pub fn parse_deployment_from_string(
     content: &str,
     file_path: Option<&str>,
@@ -323,4 +327,3 @@ rules: not_an_object
         }
     }
 }
-

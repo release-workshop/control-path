@@ -31,13 +31,13 @@ fn test_compile_simple_boolean_flag() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     assert_eq!(artifact.version, "1.0");
     assert_eq!(artifact.environment, "production");
     assert_eq!(artifact.flags.len(), 1);
     assert_eq!(artifact.flags[0].len(), 2); // One serve rule + one default rule
-    
+
     // Check that flag name is in string table
     assert!(artifact.string_table.contains(&"my_flag".to_string()));
     assert_eq!(artifact.flag_names.len(), 1);
@@ -71,10 +71,10 @@ fn test_compile_boolean_flag_with_when() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     assert_eq!(artifact.flags[0].len(), 2); // One serve rule with when + one default rule
-    
+
     // Check that the rule has a when expression
     match &artifact.flags[0][0] {
         Rule::ServeWithWhen(expr, _) => {
@@ -134,10 +134,10 @@ fn test_compile_multivariate_flag_with_variations() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     assert_eq!(artifact.flags[0].len(), 2); // One variations rule + one default rule
-    
+
     // Check that the rule is a variations rule
     match &artifact.flags[0][0] {
         Rule::VariationsWithoutWhen(variations) => {
@@ -179,10 +179,10 @@ fn test_compile_rollout_rule() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     assert_eq!(artifact.flags[0].len(), 2); // One rollout rule + one default rule
-    
+
     // Check that the rule is a rollout rule
     match &artifact.flags[0][0] {
         Rule::RolloutWithoutWhen(payload) => {
@@ -220,12 +220,12 @@ fn test_compile_with_segments() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     assert!(artifact.segments.is_some());
     let segments = artifact.segments.as_ref().unwrap();
     assert_eq!(segments.len(), 1);
-    
+
     // Check segment name is in string table
     assert!(artifact.string_table.contains(&"beta_users".to_string()));
 }
@@ -269,11 +269,11 @@ fn test_compile_multiple_flags() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     assert_eq!(artifact.flags.len(), 2);
     assert_eq!(artifact.flag_names.len(), 2);
-    
+
     // Each flag should have 2 rules (one serve + one default)
     assert_eq!(artifact.flags[0].len(), 2);
     assert_eq!(artifact.flags[1].len(), 2);
@@ -371,11 +371,11 @@ fn test_compile_default_rule_appended() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     // Should have 2 rules: one serve rule + one default rule
     assert_eq!(artifact.flags[0].len(), 2);
-    
+
     // Last rule should be the default serve rule
     match &artifact.flags[0][1] {
         Rule::ServeWithoutWhen(payload) => {
@@ -423,10 +423,14 @@ fn test_compile_string_table_deduplication() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     // "admin" should only appear once in string table
-    let admin_count = artifact.string_table.iter().filter(|s| s.as_str() == "admin").count();
+    let admin_count = artifact
+        .string_table
+        .iter()
+        .filter(|s| s.as_str() == "admin")
+        .count();
     assert_eq!(admin_count, 1);
 }
 
@@ -453,7 +457,7 @@ fn test_compile_flag_with_no_rules() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     // Should only have the default rule
     assert_eq!(artifact.flags[0].len(), 1);
@@ -509,7 +513,7 @@ fn test_compile_variation_weight_rounding() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     match &artifact.flags[0][0] {
         Rule::VariationsWithoutWhen(variations) => {
@@ -552,7 +556,7 @@ fn test_compile_rollout_percentage_rounding() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     match &artifact.flags[0][0] {
         Rule::RolloutWithoutWhen(payload) => {
@@ -590,7 +594,7 @@ fn test_compile_boolean_flag_with_string_true() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     match &artifact.flags[0][0] {
         Rule::ServeWithoutWhen(payload) => {
@@ -633,7 +637,7 @@ fn test_compile_boolean_flag_with_string_false() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     match &artifact.flags[0][0] {
         Rule::ServeWithoutWhen(payload) => {
@@ -689,7 +693,7 @@ fn test_compile_multivariate_flag_with_rollout() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     match &artifact.flags[0][0] {
         Rule::RolloutWithoutWhen(payload) => {
@@ -703,6 +707,59 @@ fn test_compile_multivariate_flag_with_rollout() {
             }
         }
         _ => panic!("Expected RolloutWithoutWhen rule"),
+    }
+}
+
+#[test]
+fn test_compile_multivariate_flag_with_serve_variation_name() {
+    let definitions = json!({
+        "flags": [
+            {
+                "name": "theme_color",
+                "type": "multivariate",
+                "defaultValue": "blue",
+                "variations": [
+                    {
+                        "name": "BLUE",
+                        "value": "blue"
+                    },
+                    {
+                        "name": "DARK",
+                        "value": "dark"
+                    }
+                ]
+            }
+        ]
+    });
+
+    let deployment = json!({
+        "environment": "production",
+        "rules": {
+            "theme_color": {
+                "rules": [
+                    {
+                        "serve": "BLUE"  // Variation name, should be stored as "BLUE"
+                    }
+                ]
+            }
+        }
+    });
+
+    let result = compile(&deployment, &definitions);
+    assert!(result.is_ok());
+
+    let artifact = result.unwrap();
+    match &artifact.flags[0][0] {
+        Rule::ServeWithoutWhen(payload) => {
+            match payload {
+                crate::ast::ServePayload::Number(index) => {
+                    // Should store "BLUE" (variation name), not "blue" (variation value)
+                    assert_eq!(artifact.string_table[*index as usize], "BLUE");
+                }
+                _ => panic!("Expected Number payload"),
+            }
+        }
+        _ => panic!("Expected ServeWithoutWhen rule"),
     }
 }
 
@@ -730,9 +787,8 @@ fn test_compile_empty_segments() {
 
     let result = compile(&deployment, &definitions);
     assert!(result.is_ok());
-    
+
     let artifact = result.unwrap();
     // Segments should be None (not Some(empty vec))
     assert!(artifact.segments.is_none());
 }
-

@@ -491,35 +491,30 @@ export class Provider implements OpenFeatureProvider {
   }
 
   /**
-   * Get variant name for multivariate flags
-   * This looks up the variation name from the string table if the result matches a variation value
+   * Get variation name for multivariate flags.
+   * For serve rules, the result might be:
+   * 1. The variation name directly (e.g., "BLUE") - return as-is
+   * 2. The variation value (e.g., "blue") - we can't map back to name without variation definitions
+   *
+   * We check if the result looks like a variation name (uppercase, alphanumeric/underscore)
+   * and return it if so. Otherwise, we return undefined and use the result as-is.
    */
-  private getVariant(flagIndex: number, result: unknown): string | undefined {
+  private getVariationName(flagIndex: number, result: unknown): string | undefined {
     if (!this.artifact || flagIndex < 0 || flagIndex >= this.artifact.flags.length) {
       return undefined;
     }
 
-    const flagRules = this.artifact.flags[flagIndex];
-    if (!flagRules) {
-      return undefined;
-    }
+    const resultStr = String(result);
 
-    // Look for variations rule that matches the result
-    for (const rule of flagRules) {
-      if (Array.isArray(rule) && rule.length >= 3 && rule[0] === 1) {
-        // RuleType.VARIATIONS
-        const variations = rule[2];
-        if (Array.isArray(variations)) {
-          // Check if result matches any variation
-          for (const [varIndex, _pct] of variations) {
-            if (typeof varIndex === 'number' && this.artifact.strs[varIndex] === result) {
-              // Find the variation name - we need to check if there's a way to get the name
-              // For now, return the string value as variant
-              return String(result);
-            }
-          }
-        }
-      }
+    // Check if result looks like a variation name (uppercase, alphanumeric/underscore, at least 1 char)
+    // Variation names are typically uppercase (e.g., "BLUE", "DARK", "SMALL", "MEDIUM", "LARGE")
+    if (
+      resultStr.length > 0 &&
+      resultStr === resultStr.toUpperCase() &&
+      /^[A-Z_][A-Z0-9_]*$/.test(resultStr) &&
+      resultStr.length <= 50 // Reasonable upper limit for variation names
+    ) {
+      return resultStr;
     }
 
     return undefined;
@@ -670,7 +665,7 @@ export class Provider implements OpenFeatureProvider {
 
       const result = evaluate(flagIndex, this.artifact, user, context);
 
-      if (result === undefined) {
+      if (result === undefined || result === null) {
         const details: ResolutionDetails<boolean> = {
           value: defaultValue,
           reason: 'DEFAULT',
@@ -680,7 +675,35 @@ export class Provider implements OpenFeatureProvider {
       }
 
       // Convert result to boolean
-      const boolValue = result === true || result === 'true' || result === 'ON' || result === 1;
+      // Handle various boolean representations: true, 'true', 'True', 'TRUE', 'ON', 'on', 1
+      // The compiler normalizes boolean true to "ON" for boolean flags
+      // Also handle the case where result might be the boolean false itself
+      if (
+        result === false ||
+        result === 0 ||
+        result === '0' ||
+        result === 'OFF' ||
+        result === 'off' ||
+        result === 'false' ||
+        result === 'False' ||
+        result === 'FALSE'
+      ) {
+        const details: ResolutionDetails<boolean> = {
+          value: false,
+          reason: 'TARGETING_MATCH',
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      const resultStr = String(result).toUpperCase().trim();
+      const boolValue =
+        result === true ||
+        result === 1 ||
+        resultStr === 'TRUE' ||
+        resultStr === 'ON' ||
+        resultStr === '1' ||
+        resultStr === 'YES';
       const details: ResolutionDetails<boolean> = {
         value: boolValue,
         reason: 'TARGETING_MATCH',
@@ -762,9 +785,14 @@ export class Provider implements OpenFeatureProvider {
       }
 
       // Convert result to string
-      const stringValue = String(result);
+      // For multivariate flags with serve rules, the result might be a variation name (e.g., "BLUE")
+      // or a variation value (e.g., "blue"). We prefer to return the variation name if it looks like one.
+      const resultStr = String(result);
+      const variationName = this.getVariationName(flagIndex, result);
+      // If we detected a variation name, use it; otherwise use the result as-is
+      const stringValue = variationName !== undefined ? variationName : resultStr;
       // Determine variant for multivariate flags
-      const variant = this.getVariant(flagIndex, result);
+      const variant = variationName;
       const details: ResolutionDetails<string> = {
         value: stringValue,
         reason: 'TARGETING_MATCH',
@@ -965,7 +993,7 @@ export class Provider implements OpenFeatureProvider {
       }
 
       // Determine variant for multivariate flags
-      const variant = this.getVariant(flagIndex, result);
+      const variant = this.getVariationName(flagIndex, result);
       const details: ResolutionDetails<T> = {
         value: objValue,
         reason: 'TARGETING_MATCH',

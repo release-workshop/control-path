@@ -12,11 +12,7 @@ use crate::validator::error::{ValidationError, ValidationResult};
 use crate::validator::type_guards::{is_deployment, is_record, is_rollout, is_variation};
 
 /// Validate deployment file against the deployment schema.
-pub fn validate_deployment(
-    schema: &Value,
-    file_path: &str,
-    data: &Value,
-) -> ValidationResult {
+pub fn validate_deployment(schema: &Value, file_path: &str, data: &Value) -> ValidationResult {
     validate_with_schema(schema, file_path, data, validate_deployment_specific_rules)
 }
 
@@ -50,22 +46,13 @@ fn validate_deployment_specific_rules(file_path: &str, data: &Value) -> Vec<Vali
                 }
 
                 errors.extend(validate_rule_structure(
-                    file_path,
-                    flag_name,
-                    rule,
-                    rule_index,
+                    file_path, flag_name, rule, rule_index,
                 ));
                 errors.extend(validate_variation_weights(
-                    file_path,
-                    flag_name,
-                    rule,
-                    rule_index,
+                    file_path, flag_name, rule, rule_index,
                 ));
                 errors.extend(validate_rollout_percentage(
-                    file_path,
-                    flag_name,
-                    rule,
-                    rule_index,
+                    file_path, flag_name, rule, rule_index,
                 ));
             }
         }
@@ -91,10 +78,7 @@ fn validate_rule_structure(
         .get("variations")
         .map(|v| v.is_array())
         .unwrap_or(false);
-    let has_rollout = rule_obj
-        .get("rollout")
-        .map(|r| is_rollout(r))
-        .unwrap_or(false);
+    let has_rollout = rule_obj.get("rollout").map(is_rollout).unwrap_or(false);
 
     if !has_serve && !has_variations && !has_rollout {
         return vec![ValidationError {
@@ -102,10 +86,9 @@ fn validate_rule_structure(
             line: None,
             column: None,
             message: format!(
-                "Rule in flag '{}' must have 'serve', 'variations', or 'rollout'",
-                flag_name
+                "Rule in flag '{flag_name}' must have 'serve', 'variations', or 'rollout'"
             ),
-            path: Some(format!("/rules/{}/rules/{}", flag_name, rule_index)),
+            path: Some(format!("/rules/{flag_name}/rules/{rule_index}")),
             suggestion: Some("Add 'serve', 'variations', or 'rollout' to this rule.".to_string()),
         }];
     }
@@ -150,13 +133,11 @@ fn validate_variation_weights(
             line: None,
             column: None,
             message: format!(
-                "Variation weights for flag '{}' exceed {}% (total: {}%)",
-                flag_name, MAX_PERCENTAGE, total_weight
+                "Variation weights for flag '{flag_name}' exceed {MAX_PERCENTAGE}% (total: {total_weight}%)"
             ),
-            path: Some(format!("/rules/{}/rules/{}/variations", flag_name, rule_index)),
+            path: Some(format!("/rules/{flag_name}/rules/{rule_index}/variations")),
             suggestion: Some(format!(
-                "Adjust weights so they sum to {}% or less.",
-                MAX_PERCENTAGE
+                "Adjust weights so they sum to {MAX_PERCENTAGE}% or less."
             )),
         }];
     }
@@ -188,22 +169,19 @@ fn validate_rollout_percentage(
         .map(|p| p as u32);
 
     if let Some(percentage) = percentage {
-        if percentage < MIN_PERCENTAGE || percentage > MAX_PERCENTAGE {
+        if !(MIN_PERCENTAGE..=MAX_PERCENTAGE).contains(&percentage) {
             return vec![ValidationError {
                 file: file_path.to_string(),
                 line: None,
                 column: None,
                 message: format!(
-                    "Rollout percentage for flag '{}' must be between {} and {}",
-                    flag_name, MIN_PERCENTAGE, MAX_PERCENTAGE
+                    "Rollout percentage for flag '{flag_name}' must be between {MIN_PERCENTAGE} and {MAX_PERCENTAGE}"
                 ),
                 path: Some(format!(
-                    "/rules/{}/rules/{}/rollout/percentage",
-                    flag_name, rule_index
+                    "/rules/{flag_name}/rules/{rule_index}/rollout/percentage"
                 )),
                 suggestion: Some(format!(
-                    "Set percentage between {} and {}.",
-                    MIN_PERCENTAGE, MAX_PERCENTAGE
+                    "Set percentage between {MIN_PERCENTAGE} and {MAX_PERCENTAGE}."
                 )),
             }];
         }

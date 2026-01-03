@@ -6,24 +6,24 @@
  * Parser for flag definitions from YAML/JSON strings.
  */
 
-use serde_json::Value;
 use crate::parser::error::ParseError;
 use crate::parser::utils::parse_yaml_or_json;
+use serde_json::Value;
 
 /// Parse flag definitions from a YAML/JSON string.
-/// 
+///
 /// Supports both YAML and JSON formats. The input can be YAML or JSON.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `content` - The YAML or JSON content as a string
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns the parsed flag definitions as `serde_json::Value`, or a `ParseError` if parsing fails.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Returns `ParseError` if:
 /// - The content is invalid YAML/JSON
 /// - The content is not an object
@@ -34,25 +34,29 @@ pub fn parse_definitions(content: &str) -> Result<Value, ParseError> {
 }
 
 /// Parse flag definitions from a string with optional file path for error messages.
-/// 
+///
 /// Supports both YAML and JSON formats.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `content` - The YAML or JSON content as a string
 /// * `file_path` - Optional file path (for error messages and format detection)
-/// 
+///
 /// # Returns
-/// 
+///
 /// Returns the parsed flag definitions as `serde_json::Value`, or a `ParseError` if parsing fails.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Returns `ParseError` if:
 /// - The content is invalid YAML/JSON
 /// - The content is not an object
 /// - The "flags" field is missing
 /// - The "flags" field is not an array
+///
+/// # Panics
+///
+/// Panics if the parsed data is not an object (this should not happen after validation).
 pub fn parse_definitions_from_string(
     content: &str,
     file_path: Option<&str>,
@@ -162,7 +166,10 @@ flags:
         assert!(result["flags"].is_array());
         assert_eq!(result["flags"][0]["type"], "multivariate");
         assert!(result["flags"][0]["variations"].is_array());
-        assert_eq!(result["flags"][0]["variations"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            result["flags"][0]["variations"].as_array().unwrap().len(),
+            3
+        );
         assert_eq!(result["flags"][0]["variations"][0]["name"], "LIGHT");
         assert_eq!(result["flags"][0]["variations"][0]["value"], "light");
     }
@@ -258,4 +265,3 @@ flags: not_an_array
         }
     }
 }
-
