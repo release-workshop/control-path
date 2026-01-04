@@ -97,6 +97,22 @@ jobs:
         with:
           node-version: 24
 
+      - name: Cache npm dependencies (runtime)
+        uses: actions/cache@v4
+        with:
+          path: runtime/typescript/node_modules
+          key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
+          restore-keys: |
+            npm-runtime-${{ runner.os }}-
+
+      - name: Install runtime SDK dependencies
+        working-directory: runtime/typescript
+        run: npm ci
+
+      - name: Build runtime SDK
+        working-directory: runtime/typescript
+        run: npm run build
+
       - name: Cache npm dependencies (e2e)
         uses: actions/cache@v4
         with:
@@ -109,18 +125,6 @@ jobs:
 
       - name: Install e2e test dependencies
         working-directory: tests/e2e
-        run: npm ci
-
-      - name: Cache npm dependencies (runtime)
-        uses: actions/cache@v4
-        with:
-          path: runtime/typescript/node_modules
-          key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
-          restore-keys: |
-            npm-runtime-${{ runner.os }}-
-
-      - name: Install runtime SDK dependencies
-        working-directory: runtime/typescript
         run: npm ci
 
       - name: Determine commit SHA
