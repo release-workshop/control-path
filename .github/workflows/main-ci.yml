@@ -40,9 +40,11 @@ jobs:
 
       # Install dependencies for TypeScript runtime SDK only
       # Note: This is not a workspace - only runtime/typescript uses npm
+      # Using npm install instead of npm ci since this is a Rust-focused monorepo
+      # and package-lock.json may not always be present
       - name: Install dependencies
         working-directory: runtime/typescript
-        run: npm ci
+        run: npm install
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

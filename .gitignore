@@ -87,9 +87,8 @@ Thumbs.db
 Desktop.ini
 
 # Lock files
-# Keep pnpm-lock.yaml - it should be committed for reproducible builds
-# Ignore npm and yarn lock files (we use pnpm)
-package-lock.json
+# Keep package-lock.json for npm (used by runtime/typescript)
+# Ignore yarn lock files
 yarn.lock
 
 # Project-specific: Control Path
