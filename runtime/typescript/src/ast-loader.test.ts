@@ -458,11 +458,6 @@ describe('AST Loader', () => {
   });
 
   describe('loadFromURL', () => {
-    it.skip('should load AST from HTTP URL', () => {
-      // TODO: Implement HTTP URL test with a test server (e.g., nock or msw)
-      // This test is skipped because it requires a running HTTP server
-      // In a real scenario, you'd use a test HTTP server or mocking library
-    });
 
     it('should throw error for invalid URL', async () => {
       await expect(loadFromURL('not-a-valid-url')).rejects.toThrow('Invalid URL');
