@@ -30,8 +30,6 @@ struct FlagInfo {
     return_type: String,
     default_value: String,
     default_string: String,
-    default_return_statement: String,
-    catch_return_statement: String,
 }
 
 impl TypeScriptGenerator {
@@ -147,15 +145,6 @@ impl TypeScriptGenerator {
             Self::get_variation_type_name(flag_name)
         };
 
-        // Compute return statements to avoid nested conditionals in template
-        let default_return_statement = if flag_type == "boolean" {
-            default_value_str.clone()
-        } else {
-            format!("{} as {}", default_value_str, return_type)
-        };
-
-        let catch_return_statement = default_return_statement.clone();
-
         Some(FlagInfo {
             camel_name: camel_name.clone(),
             method_name: camel_name,
@@ -164,8 +153,6 @@ impl TypeScriptGenerator {
             return_type,
             default_value: default_value_str,
             default_string,
-            default_return_statement,
-            catch_return_statement,
         })
     }
 
