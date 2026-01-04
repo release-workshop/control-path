@@ -34,11 +34,10 @@ jobs:
 
       # Install dependencies for TypeScript runtime SDK only
       # Note: This is not a workspace - only runtime/typescript uses npm
-      # Using npm install instead of npm ci since this is a Rust-focused monorepo
-      # and package-lock.json may not always be present
+      # Using npm ci for consistent, reproducible builds in CI
       - name: Install dependencies
         working-directory: runtime/typescript
-        run: npm install
+        run: npm ci
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -65,6 +64,11 @@ jobs:
       # This runs tests in both crates/compiler and crates/cli
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
+
+      # Build Rust CLI binary for TypeScript integration tests
+      # The TypeScript tests need the CLI binary to compile AST artifacts
+      - name: Build Rust CLI binary
+        run: cargo build --release --bin controlpath
 
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
@@ -103,11 +107,10 @@ jobs:
 
       # Install dependencies for TypeScript runtime SDK only
       # Note: This is not a workspace - only runtime/typescript uses npm
-      # Using npm install instead of npm ci since this is a Rust-focused monorepo
-      # and package-lock.json may not always be present
+      # Using npm ci for consistent, reproducible builds in CI
       - name: Install dependencies
         working-directory: runtime/typescript
-        run: npm install
+        run: npm ci
 
       # Lint and typecheck only affect the TypeScript runtime SDK
       - name: Lint
