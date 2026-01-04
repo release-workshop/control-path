@@ -6,10 +6,45 @@ on:
       - 'validation/**'
 
 jobs:
+  # Detect what changed to conditionally run jobs
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      typescript: ${{ steps.filter.outputs.typescript }}
+      schemas: ${{ steps.filter.outputs.schemas }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
+      - name: Detect changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'crates/**'
+              - 'schemas/**'
+            typescript:
+              - 'runtime/typescript/**'
+            workflows:
+              - '.github/workflows/**'
+
   # Run Rust tests in parallel with CLI build and lint/typecheck
   rust-tests:
     name: Run Rust tests and clippy
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     permissions:
       contents: read
     steps:
@@ -50,6 +85,8 @@ jobs:
   build-cli:
     name: Build CLI binary
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.typescript == 'true'
     permissions:
       contents: read
     steps:
@@ -95,7 +132,8 @@ jobs:
   typescript-tests:
     name: Run TypeScript tests
     runs-on: ubuntu-latest
-    needs: [build-cli]
+    needs: [changes, build-cli]
+    if: needs.changes.outputs.typescript == 'true' && needs.build-cli.result == 'success'
     permissions:
       contents: read
     steps:
@@ -161,6 +199,8 @@ jobs:
   lint-and-typecheck:
     name: Lint and typecheck
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     permissions:
       contents: read
     steps:
@@ -202,10 +242,17 @@ jobs:
         run: npm run typecheck
 
   # Merge job runs only if all validations pass
+  # Uses always() to run even if some jobs were skipped, but only if required jobs succeeded
   merge:
     name: Merge into main
     runs-on: ubuntu-latest
-    needs: [rust-tests, build-cli, typescript-tests, lint-and-typecheck]
+    needs: [changes, rust-tests, build-cli, typescript-tests, lint-and-typecheck]
+    if: |
+      always() &&
+      (needs.rust-tests.result == 'success' || needs.rust-tests.result == 'skipped') &&
+      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
+      (needs.typescript-tests.result == 'success' || needs.typescript-tests.result == 'skipped') &&
+      (needs.lint-and-typecheck.result == 'success' || needs.lint-and-typecheck.result == 'skipped')
     permissions:
       contents: write
       pull-requests: write
