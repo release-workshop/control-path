@@ -306,5 +306,3 @@ export const evaluator = new Evaluator();
 
 // Re-export types
 export type { User, Context, FlagName, FlagReturnTypes } from './types';
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-read_file

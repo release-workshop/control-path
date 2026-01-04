@@ -195,6 +195,23 @@ async function setupGeneratedSdk(sdkDir: string): Promise<void> {
   } catch (tscError: any) {
     // Log the actual TypeScript errors
     const errorOutput = tscError.stdout?.toString() || tscError.stderr?.toString() || tscError.message || 'Unknown error';
+    
+    // Debug: Output the generated index.ts file around the error line
+    try {
+      const indexContent = await readFile(join(sdkDir, 'index.ts'), 'utf-8');
+      const lines = indexContent.split('\n');
+      console.error(`\n=== Generated index.ts has ${lines.length} lines ===`);
+      if (lines.length >= 375) {
+        console.error(`\n=== Lines 370-380 of generated index.ts ===`);
+        console.error(lines.slice(369, 380).map((line, i) => `${370 + i}: ${line}`).join('\n'));
+      } else {
+        console.error(`\n=== Last 10 lines of generated index.ts ===`);
+        console.error(lines.slice(-10).map((line, i) => `${lines.length - 10 + i}: ${line}`).join('\n'));
+      }
+    } catch (readError) {
+      // Ignore read errors
+    }
+    
     throw new Error(`TypeScript compilation failed: ${errorOutput}`);
   }
 }
