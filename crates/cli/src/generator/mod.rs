@@ -18,7 +18,7 @@ pub trait Generator {
 pub fn generate_sdk(language: &str, definitions: &Value, output_dir: &Path) -> CliResult<()> {
     match language {
         "typescript" | "ts" => {
-            let generator = typescript::TypeScriptGenerator::new();
+            let generator = typescript::TypeScriptGenerator::new()?;
             generator.generate(definitions, output_dir)
         }
         _ => Err(CliError::Message(format!(

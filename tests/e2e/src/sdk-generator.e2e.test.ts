@@ -534,6 +534,68 @@ rules:
     });
   });
 
+  describe('Observability Methods', () => {
+    const observabilityDeployment = `environment: production
+rules:
+  new_dashboard:
+    rules:
+      - serve: true
+`;
+
+    it('should have setLogger, setTracer, and setMetrics methods', async () => {
+      // Write deployment file
+      await writeFile(deploymentFile, observabilityDeployment);
+
+      // Generate SDK
+      await generateSdk(definitionsFile, sdkDir);
+
+      // Compile AST
+      await compileAst(definitionsFile, deploymentFile, astFile);
+
+      // Set up SDK for execution
+      await setupGeneratedSdk(sdkDir);
+
+      // Load and use the generated SDK
+      const evaluator = await loadGeneratedSdk(sdkDir, astFile);
+
+      // Verify methods exist
+      expect(typeof evaluator.setLogger).toBe('function');
+      expect(typeof evaluator.setTracer).toBe('function');
+      expect(typeof evaluator.setMetrics).toBe('function');
+
+      // Test setLogger - should not throw
+      const mockLogger = {
+        error: () => {},
+        warn: () => {},
+        info: () => {},
+        debug: () => {},
+      };
+      expect(() => evaluator.setLogger(mockLogger)).not.toThrow();
+
+      // Test setTracer - should not throw
+      const mockTracer = {
+        startSpan: (name: string) => ({
+          setAttribute: () => {},
+          addEvent: () => {},
+          end: () => {},
+        }),
+      };
+      expect(() => evaluator.setTracer(mockTracer)).not.toThrow();
+
+      // Test setMetrics - should not throw
+      const mockMetrics = {
+        increment: () => {},
+        gauge: () => {},
+      };
+      expect(() => evaluator.setMetrics(mockMetrics)).not.toThrow();
+
+      // Verify hooks were added to provider
+      // Access the provider through the evaluator (if possible) or verify hooks exist
+      // Note: We can't directly access provider.hooks from the generated SDK,
+      // but we can verify the methods work by checking they don't throw
+    });
+  });
+
   describe('Method Overloads', () => {
     const overloadDeployment = `environment: production
 rules:
