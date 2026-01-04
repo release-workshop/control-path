@@ -803,5 +803,211 @@ describe('AST Loader', () => {
         })
       ).rejects.toThrow('Invalid public key length');
     });
+
+    it('should skip verification when signature not present and not required', async () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+        flagNames: [],
+        // No signature
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+
+      // Should not throw even with public key provided, since signature is not required
+      const publicKey = new Uint8Array(32).fill(1);
+      const loaded = await loadFromBuffer(buffer, {
+        publicKey,
+        requireSignature: false, // Not required
+      });
+
+      expect(loaded).toBeDefined();
+    });
+
+    it('should handle base64 decode failure and fallback to hex', async () => {
+      const privateKey = new Uint8Array(32).fill(1);
+      const publicKey = await getPublicKey(privateKey);
+      // Create a string that's not valid base64 but is valid hex
+      const publicKeyHex = Buffer.from(publicKey).toString('hex');
+
+      const artifactWithoutSig: Omit<Artifact, 'sig'> = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+        flagNames: [],
+      };
+
+      const messageBytes = pack(artifactWithoutSig);
+      const signature = await sign(messageBytes, privateKey);
+
+      const artifact: Artifact = {
+        ...artifactWithoutSig,
+        sig: signature,
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+
+      // Use hex string directly (not base64)
+      const loaded = await loadFromBuffer(buffer, {
+        publicKey: publicKeyHex,
+        requireSignature: true,
+      });
+
+      expect(loaded).toBeDefined();
+    });
+
+    it('should handle signature verification error that does not include verification failed', async () => {
+      const privateKey = new Uint8Array(32).fill(1);
+      const publicKey = await getPublicKey(privateKey);
+
+      const artifactWithoutSig: Omit<Artifact, 'sig'> = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+        flagNames: [],
+      };
+
+      // Create invalid signature (wrong length)
+      const invalidSig = new Uint8Array(64).fill(0);
+
+      const artifact: Artifact = {
+        ...artifactWithoutSig,
+        sig: invalidSig,
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+
+      // This should trigger the catch branch where error doesn't include 'verification failed'
+      await expect(
+        loadFromBuffer(buffer, {
+          publicKey,
+          requireSignature: true,
+        })
+      ).rejects.toThrow();
+    });
+
+    it('should include segments in artifact without signature', async () => {
+      const privateKey = new Uint8Array(32).fill(1);
+      const publicKey = await getPublicKey(privateKey);
+
+      const artifactWithoutSig: Omit<Artifact, 'sig'> = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+        flagNames: [],
+        segments: [[0, [2, 1]]], // Include segments
+      };
+
+      const messageBytes = pack(artifactWithoutSig);
+      const signature = await sign(messageBytes, privateKey);
+
+      const artifact: Artifact = {
+        ...artifactWithoutSig,
+        sig: signature,
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+
+      const loaded = await loadFromBuffer(buffer, {
+        publicKey,
+        requireSignature: true,
+      });
+
+      expect(loaded.segments).toBeDefined();
+    });
+
+    it('should throw error when flagNames length does not match flags length', async () => {
+      const invalidData = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [[], []], // 2 flags
+        flagNames: [0], // Only 1 flagName - mismatch!
+      };
+
+      const buffer = Buffer.from(pack(invalidData));
+
+      await expect(loadFromBuffer(buffer)).rejects.toThrow(
+        'flagNames length'
+      );
+    });
+
+    it('should throw error when flagNames contains invalid string table indices', async () => {
+      const invalidData = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'], // Only 1 string (index 0)
+        flags: [[]],
+        flagNames: [999], // Invalid index - out of bounds
+      };
+
+      const buffer = Buffer.from(pack(invalidData));
+
+      await expect(loadFromBuffer(buffer)).rejects.toThrow(
+        'flagNames contains invalid string table indices'
+      );
+    });
+
+    it('should throw error for invalid string table type', async () => {
+      const invalidData = {
+        v: '1.0',
+        env: 'test',
+        strs: 'not-an-array', // Invalid - should be array
+        flags: [],
+        flagNames: [],
+      };
+
+      const buffer = Buffer.from(pack(invalidData));
+
+      await expect(loadFromBuffer(buffer)).rejects.toThrow('string table');
+    });
+
+    it('should throw error for invalid flags array type', async () => {
+      const invalidData = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: 'not-an-array', // Invalid - should be array
+        flagNames: [],
+      };
+
+      const buffer = Buffer.from(pack(invalidData));
+
+      await expect(loadFromBuffer(buffer)).rejects.toThrow('flags array');
+    });
+
+    it('should throw error when signature required but not present and no public key', async () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: [],
+        flags: [],
+        flagNames: [],
+        // No signature
+      };
+
+      const buffer = Buffer.from(pack(artifact));
+
+      // Should throw when requireSignature is true but no signature present and no public key
+      await expect(
+        loadFromBuffer(buffer, {
+          requireSignature: true,
+          // No publicKey provided
+        })
+      ).rejects.toThrow('Signature required but not present');
+    });
+
+    it('should throw error for array artifact (not object)', async () => {
+      const invalidData = [1, 2, 3]; // Array instead of object
+
+      const buffer = Buffer.from(pack(invalidData));
+
+      await expect(loadFromBuffer(buffer)).rejects.toThrow('expected object');
+    });
   });
 });

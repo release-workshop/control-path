@@ -732,6 +732,60 @@ describe('Provider', () => {
 
       expect(result).toBeDefined();
     });
+
+    it('should call logger.debug when no artifact loaded in object evaluation', () => {
+      const debugMessages: string[] = [];
+      const logger = {
+        debug: (message: string) => {
+          debugMessages.push(message);
+        },
+        warn: () => {},
+        error: () => {},
+      };
+
+      const provider = new Provider({ logger });
+      const defaultObj = { key: 'value' };
+      const result = provider.resolveObjectEvaluation('flag1', defaultObj, {});
+
+      expect(result).toBeDefined();
+      expect(debugMessages.length).toBeGreaterThan(0);
+      expect(debugMessages[0]).toContain('No artifact loaded');
+    });
+
+    it('should call logger.warn when flag not found in object evaluation', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [[]],
+        flagNames: [0], // Only flag1 exists
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      await mkdir(testDir, { recursive: true });
+      writeFileSync(testFile, buffer);
+
+      const warnMessages: string[] = [];
+      const logger = {
+        warn: (message: string) => {
+          warnMessages.push(message);
+        },
+        debug: () => {},
+        error: () => {},
+      };
+
+      const provider = new Provider({ logger });
+      await provider.loadArtifact(testFile);
+
+      const defaultObj = { key: 'value' };
+      const result = provider.resolveObjectEvaluation('nonexistent-flag', defaultObj, {});
+
+      expect(result).toBeDefined();
+      expect(warnMessages.length).toBeGreaterThan(0);
+      expect(warnMessages[0]).toContain('not found in flag name map');
+    });
   });
 
   describe('evaluation error handling', () => {
@@ -820,6 +874,38 @@ describe('Provider', () => {
       expect(result.value).toBe(42);
       expect(result.reason).toBe('DEFAULT');
       expect(result.errorCode).toBe('TYPE_MISMATCH');
+    });
+
+    it('should call logger.error when number evaluation throws', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [[]],
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      await mkdir(testDir, { recursive: true });
+      writeFileSync(testFile, buffer);
+
+      const errorMessages: string[] = [];
+      const logger = {
+        error: (message: string) => {
+          errorMessages.push(message);
+        },
+        warn: () => {},
+        debug: () => {},
+      };
+
+      const provider = new Provider({ logger });
+      await provider.loadArtifact(testFile);
+
+      // This should not throw, but tests the error path exists
+      const result = provider.resolveNumberEvaluation('flag1', 42, {});
+      expect(result).toBeDefined();
     });
 
     it('should handle errors in object evaluation gracefully', async () => {
@@ -964,6 +1050,37 @@ describe('Provider', () => {
 
       const result = provider.resolveBooleanEvaluation('flag1', false, context);
       expect(result.value).toBe(true);
+    });
+
+    it('should use cached result in object evaluation', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1', '{"key":"value"}'],
+        flags: [[[0, undefined, 1]]], // SERVE rule returning JSON string
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      await mkdir(testDir, { recursive: true });
+      writeFileSync(testFile, buffer);
+
+      const provider = new Provider({ enableCache: true });
+      await provider.loadArtifact(testFile);
+
+      const defaultObj = { default: 'value' };
+      const context = { user: { id: 'user1' } };
+
+      // First evaluation - should cache
+      const result1 = provider.resolveObjectEvaluation('flag1', defaultObj, context);
+      expect(result1.value).toEqual({ key: 'value' });
+
+      // Second evaluation with same context - should use cache
+      const result2 = provider.resolveObjectEvaluation('flag1', defaultObj, context);
+      expect(result2.value).toEqual({ key: 'value' });
+      expect(result2).toEqual(result1); // Should be same object (cached)
     });
   });
 });

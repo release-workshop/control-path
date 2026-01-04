@@ -404,6 +404,19 @@ describe('Evaluator', () => {
         0,
       ];
       expect(evaluateRule(ruleLTE, artifact, mockUser)).toBe('ON');
+
+      // Test NE (not equal)
+      const ruleNE: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.NE,
+          [ExpressionType.LITERAL, 5],
+          [ExpressionType.LITERAL, 10],
+        ],
+        0,
+      ];
+      expect(evaluateRule(ruleNE, artifact, mockUser)).toBe('ON');
     });
   });
 
@@ -535,6 +548,22 @@ describe('Evaluator', () => {
       const result = evaluateRule(rule, artifact, mockUser);
 
       expect(result).toBe('ON');
+    });
+
+    it('should handle rollout with string valueIndex', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      // Rollout with string valueIndex (not number)
+      const rule: Rule = [RuleType.ROLLOUT, undefined, ['direct-value', 100]];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+
+      expect(result).toBe('direct-value');
     });
   });
 
@@ -1095,6 +1124,84 @@ describe('Evaluator', () => {
       const result = evaluateRule(rule, artifact, user);
       // Should return undefined because profile is not an object
       expect(result).toBeUndefined();
+    });
+  });
+
+  describe('FUNC expression with non-array args', () => {
+    it('should return false when FUNC expression has non-array args', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          0, // FuncCode.IN
+          'not-an-array' as unknown as Expression[], // Invalid args - not an array
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      // Should return undefined because args is not an array
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('variation selection edge cases', () => {
+    it('should handle variation where getString returns undefined and fallback to last', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['variant_a'], // Only one string, but variation uses invalid index
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.VARIATIONS,
+        undefined,
+        [
+          [999, 50], // Invalid string index
+          [0, 50], // Valid string index
+        ],
+      ];
+
+      // Use a user ID that will hash to bucket 0-49 (first variation)
+      const user: User = { id: 'user-consistent-hash-0' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should fallback to last variation when first returns undefined
+      expect(result).toBe('variant_a');
+    });
+
+    it('should handle variation where intermediate getString returns undefined', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['variant_a', 'variant_b'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.VARIATIONS,
+        undefined,
+        [
+          [999, 30], // Invalid string index - will return undefined
+          [1, 70], // Valid string index
+        ],
+      ];
+
+      // Use a user ID that will hash to bucket 0-29 (first variation)
+      // But first variation returns undefined, so should continue to second
+      const user: User = { id: 'user-consistent-hash-early' };
+      const result = evaluateRule(rule, artifact, user);
+
+      // Should continue to next variation when first returns undefined
+      expect(result).toBe('variant_b');
     });
   });
 });
