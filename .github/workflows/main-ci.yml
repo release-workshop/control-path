@@ -10,40 +10,17 @@ on:
   merge_group:
 
 jobs:
-  ci-main:
-    name: CI on main
+  # Run Rust tests and build CLI in parallel with lint/typecheck
+  rust-tests:
+    name: Run Rust tests and clippy
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      # npm is only needed for the TypeScript runtime SDK (runtime/typescript/)
-      # The compiler and CLI are now Rust-based and use Cargo
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
-          restore-keys: |
-            npm-${{ runner.os }}-
-
-      # Install dependencies for TypeScript runtime SDK only
-      # Note: This is not a workspace - only runtime/typescript uses npm
-      # Using npm ci for consistent, reproducible builds in CI
-      - name: Install dependencies
-        working-directory: runtime/typescript
-        run: npm ci
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -71,15 +48,136 @@ jobs:
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
 
+  # Build CLI binary in parallel with Rust tests
+  # This job runs concurrently with rust-tests and lint-and-typecheck
+  build-cli:
+    name: Build Rust CLI binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       # Build Rust CLI binary for TypeScript integration tests
       # The TypeScript tests need the CLI binary to compile AST artifacts
       - name: Build Rust CLI binary
         run: cargo build --release --bin controlpath
 
+      # Upload CLI binary as artifact for TypeScript tests job
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: controlpath-cli
+          path: target/release/controlpath
+          retention-days: 1
+
+  # Run TypeScript tests after CLI is built
+  # This depends on build-cli to ensure the binary is available
+  typescript-tests:
+    name: Run TypeScript tests with coverage
+    runs-on: ubuntu-latest
+    needs: [build-cli]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      # Install dependencies for TypeScript runtime SDK only
+      # Note: This is not a workspace - only runtime/typescript uses npm
+      # Using npm ci for consistent, reproducible builds in CI
+      - name: Install dependencies
+        working-directory: runtime/typescript
+        run: npm ci
+
+      # Download CLI binary from build-cli job
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: controlpath-cli
+          path: target/release/
+
+      # Make CLI binary executable
+      - name: Make CLI binary executable
+        run: chmod +x target/release/controlpath
+
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
+        env:
+          # Ensure the CLI binary is in PATH for tests
+          PATH: ${{ github.workspace }}/target/release:${{ env.PATH }}
         run: |
           npm test -- --coverage --reporter=default --coverage.reporter=lcov
+
+  # Run lint and typecheck in parallel (separate job for TypeScript SDK only)
+  lint-and-typecheck:
+    name: Lint and typecheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # npm is only needed for the TypeScript runtime SDK (runtime/typescript/)
+      # The compiler and CLI are now Rust-based and use Cargo
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-
+
+      # Install dependencies for TypeScript runtime SDK only
+      # Note: This is not a workspace - only runtime/typescript uses npm
+      # Using npm ci for consistent, reproducible builds in CI
+      - name: Install dependencies
+        working-directory: runtime/typescript
+        run: npm ci
 
       # Lint and typecheck only affect the TypeScript runtime SDK
       - name: Lint

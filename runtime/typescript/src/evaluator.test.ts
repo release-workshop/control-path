@@ -669,4 +669,432 @@ describe('Evaluator', () => {
       expect(result).toBe('ON');
     });
   });
+
+  describe('invalid rule formats', () => {
+    it('should return undefined for invalid rule (not array)', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      // @ts-expect-error - Testing invalid input
+      const result = evaluateRule(null, artifact, mockUser);
+      expect(result).toBeUndefined();
+    });
+
+    it('should return undefined for rule with insufficient length', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      // @ts-expect-error - Testing invalid input
+      const result = evaluateRule([RuleType.SERVE], artifact, mockUser);
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('property access edge cases', () => {
+    it('should handle property access when object becomes null during navigation', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.profile.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      // User with profile that becomes null
+      const user: User = {
+        id: 'user1',
+        profile: null as unknown as Record<string, unknown>,
+      };
+
+      const result = evaluateRule(rule, artifact, user);
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle property access when intermediate property is undefined', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.profile.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      // User without profile property
+      const user: User = {
+        id: 'user1',
+      };
+
+      const result = evaluateRule(rule, artifact, user);
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle property access when property path is empty', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', '', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle property access with context root', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'context.environment', 'production'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const context: Context = {
+        environment: 'production',
+      };
+
+      const result = evaluateRule(rule, artifact, mockUser, context);
+      expect(result).toBe('ON');
+    });
+
+    it('should handle property access with non-user, non-context root', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'custom.field', 'value'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const user: User = {
+        id: 'user1',
+        custom: {
+          field: 'value',
+        },
+      };
+
+      const result = evaluateRule(rule, artifact, user);
+      expect(result).toBe('ON');
+    });
+  });
+
+  describe('function evaluation', () => {
+    it('should return false for unimplemented IN function', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          0, // FuncCode.IN
+          [
+            [ExpressionType.LITERAL, 'value'],
+            [ExpressionType.LITERAL, 'array'],
+          ],
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      // IN function is not implemented, so rule should not match
+      expect(result).toBeUndefined();
+    });
+
+    it('should return false for function with insufficient args', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          0, // FuncCode.IN
+          [[ExpressionType.LITERAL, 'value']], // Only one arg, needs at least 2
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      expect(result).toBeUndefined();
+    });
+
+    it('should return false for unknown function code', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          999, // Unknown function code
+          [[ExpressionType.LITERAL, 'value']],
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      expect(result).toBeUndefined();
+    });
+
+    it('should return false for function with non-array args', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          0, // FuncCode.IN
+          'not-an-array' as unknown as Expression[], // Invalid args type
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle function with sufficient args (but still return false for IN)', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          0, // FuncCode.IN
+          [
+            [ExpressionType.LITERAL, 'value'],
+            [ExpressionType.LITERAL, 'array'],
+          ], // Two args (sufficient)
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      // IN function is not implemented, so should return undefined (rule doesn't match)
+      expect(result).toBeUndefined();
+    });
+
+    it('should return false for function with non-array args in expression', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.FUNC,
+          0, // FuncCode.IN
+          'not-an-array' as unknown as Expression[], // Invalid args type
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      // Should return undefined because args is not an array
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('property access with empty path', () => {
+    it('should handle empty property path', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', '', 'value'], // Empty string at index 1
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1], // Empty path
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      const result = evaluateRule(rule, artifact, mockUser);
+      // Should return undefined because empty path splits to empty array
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('evaluateExpressionValue edge cases', () => {
+    it('should handle BINARY_OP in evaluateExpressionValue (default case)', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF'],
+        flags: [],
+      };
+
+      // BINARY_OP in evaluateExpressionValue should return undefined (not supported)
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.BINARY_OP, BinaryOp.EQ, [ExpressionType.LITERAL, 1], [ExpressionType.LITERAL, 2]], // Nested BINARY_OP
+          [ExpressionType.LITERAL, 3],
+        ],
+        0,
+      ];
+
+      // This tests that BINARY_OP in evaluateExpressionValue returns undefined
+      const result = evaluateRule(rule, artifact, mockUser);
+      // Should not match because nested BINARY_OP can't be evaluated as a value
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('property access with null/undefined during navigation', () => {
+    it('should handle property access when intermediate property becomes null', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.profile.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      // User with profile that becomes null during navigation
+      const user: User = {
+        id: 'user1',
+        profile: {
+          role: null as unknown as string, // role is null
+        },
+      };
+
+      const result = evaluateRule(rule, artifact, user);
+      // Should return undefined because role is null
+      expect(result).toBeUndefined();
+    });
+
+    it('should handle property access when intermediate property becomes non-object', () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'user.profile.role', 'admin'],
+        flags: [],
+      };
+
+      const rule: Rule = [
+        RuleType.SERVE,
+        [
+          ExpressionType.BINARY_OP,
+          BinaryOp.EQ,
+          [ExpressionType.PROPERTY, 1],
+          [ExpressionType.LITERAL, 2],
+        ],
+        0,
+      ];
+
+      // User with profile that is a string (not an object)
+      const user: User = {
+        id: 'user1',
+        profile: 'not-an-object' as unknown as Record<string, unknown>,
+      };
+
+      const result = evaluateRule(rule, artifact, user);
+      // Should return undefined because profile is not an object
+      expect(result).toBeUndefined();
+    });
+  });
 });

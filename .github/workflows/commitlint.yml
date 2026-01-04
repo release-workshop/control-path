@@ -25,10 +25,6 @@ jobs:
 
       # Note: commitlint requires a package.json. Since we removed root package.json,
       # we'll install commitlint globally or use npx
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
 
       - name: Install commitlint
         run: npm install -g @commitlint/cli@latest @commitlint/config-conventional@latest
