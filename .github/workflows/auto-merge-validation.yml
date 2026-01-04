@@ -6,7 +6,7 @@ on:
       - 'validation/**'
 
 jobs:
-  # Run Rust tests and build CLI in parallel with lint/typecheck
+  # Run Rust tests in parallel with CLI build and lint/typecheck
   rust-tests:
     name: Run Rust tests and clippy
     runs-on: ubuntu-latest
@@ -45,8 +45,40 @@ jobs:
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
 
-      # Build release binary once for TypeScript tests (avoids rebuilding in other job)
-      # This builds on top of the test compilation, reusing cached dependencies
+  # Build CLI binary in parallel with rust-tests
+  # This maximizes parallelization - CLI build doesn't wait for tests
+  build-cli:
+    name: Build CLI binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Build release binary for TypeScript tests
+      # This runs in parallel with rust-tests, maximizing speed
       - name: Build release CLI binary
         run: cargo build --release --bin controlpath
 
@@ -58,13 +90,12 @@ jobs:
           path: target/release/controlpath
           retention-days: 1
 
-  # Run TypeScript tests (CLI binary built in rust-tests job)
-  # This runs in parallel with lint-and-typecheck
-  # The CLI binary is built once in rust-tests and reused here via artifact
-  build-cli-and-test:
+  # Run TypeScript tests (depends only on CLI build, not rust-tests)
+  # This starts as soon as CLI is ready, maximizing parallelization
+  typescript-tests:
     name: Run TypeScript tests
     runs-on: ubuntu-latest
-    needs: [rust-tests]
+    needs: [build-cli]
     permissions:
       contents: read
     steps:
@@ -94,7 +125,7 @@ jobs:
         working-directory: runtime/typescript
         run: npm ci
 
-      # Download release CLI binary from rust-tests job (built once, reused here)
+      # Download release CLI binary from build-cli job
       - name: Download release CLI binary
         uses: actions/download-artifact@v4
         with:
@@ -174,7 +205,7 @@ jobs:
   merge:
     name: Merge into main
     runs-on: ubuntu-latest
-    needs: [rust-tests, build-cli-and-test, lint-and-typecheck]
+    needs: [rust-tests, build-cli, typescript-tests, lint-and-typecheck]
     permissions:
       contents: write
       pull-requests: write
