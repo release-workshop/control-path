@@ -19,6 +19,7 @@ import {
   isExpression,
   PROTOTYPE_POLLUTING_KEYS,
 } from './types';
+import * as semver from 'semver';
 
 /**
  * Evaluate a flag by index using the provided artifact, user, and context.
@@ -241,7 +242,15 @@ export function evaluateExpression(
       if (!Array.isArray(args)) {
         return false;
       }
-      return evaluateFunction(funcCode as number, args as Expression[], artifact, user, context);
+      const result = evaluateFunction(
+        funcCode as number,
+        args as Expression[],
+        artifact,
+        user,
+        context
+      );
+      // Coerce function result to boolean
+      return Boolean(result);
     }
 
     default:
@@ -301,20 +310,47 @@ function evaluateExpressionValue(
 
 /**
  * Evaluate a binary operator.
+ * Handles null comparisons and type coercion.
  */
 function evaluateBinaryOp(opCode: number, left: unknown, right: unknown): boolean {
   switch (opCode) {
     case BinaryOp.EQ:
-      return left === right;
+      // Handle null comparisons
+      if (left === null || right === null) {
+        return left === right;
+      }
+      // Type coercion for equality
+      return coerceAndCompare(left, right) === 0;
     case BinaryOp.NE:
-      return left !== right;
+      // Handle null comparisons
+      if (left === null || right === null) {
+        return left !== right;
+      }
+      // Type coercion for inequality
+      return coerceAndCompare(left, right) !== 0;
     case BinaryOp.GT:
+      // Null comparisons always return false for ordering
+      if (left === null || right === null) {
+        return false;
+      }
       return compareValues(left, right) > 0;
     case BinaryOp.LT:
+      // Null comparisons always return false for ordering
+      if (left === null || right === null) {
+        return false;
+      }
       return compareValues(left, right) < 0;
     case BinaryOp.GTE:
+      // Null comparisons always return false for ordering
+      if (left === null || right === null) {
+        return false;
+      }
       return compareValues(left, right) >= 0;
     case BinaryOp.LTE:
+      // Null comparisons always return false for ordering
+      if (left === null || right === null) {
+        return false;
+      }
       return compareValues(left, right) <= 0;
     default:
       return false;
@@ -322,16 +358,15 @@ function evaluateBinaryOp(opCode: number, left: unknown, right: unknown): boolea
 }
 
 /**
- * Compare two values for ordering.
+ * Compare two values for ordering with type coercion.
+ * Attempts to coerce to numbers first, then falls back to string comparison.
  */
 function compareValues(left: unknown, right: unknown): number {
-  // Convert to comparable types
-  const leftNum =
-    typeof left === 'number' ? left : typeof left === 'string' ? parseFloat(left) : NaN;
-  const rightNum =
-    typeof right === 'number' ? right : typeof right === 'string' ? parseFloat(right) : NaN;
+  // Try number coercion
+  const leftNum = coerceToNumber(left);
+  const rightNum = coerceToNumber(right);
 
-  if (!isNaN(leftNum) && !isNaN(rightNum)) {
+  if (leftNum !== null && rightNum !== null) {
     return leftNum - rightNum;
   }
 
@@ -339,6 +374,77 @@ function compareValues(left: unknown, right: unknown): number {
   const leftStr = String(left);
   const rightStr = String(right);
   return leftStr.localeCompare(rightStr);
+}
+
+/**
+ * Coerce and compare two values (for equality operations).
+ * Returns 0 if equal, non-zero if not equal.
+ */
+function coerceAndCompare(left: unknown, right: unknown): number {
+  // Exact match (including null/undefined)
+  if (left === right) {
+    return 0;
+  }
+
+  // Try number coercion
+  const leftNum = coerceToNumber(left);
+  const rightNum = coerceToNumber(right);
+  if (leftNum !== null && rightNum !== null) {
+    return leftNum === rightNum ? 0 : 1;
+  }
+
+  // Try boolean coercion
+  const leftBool = coerceToBoolean(left);
+  const rightBool = coerceToBoolean(right);
+  if (leftBool !== null && rightBool !== null) {
+    return leftBool === rightBool ? 0 : 1;
+  }
+
+  // String comparison
+  return String(left).localeCompare(String(right));
+}
+
+/**
+ * Coerce a value to a number if possible.
+ * Returns null if coercion is not possible.
+ */
+function coerceToNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const num = parseFloat(value);
+    if (!isNaN(num) && isFinite(num)) {
+      return num;
+    }
+  }
+  if (typeof value === 'boolean') {
+    return value ? 1 : 0;
+  }
+  return null;
+}
+
+/**
+ * Coerce a value to a boolean if possible.
+ * Returns null if coercion is not possible.
+ */
+function coerceToBoolean(value: unknown): boolean | null {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const lower = value.toLowerCase();
+    if (lower === 'true' || lower === '1') {
+      return true;
+    }
+    if (lower === 'false' || lower === '0') {
+      return false;
+    }
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  return null;
 }
 
 /**
@@ -476,47 +582,379 @@ function hashString(str: string): number {
 
 /**
  * Evaluate a function call.
- *
- * **Phase 2 Limitation**: Most functions are not yet implemented.
- * Functions that are not implemented will return `false`, which means
- * any rule using these functions in a `when` clause will not match.
- *
- * Full function support will be implemented in Phase 4.
+ * Returns the function result (which may be boolean, string, number, etc.).
+ * When used in a boolean context, the result will be coerced to boolean.
  *
  * @param funcCode - Function code from FuncCode enum
  * @param args - Function arguments (expressions)
- * @param _artifact - AST artifact containing string table (unused in Phase 2)
- * @param _user - User object (unused in Phase 2)
- * @param _context - Optional context object (unused in Phase 2)
- * @returns Boolean result of function evaluation, or false if not implemented
+ * @param artifact - AST artifact containing string table and segments
+ * @param user - User object
+ * @param context - Optional context object
+ * @returns Function result (type depends on function)
  */
 function evaluateFunction(
   funcCode: number,
   args: Expression[],
-  _artifact: Artifact,
-  _user: User,
-  _context?: Context
-): boolean {
-  // For Phase 2, we'll implement basic functions
-  // Full function support comes in Phase 4
-
+  artifact: Artifact,
+  user: User,
+  context?: Context
+): unknown {
   switch (funcCode) {
-    case FuncCode.IN: {
-      // IN function: check if value is in array
-      // **Not implemented in Phase 2** - returns false
-      // Full implementation in Phase 4
+    // String functions
+    case FuncCode.STARTS_WITH: {
       if (args.length < 2) {
         return false;
       }
-      // Note: This function is not yet implemented
-      // Returning false means rules using IN() will not match
+      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      const prefix = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof str !== 'string' || typeof prefix !== 'string') {
+        return false;
+      }
+      return str.startsWith(prefix);
+    }
+
+    case FuncCode.ENDS_WITH: {
+      if (args.length < 2) {
+        return false;
+      }
+      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      const suffix = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof str !== 'string' || typeof suffix !== 'string') {
+        return false;
+      }
+      return str.endsWith(suffix);
+    }
+
+    case FuncCode.CONTAINS: {
+      if (args.length < 2) {
+        return false;
+      }
+      const container = evaluateExpressionValue(args[0], artifact, user, context);
+      const value = evaluateExpressionValue(args[1], artifact, user, context);
+
+      // Support both string and array containers
+      if (typeof container === 'string' && typeof value === 'string') {
+        return container.includes(value);
+      }
+      if (Array.isArray(container)) {
+        return container.includes(value);
+      }
       return false;
     }
 
+    case FuncCode.MATCHES: {
+      if (args.length < 2) {
+        return false;
+      }
+      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      const pattern = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof str !== 'string' || typeof pattern !== 'string') {
+        return false;
+      }
+      try {
+        const regex = new RegExp(pattern);
+        return regex.test(str);
+      } catch {
+        // Invalid regex pattern
+        return false;
+      }
+    }
+
+    case FuncCode.UPPER: {
+      if (args.length < 1) {
+        return '';
+      }
+      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      if (typeof str !== 'string') {
+        return String(str).toUpperCase();
+      }
+      return str.toUpperCase();
+    }
+
+    case FuncCode.LOWER: {
+      if (args.length < 1) {
+        return '';
+      }
+      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      if (typeof str !== 'string') {
+        return String(str).toLowerCase();
+      }
+      return str.toLowerCase();
+    }
+
+    case FuncCode.LENGTH: {
+      if (args.length < 1) {
+        return 0;
+      }
+      const value = evaluateExpressionValue(args[0], artifact, user, context);
+      if (typeof value === 'string' || Array.isArray(value)) {
+        return value.length;
+      }
+      return 0;
+    }
+
+    // Set functions
+    case FuncCode.IN: {
+      if (args.length < 2) {
+        return false;
+      }
+      const value = evaluateExpressionValue(args[0], artifact, user, context);
+      const list = evaluateExpressionValue(args[1], artifact, user, context);
+      if (!Array.isArray(list)) {
+        return false;
+      }
+      return list.includes(value);
+    }
+
+    case FuncCode.INTERSECTS: {
+      if (args.length < 2) {
+        return false;
+      }
+      const arr1 = evaluateExpressionValue(args[0], artifact, user, context);
+      const arr2 = evaluateExpressionValue(args[1], artifact, user, context);
+      if (!Array.isArray(arr1) || !Array.isArray(arr2)) {
+        return false;
+      }
+      return arr1.some((item) => arr2.includes(item));
+    }
+
+    // Semver functions
+    case FuncCode.SEMVER_EQ: {
+      if (args.length < 2) {
+        return false;
+      }
+      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
+      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof v1 !== 'string' || typeof v2 !== 'string') {
+        return false;
+      }
+      try {
+        return semver.eq(v1, v2);
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.SEMVER_GT: {
+      if (args.length < 2) {
+        return false;
+      }
+      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
+      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof v1 !== 'string' || typeof v2 !== 'string') {
+        return false;
+      }
+      try {
+        return semver.gt(v1, v2);
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.SEMVER_GTE: {
+      if (args.length < 2) {
+        return false;
+      }
+      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
+      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof v1 !== 'string' || typeof v2 !== 'string') {
+        return false;
+      }
+      try {
+        return semver.gte(v1, v2);
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.SEMVER_LT: {
+      if (args.length < 2) {
+        return false;
+      }
+      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
+      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof v1 !== 'string' || typeof v2 !== 'string') {
+        return false;
+      }
+      try {
+        return semver.lt(v1, v2);
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.SEMVER_LTE: {
+      if (args.length < 2) {
+        return false;
+      }
+      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
+      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof v1 !== 'string' || typeof v2 !== 'string') {
+        return false;
+      }
+      try {
+        return semver.lte(v1, v2);
+      } catch {
+        return false;
+      }
+    }
+
+    // Hashing function
+    case FuncCode.HASH: {
+      // HASHED_PARTITION(id, buckets) - returns bucket number (0 to buckets-1)
+      if (args.length < 2) {
+        return 0;
+      }
+      const id = evaluateExpressionValue(args[0], artifact, user, context);
+      const buckets = evaluateExpressionValue(args[1], artifact, user, context);
+
+      const idStr = String(id ?? '');
+      const bucketsNum = typeof buckets === 'number' ? buckets : Number(buckets);
+
+      if (!Number.isInteger(bucketsNum) || bucketsNum <= 0) {
+        return 0;
+      }
+
+      // Use consistent hashing (SHA-256 would be better, but djb2 is simpler and sufficient)
+      const hash = hashString(idStr);
+      return hash % bucketsNum;
+    }
+
+    // Utility functions
+    case FuncCode.COALESCE: {
+      if (args.length < 2) {
+        return null;
+      }
+      // Return first non-null value
+      for (const arg of args) {
+        const value = evaluateExpressionValue(arg, artifact, user, context);
+        if (value !== null && value !== undefined) {
+          return value;
+        }
+      }
+      return null;
+    }
+
+    // Temporal functions
+    case FuncCode.IS_BETWEEN: {
+      if (args.length < 2) {
+        return false;
+      }
+      const start = evaluateExpressionValue(args[0], artifact, user, context);
+      const end = evaluateExpressionValue(args[1], artifact, user, context);
+      if (typeof start !== 'string' || typeof end !== 'string') {
+        return false;
+      }
+      try {
+        const startTime = new Date(start).getTime();
+        const endTime = new Date(end).getTime();
+        const now = Date.now();
+        return now >= startTime && now <= endTime;
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.IS_AFTER: {
+      if (args.length < 1) {
+        return false;
+      }
+      const timestamp = evaluateExpressionValue(args[0], artifact, user, context);
+      if (typeof timestamp !== 'string') {
+        return false;
+      }
+      try {
+        const timestampTime = new Date(timestamp).getTime();
+        return Date.now() > timestampTime;
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.IS_BEFORE: {
+      if (args.length < 1) {
+        return false;
+      }
+      const timestamp = evaluateExpressionValue(args[0], artifact, user, context);
+      if (typeof timestamp !== 'string') {
+        return false;
+      }
+      try {
+        const timestampTime = new Date(timestamp).getTime();
+        return Date.now() < timestampTime;
+      } catch {
+        return false;
+      }
+    }
+
+    case FuncCode.HOUR_OF_DAY: {
+      // CURRENT_HOUR_UTC - returns 0-23
+      return new Date().getUTCHours();
+    }
+
+    case FuncCode.DAY_OF_WEEK: {
+      // CURRENT_DAY_OF_WEEK_UTC - returns day name (MONDAY, TUESDAY, etc.)
+      const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+      return days[new Date().getUTCDay()];
+    }
+
+    case FuncCode.DAY_OF_MONTH: {
+      // CURRENT_DAY_OF_MONTH_UTC - returns 1-31
+      return new Date().getUTCDate();
+    }
+
+    case FuncCode.MONTH: {
+      // CURRENT_MONTH_UTC - returns 1-12
+      return new Date().getUTCMonth() + 1;
+    }
+
+    case FuncCode.CURRENT_TIMESTAMP: {
+      // Returns ISO 8601 timestamp string in UTC
+      return new Date().toISOString();
+    }
+
+    // Segment function
+    case FuncCode.IN_SEGMENT: {
+      if (args.length < 2) {
+        return false;
+      }
+      // First arg is user (we ignore it since we have user in scope)
+      const _userArg = evaluateExpressionValue(args[0], artifact, user, context);
+      const segmentName = evaluateExpressionValue(args[1], artifact, user, context);
+
+      // First arg should be user (we can ignore it since we have user in scope)
+      // Second arg is segment name (string table index or string)
+      let segmentNameStr: string;
+      if (typeof segmentName === 'number' && artifact.strs[segmentName] !== undefined) {
+        segmentNameStr = artifact.strs[segmentName];
+      } else if (typeof segmentName === 'string') {
+        segmentNameStr = segmentName;
+      } else {
+        return false;
+      }
+
+      // Look up segment in artifact
+      if (!artifact.segments || artifact.segments.length === 0) {
+        return false;
+      }
+
+      // Find segment by name (segment name is stored as string table index)
+      const segment = artifact.segments.find(([nameIndex]) => {
+        const name = artifact.strs[nameIndex];
+        return name === segmentNameStr;
+      });
+
+      if (!segment) {
+        return false;
+      }
+
+      // Evaluate segment expression (same as when clause)
+      const [, segmentExpr] = segment;
+      return evaluateExpression(segmentExpr, artifact, user, context);
+    }
+
     default:
-      // For Phase 2, return false for unimplemented functions
-      // This is a known limitation - full function support comes in Phase 4
-      // Rules using unimplemented functions will not match
+      // Unknown function code
       return false;
   }
 }

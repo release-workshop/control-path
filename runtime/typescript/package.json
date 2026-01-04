@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@noble/ed25519": "^1.7.3",
-    "msgpackr": "^1.9.0"
+    "msgpackr": "^1.9.0",
+    "semver": "^7.7.3"
   },
   "devDependencies": {
     "@openfeature/server-sdk": "^1.20.1",
