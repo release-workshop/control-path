@@ -21,6 +21,17 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
+      - name: Initialize VERSION file
+        run: |
+          # Create VERSION file from manifest if it doesn't exist
+          if [ ! -f VERSION ]; then
+            VERSION=$(jq -r '.["."]' .release-please-manifest.json)
+            echo "$VERSION" > VERSION
+            echo "Created VERSION file with version: $VERSION"
+          else
+            echo "VERSION file already exists"
+          fi
+
       - name: Sync manifest with existing releases
         env:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
@@ -51,12 +62,15 @@ jobs:
               jq --arg v "$VERSION" '.["."] = $v' .release-please-manifest.json > .release-please-manifest.json.tmp
               mv .release-please-manifest.json.tmp .release-please-manifest.json
               
+              # Also update VERSION file
+              echo "$VERSION" > VERSION
+              
               # Commit the update if it changed
-              git add .release-please-manifest.json
+              git add .release-please-manifest.json VERSION
               if git diff --staged --quiet; then
                 echo "No changes to commit"
               else
-                git commit -m "chore: sync manifest with release $VERSION" || echo "No changes to commit"
+                git commit -m "chore: sync manifest and VERSION with release $VERSION" || echo "No changes to commit"
                 git push origin main || echo "Failed to push manifest update (may already be up to date)"
               fi
             else
@@ -98,7 +112,7 @@ jobs:
           fi
 
       - name: Release PR and tags
-        uses: google-github-actions/release-please-action@v4
+        uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
