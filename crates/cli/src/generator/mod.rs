@@ -4,6 +4,9 @@
 
 pub mod typescript;
 
+#[cfg(test)]
+mod tests;
+
 use crate::error::{CliError, CliResult};
 use serde_json::Value;
 use std::path::Path;

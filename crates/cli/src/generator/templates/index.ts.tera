@@ -137,7 +137,11 @@ export class Evaluator {
     try {
       const evalContext = this.resolveContext(user, context);
       if (!evalContext) {
+{% if flag.flag_type == "boolean" %}
         return {{ flag.default_value }};
+{% else %}
+        return {{ flag.default_value }} as {{ flag.return_type }};
+{% endif %}
       }
 
 {% if flag.flag_type == "boolean" %}
@@ -166,7 +170,11 @@ export class Evaluator {
       return result.value as {{ flag.return_type }};
 {% endif %}
     } catch (error) {
+{% if flag.flag_type == "boolean" %}
       return {{ flag.default_value }};
+{% else %}
+      return {{ flag.default_value }} as {{ flag.return_type }};
+{% endif %}
     }
   }
 
