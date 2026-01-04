@@ -80,13 +80,14 @@ jobs:
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
 
-  # Build CLI binary in parallel with rust-tests
-  # This maximizes parallelization - CLI build doesn't wait for tests
-  build-cli:
-    name: Build CLI binary
+  # Build CLI binary and run TypeScript tests
+  # Combined into one job - CLI is only built when TypeScript tests need to run
+  # This runs in parallel with rust-tests, maximizing parallelization
+  typescript-tests:
+    name: Build CLI and run TypeScript tests
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.typescript == 'true'
+    if: needs.changes.outputs.typescript == 'true'
     permissions:
       contents: read
     steps:
@@ -119,30 +120,6 @@ jobs:
       - name: Build release CLI binary
         run: cargo build --release --bin controlpath
 
-      # Upload release binary for TypeScript tests job
-      - name: Upload release CLI binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: controlpath-cli-release
-          path: target/release/controlpath
-          retention-days: 1
-
-  # Run TypeScript tests (depends only on CLI build, not rust-tests)
-  # This starts as soon as CLI is ready, maximizing parallelization
-  typescript-tests:
-    name: Run TypeScript tests
-    runs-on: ubuntu-latest
-    needs: [changes, build-cli]
-    if: needs.changes.outputs.typescript == 'true' && needs.build-cli.result == 'success'
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
-
       - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
@@ -163,30 +140,15 @@ jobs:
         working-directory: runtime/typescript
         run: npm ci
 
-      # Download release CLI binary from build-cli job
-      - name: Download release CLI binary
-        uses: actions/download-artifact@v4
-        with:
-          name: controlpath-cli-release
-          path: ${{ runner.temp }}/cli-artifact
-
-      # Install CLI binary to correct location
-      - name: Install CLI binary
+      # CLI binary is already built in this job, just verify it exists
+      - name: Verify CLI binary
         run: |
-          mkdir -p target/release
-          # Find the binary in the downloaded artifact
-          if [ -f "${{ runner.temp }}/cli-artifact/controlpath" ]; then
-            cp "${{ runner.temp }}/cli-artifact/controlpath" target/release/controlpath
-          elif [ -f "${{ runner.temp }}/cli-artifact/target/release/controlpath" ]; then
-            cp "${{ runner.temp }}/cli-artifact/target/release/controlpath" target/release/controlpath
-          else
-            echo "❌ Error: CLI binary not found in artifact"
-            echo "Artifact contents:"
-            find "${{ runner.temp }}/cli-artifact" -type f || echo "No files found"
+          if [ ! -f "target/release/controlpath" ]; then
+            echo "❌ Error: CLI binary not found after build"
             exit 1
           fi
           chmod +x target/release/controlpath
-          echo "✓ CLI binary installed at target/release/controlpath"
+          echo "✓ CLI binary ready at target/release/controlpath"
 
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
@@ -246,11 +208,10 @@ jobs:
   merge:
     name: Merge into main
     runs-on: ubuntu-latest
-    needs: [changes, rust-tests, build-cli, typescript-tests, lint-and-typecheck]
+    needs: [changes, rust-tests, typescript-tests, lint-and-typecheck]
     if: |
       always() &&
       (needs.rust-tests.result == 'success' || needs.rust-tests.result == 'skipped') &&
-      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
       (needs.typescript-tests.result == 'success' || needs.typescript-tests.result == 'skipped') &&
       (needs.lint-and-typecheck.result == 'success' || needs.lint-and-typecheck.result == 'skipped')
     permissions:
