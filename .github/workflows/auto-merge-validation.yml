@@ -24,27 +24,19 @@ jobs:
         with:
           node-version: 24
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "store_path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
+      - name: Cache npm dependencies
         uses: actions/cache@v4
         with:
-          path: ${{ steps.pnpm-store.outputs.store_path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('runtime/typescript/pnpm-lock.yaml') }}
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
           restore-keys: |
-            pnpm-store-${{ runner.os }}-
+            npm-${{ runner.os }}-
 
       # Install dependencies for TypeScript runtime SDK only
+      # Note: This is not a workspace - only runtime/typescript uses npm
       - name: Install dependencies
         working-directory: runtime/typescript
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -67,17 +59,19 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # Test all workspace crates (compiler library + CLI binary)
+      # This runs tests in both crates/compiler and crates/cli
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
 
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
         run: |
-          pnpm vitest run --coverage --reporter=default --coverage.reporter=lcov
+          npm test -- --coverage --reporter=default --coverage.reporter=lcov
           # Coverage thresholds are enforced automatically by Vitest
           # If thresholds are not met, vitest will exit with code 1
 
-  # Run lint and typecheck in parallel (they can run simultaneously via turbo)
+  # Run lint and typecheck in parallel (separate job for TypeScript SDK only)
   lint-and-typecheck:
     name: Lint and typecheck
     runs-on: ubuntu-latest
@@ -95,38 +89,30 @@ jobs:
         with:
           node-version: 24
 
-      # pnpm is only needed for the TypeScript runtime SDK (runtime/typescript/)
+      # npm is only needed for the TypeScript runtime SDK (runtime/typescript/)
       # The compiler and CLI are now Rust-based and use Cargo
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8.15.0
-
-      - name: Get pnpm store path
-        id: pnpm-store
-        run: echo "store_path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache pnpm store
+      - name: Cache npm dependencies
         uses: actions/cache@v4
         with:
-          path: ${{ steps.pnpm-store.outputs.store_path }}
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('runtime/typescript/pnpm-lock.yaml') }}
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
           restore-keys: |
-            pnpm-store-${{ runner.os }}-
+            npm-${{ runner.os }}-
 
       # Install dependencies for TypeScript runtime SDK only
+      # Note: This is not a workspace - only runtime/typescript uses npm
       - name: Install dependencies
         working-directory: runtime/typescript
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       # Lint and typecheck only affect the TypeScript runtime SDK
       - name: Lint
         working-directory: runtime/typescript
-        run: pnpm lint
+        run: npm run lint
 
       - name: Typecheck
         working-directory: runtime/typescript
-        run: pnpm typecheck
+        run: npm run typecheck
 
   # Merge job runs only if all validations pass
   merge:
