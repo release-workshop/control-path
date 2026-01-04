@@ -38,25 +38,25 @@ jobs:
         include:
           - target_name: linux-x86_64
             rust_target: x86_64-unknown-linux-gnu
-            output: controlpath-linux
+            output: controlpath-linux-x86_64
             archive: tar
             runner: ubuntu-latest
             os: linux
           - target_name: linux-aarch64
             rust_target: aarch64-unknown-linux-gnu
-            output: controlpath-linux
+            output: controlpath-linux-aarch64
             archive: tar
             runner: ubuntu-latest
             os: linux
           - target_name: macos-x86_64
             rust_target: x86_64-apple-darwin
-            output: controlpath-macos
+            output: controlpath-macos-x86_64
             archive: tar
             runner: macos-latest
             os: macos
           - target_name: macos-aarch64
             rust_target: aarch64-apple-darwin
-            output: controlpath-macos
+            output: controlpath-macos-aarch64
             archive: tar
             runner: macos-latest
             os: macos

@@ -5,12 +5,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { readFile, writeFile, mkdir, rm } from 'fs/promises';
+import { readFile, writeFile, mkdir, rm, stat } from 'fs/promises';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { pack } from 'msgpackr';
 import { getPublicKey, sign } from '@noble/ed25519';
 import { loadFromFile, loadFromURL, loadFromBuffer } from './ast-loader';
-import type { Artifact } from './types';
+import type { Artifact, Rule } from './types';
 
 describe('AST Loader', () => {
   const testDir = join(__dirname, '../test-fixtures');
@@ -18,19 +19,15 @@ describe('AST Loader', () => {
 
   beforeEach(async () => {
     try {
-      await mkdir(testDir, { recursive: true });
+      mkdirSync(testDir, { recursive: true });
     } catch {
       // Directory might already exist
     }
   });
 
-  afterEach(async () => {
-    try {
-      await rm(testDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
-  });
+  // Note: We don't clean up in afterEach to avoid race conditions with concurrent tests.
+  // The test directory is in a test location and can be cleaned up manually if needed.
+  // Tests use unique file names to avoid conflicts.
 
   describe('loadFromBuffer', () => {
     it('should load valid AST from buffer', async () => {
@@ -241,6 +238,8 @@ describe('AST Loader', () => {
 
   describe('loadFromFile', () => {
     it('should load AST from file', async () => {
+      // Use a unique file name to avoid conflicts with concurrent tests
+      const uniqueTestFile = join(testDir, `test-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
       const artifact: Artifact = {
         v: '1.0',
         env: 'test',
@@ -250,9 +249,32 @@ describe('AST Loader', () => {
       };
 
       const buffer = Buffer.from(pack(artifact));
-      await writeFile(testFile, buffer);
+      // Ensure directory exists before writing
+      mkdirSync(testDir, { recursive: true });
+      // Use writeFileSync for immediate, synchronous write (more reliable in tests)
+      writeFileSync(uniqueTestFile, buffer);
+      
+      // Verify file exists before reading (handles race conditions with afterEach cleanup)
+      let retries = 5;
+      while (retries > 0) {
+        try {
+          const stats = await stat(uniqueTestFile);
+          if (stats.isFile() && stats.size > 0) {
+            break;
+          }
+        } catch {
+          // File doesn't exist yet, wait and retry
+        }
+        retries--;
+        if (retries > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          // Recreate directory and file if it was deleted by afterEach
+          mkdirSync(testDir, { recursive: true });
+          writeFileSync(uniqueTestFile, buffer);
+        }
+      }
 
-      const loaded = await loadFromFile(testFile);
+      const loaded = await loadFromFile(uniqueTestFile);
 
       expect(loaded.v).toBe('1.0');
       expect(loaded.env).toBe('test');
@@ -266,11 +288,24 @@ describe('AST Loader', () => {
     });
 
     it('should throw error for invalid file content', async () => {
-      // Write completely invalid binary data
-      await writeFile(testFile, Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]));
+      // Use a unique file name to avoid conflicts with other tests
+      const invalidTestFile = join(testDir, 'invalid-test.ast');
+      // Ensure directory exists before writing
+      mkdirSync(testDir, { recursive: true });
+      // Write completely invalid binary data (use writeFileSync for synchronous write)
+      const invalidData = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]);
+      writeFileSync(invalidTestFile, invalidData);
+      
+      // Verify file was written correctly by reading it back
+      const writtenContent = await readFile(invalidTestFile);
+      if (writtenContent.length !== invalidData.length || !writtenContent.equals(invalidData)) {
+        throw new Error(
+          `Invalid data was not written correctly: expected ${invalidData.length} bytes, got ${writtenContent.length} bytes`
+        );
+      }
 
       // Should fail validation even if msgpackr parses it
-      await expect(loadFromFile(testFile)).rejects.toThrow();
+      await expect(loadFromFile(invalidTestFile)).rejects.toThrow();
     });
 
     it('should reject path traversal attempts', async () => {
@@ -285,6 +320,8 @@ describe('AST Loader', () => {
     });
 
     it('should normalize valid relative paths', async () => {
+      // Use a unique file name to avoid conflicts with concurrent tests
+      const uniqueTestFile = join(testDir, `test-normalize-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
       const artifact: Artifact = {
         v: '1.0',
         env: 'test',
@@ -294,10 +331,13 @@ describe('AST Loader', () => {
       };
 
       const buffer = Buffer.from(pack(artifact));
-      await writeFile(testFile, buffer);
+      // Ensure directory exists before writing
+      mkdirSync(testDir, { recursive: true });
+      // Use writeFileSync for immediate, synchronous write (more reliable in tests)
+      writeFileSync(uniqueTestFile, buffer);
 
       // Test that normalized paths work
-      const normalizedPath = testFile.replace(/\\/g, '/'); // Normalize separators
+      const normalizedPath = uniqueTestFile.replace(/\\/g, '/'); // Normalize separators
       const loaded = await loadFromFile(normalizedPath);
 
       expect(loaded.v).toBe('1.0');
@@ -306,6 +346,8 @@ describe('AST Loader', () => {
 
     describe('allowedDirectory option', () => {
       it('should allow files within allowed directory', async () => {
+        // Use a unique file name to avoid conflicts with concurrent tests
+        const uniqueTestFile = join(testDir, `test-allowed-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
@@ -315,31 +357,41 @@ describe('AST Loader', () => {
         };
 
         const buffer = Buffer.from(pack(artifact));
-        await writeFile(testFile, buffer);
+        // Ensure directory exists before writing
+        mkdirSync(testDir, { recursive: true });
+        // Use writeFileSync for immediate, synchronous write (more reliable in tests)
+        writeFileSync(uniqueTestFile, buffer);
 
         // Should load successfully when file is in allowed directory
-        const loaded = await loadFromFile(testFile, { allowedDirectory: testDir });
+        const loaded = await loadFromFile(uniqueTestFile, { allowedDirectory: testDir });
         expect(loaded.v).toBe('1.0');
       });
 
       it('should reject files outside allowed directory', async () => {
+        // Use a unique file name to avoid conflicts with concurrent tests
+        const uniqueTestFile = join(testDir, `test-reject-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
           strs: [],
           flags: [],
+          flagNames: [],
         };
 
         const buffer = Buffer.from(pack(artifact));
-        await writeFile(testFile, buffer);
+        // Ensure directory exists before writing
+        mkdirSync(testDir, { recursive: true });
+        // Use writeFileSync for immediate, synchronous write (more reliable in tests)
+        writeFileSync(uniqueTestFile, buffer);
 
         // Create a different allowed directory
         const otherDir = join(__dirname, '../test-fixtures-other');
-        await mkdir(otherDir, { recursive: true });
+        // Use mkdirSync for immediate, synchronous directory creation (more reliable in tests)
+        mkdirSync(otherDir, { recursive: true });
 
         try {
           // Should reject file outside allowed directory
-          await expect(loadFromFile(testFile, { allowedDirectory: otherDir })).rejects.toThrow(
+          await expect(loadFromFile(uniqueTestFile, { allowedDirectory: otherDir })).rejects.toThrow(
             'File path outside allowed directory'
           );
         } finally {
@@ -348,6 +400,8 @@ describe('AST Loader', () => {
       });
 
       it('should use process.env.AST_DIRECTORY if allowedDirectory not provided', async () => {
+        // Use a unique file name to avoid conflicts with concurrent tests
+        const uniqueTestFile = join(testDir, `test-env-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
@@ -357,7 +411,10 @@ describe('AST Loader', () => {
         };
 
         const buffer = Buffer.from(pack(artifact));
-        await writeFile(testFile, buffer);
+        // Ensure directory exists before writing
+        mkdirSync(testDir, { recursive: true });
+        // Use writeFileSync for immediate, synchronous write (more reliable in tests)
+        writeFileSync(uniqueTestFile, buffer);
 
         // Set environment variable
         const originalEnv = process.env.AST_DIRECTORY;
@@ -365,7 +422,7 @@ describe('AST Loader', () => {
 
         try {
           // Should use environment variable
-          const loaded = await loadFromFile(testFile);
+          const loaded = await loadFromFile(uniqueTestFile);
           expect(loaded.v).toBe('1.0');
         } finally {
           // Restore original environment
@@ -419,7 +476,7 @@ describe('AST Loader', () => {
 
       it('should reject artifacts with too many flags', async () => {
         // Create artifact with too many flags (MAX_FLAGS = 100000)
-        const flags: unknown[][] = [];
+        const flags: Rule[][] = [];
         for (let i = 0; i < 100001; i++) {
           flags.push([]);
         }

@@ -6,9 +6,10 @@
 
 mod commands;
 mod error;
+mod generator;
 
 use clap::{Parser, Subcommand};
-use commands::{compile, init, validate};
+use commands::{compile, generate_sdk, init, validate};
 
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
@@ -64,6 +65,18 @@ enum Commands {
         #[arg(long)]
         no_examples: bool,
     },
+    /// Generate type-safe SDKs from flag definitions
+    GenerateSdk {
+        /// Language (typescript, python, etc.)
+        #[arg(long)]
+        lang: Option<String>,
+        /// Output directory
+        #[arg(long)]
+        output: Option<String>,
+        /// Path to flag definitions file
+        #[arg(long)]
+        definitions: Option<String>,
+    },
 }
 
 fn main() {
@@ -109,6 +122,18 @@ fn main() {
                 no_examples,
             };
             init::run(&opts)
+        }
+        Commands::GenerateSdk {
+            lang,
+            output,
+            definitions,
+        } => {
+            let opts = generate_sdk::Options {
+                lang,
+                output,
+                definitions,
+            };
+            generate_sdk::run(&opts)
         }
     };
 

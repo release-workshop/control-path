@@ -80,6 +80,112 @@ jobs:
             echo "No release tags found"
           fi
 
+      - name: Check E2E test status
+        env:
+          GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+        run: |
+          echo "Checking if E2E tests have passed for the latest commit on main..."
+          
+          # Get the latest commit SHA on main
+          COMMIT_SHA="${{ github.sha }}"
+          echo "Checking commit: ${COMMIT_SHA}"
+          
+          # Wait a bit for e2e tests to start (if they haven't already)
+          echo "Waiting 15 seconds for E2E tests to start (if triggered)..."
+          sleep 15
+          
+          # Check for running or completed e2e workflow runs
+          MAX_WAIT_TIME=600  # 10 minutes max wait (e2e tests can take time)
+          WAIT_INTERVAL=15    # Check every 15 seconds
+          ELAPSED=0
+          
+          while [ $ELAPSED -lt $MAX_WAIT_TIME ]; do
+            # Get the latest workflow run for "Post-Merge E2E Tests" workflow
+            # Try by filename first (most reliable)
+            WORKFLOW_RUN=$(curl -s \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/post-merge-e2e.yml/runs?branch=main&per_page=1" \
+              | jq -r '.workflow_runs[0] // empty')
+            
+            # If not found, the workflow might not exist yet (first time setup)
+            if [ -z "$WORKFLOW_RUN" ] || [ "$WORKFLOW_RUN" = "null" ]; then
+              echo "⚠️  No E2E workflow run found. This might be the first run after creating the workflow."
+              echo "⚠️  For safety, blocking release PR. Please ensure E2E tests are set up and passing."
+              exit 1
+            fi
+            
+            RUN_ID=$(echo "$WORKFLOW_RUN" | jq -r '.id')
+            STATUS=$(echo "$WORKFLOW_RUN" | jq -r '.status')
+            CONCLUSION=$(echo "$WORKFLOW_RUN" | jq -r '.conclusion // "null"')
+            HEAD_SHA=$(echo "$WORKFLOW_RUN" | jq -r '.head_sha')
+            
+            echo "Found E2E workflow run #${RUN_ID} for commit ${HEAD_SHA}"
+            echo "Status: ${STATUS}, Conclusion: ${CONCLUSION}"
+            
+            # Check if this run is for the current commit
+            if [ "$HEAD_SHA" != "$COMMIT_SHA" ]; then
+              echo "⚠️  E2E workflow run is for a different commit (${HEAD_SHA} vs ${COMMIT_SHA})"
+              echo "⚠️  This might be a race condition. Checking if latest run passed..."
+              # Check the conclusion - if it failed, block regardless of commit
+              if [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+                echo "❌ Latest E2E tests did not pass (conclusion: ${CONCLUSION})"
+                echo "❌ Blocking release PR creation/update for safety"
+                echo "View the failed run: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}"
+                exit 1
+              fi
+              # If latest run passed but is for different commit, wait a bit more
+              if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
+                echo "E2E tests are running for a different commit. Waiting ${WAIT_INTERVAL}s... (${ELAPSED}s/${MAX_WAIT_TIME}s)"
+                sleep $WAIT_INTERVAL
+                ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+                continue
+              fi
+              # If latest run completed but is for different commit, we can't verify current commit
+              echo "⚠️  Cannot verify E2E tests for current commit. Latest run is for different commit."
+              echo "⚠️  For safety, blocking release PR. Please ensure E2E tests pass for this commit."
+              exit 1
+            fi
+            
+            # If workflow is still running, wait
+            if [ "$STATUS" = "in_progress" ] || [ "$STATUS" = "queued" ]; then
+              echo "E2E tests are still running (${STATUS}). Waiting ${WAIT_INTERVAL}s... (${ELAPSED}s/${MAX_WAIT_TIME}s)"
+              sleep $WAIT_INTERVAL
+              ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+              continue
+            fi
+            
+            # Workflow has completed, check conclusion
+            if [ "$CONCLUSION" = "success" ]; then
+              echo "✅ E2E tests passed! Proceeding with release PR."
+              break
+            elif [ "$CONCLUSION" = "failure" ] || [ "$CONCLUSION" = "cancelled" ]; then
+              echo "❌ E2E tests failed or were cancelled (conclusion: ${CONCLUSION})"
+              echo "❌ Blocking release PR creation/update"
+              echo ""
+              echo "Please fix the E2E test failures before creating a release."
+              echo "View the failed run: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}"
+              exit 1
+            elif [ "$CONCLUSION" = "null" ]; then
+              echo "⚠️  E2E workflow completed but conclusion is null. Status: ${STATUS}"
+              echo "⚠️  This might indicate the workflow was cancelled or is still processing."
+              echo "⚠️  For safety, blocking release PR."
+              exit 1
+            else
+              echo "⚠️  Unexpected conclusion: ${CONCLUSION}. For safety, blocking release PR."
+              exit 1
+            fi
+          done
+          
+          if [ $ELAPSED -ge $MAX_WAIT_TIME ]; then
+            echo "❌ Timeout waiting for E2E tests to complete (waited ${MAX_WAIT_TIME}s)"
+            echo "❌ This might indicate the E2E workflow is stuck or taking too long."
+            echo "❌ Blocking release PR to ensure safety."
+            exit 1
+          fi
+          
+          echo "✅ E2E check complete. Proceeding with release PR."
+
       - name: Update release PR branch to match main
         env:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}

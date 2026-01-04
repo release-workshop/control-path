@@ -1,0 +1,195 @@
+name: Post-Merge E2E Tests
+
+# Run e2e tests after code is merged to main
+# This follows CD best practices: fast CI, then e2e verification post-merge
+# Reuses the CLI binary built by main-ci.yml workflow
+on:
+  workflow_run:
+    workflows: ["Main CI"]
+    types:
+      - completed
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  post-merge-e2e:
+    name: Run E2E Tests (Post-Merge Verification)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Download CLI binary from main-ci (when triggered by workflow_run)
+      - name: Download CLI binary from main-ci
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: controlpath-cli-release
+          path: ${{ runner.temp }}/cli-artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      # Build CLI binary (when manually triggered)
+      - name: Setup Rust toolchain
+        if: github.event_name == 'workflow_dispatch'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo dependencies
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release CLI binary
+        if: github.event_name == 'workflow_dispatch'
+        run: cargo build --release --bin controlpath
+
+      - name: Install CLI binary
+        run: |
+          mkdir -p target/release
+          
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Find the binary in the downloaded artifact
+            if [ -f "${{ runner.temp }}/cli-artifact/controlpath" ]; then
+              cp "${{ runner.temp }}/cli-artifact/controlpath" target/release/controlpath
+            elif [ -f "${{ runner.temp }}/cli-artifact/target/release/controlpath" ]; then
+              cp "${{ runner.temp }}/cli-artifact/target/release/controlpath" target/release/controlpath
+            else
+              echo "❌ Error: CLI binary not found in artifact"
+              echo "Artifact contents:"
+              find "${{ runner.temp }}/cli-artifact" -type f || echo "No files found"
+              exit 1
+            fi
+            echo "✓ CLI binary downloaded from main-ci workflow"
+          else
+            # Binary was just built
+            if [ ! -f "target/release/controlpath" ]; then
+              echo "❌ Error: CLI binary not found after build"
+              exit 1
+            fi
+            echo "✓ CLI binary built successfully"
+          fi
+          
+          chmod +x target/release/controlpath
+          echo "✓ CLI binary installed at target/release/controlpath"
+          
+          # Verify it works
+          ./target/release/controlpath --version || ./target/release/controlpath version || true
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Cache npm dependencies (e2e)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            tests/e2e/node_modules
+          key: npm-e2e-${{ runner.os }}-${{ hashFiles('tests/e2e/package-lock.json') }}
+          restore-keys: |
+            npm-e2e-${{ runner.os }}-
+
+      - name: Install e2e test dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Cache npm dependencies (runtime)
+        uses: actions/cache@v4
+        with:
+          path: runtime/typescript/node_modules
+          key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
+          restore-keys: |
+            npm-runtime-${{ runner.os }}-
+
+      - name: Install runtime SDK dependencies
+        working-directory: runtime/typescript
+        run: npm ci
+
+      - name: Determine commit SHA
+        id: commit_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            COMMIT="${{ github.event.workflow_run.head_sha }}"
+            BRANCH="${{ github.event.workflow_run.head_branch }}"
+          else
+            COMMIT="${{ github.sha }}"
+            BRANCH="${{ github.ref_name }}"
+          fi
+          echo "commit=${COMMIT}" >> $GITHUB_OUTPUT
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "short_sha=${COMMIT:0:7}" >> $GITHUB_OUTPUT
+
+      - name: Run E2E tests
+        id: e2e_tests
+        working-directory: tests/e2e
+        run: |
+          echo "Running post-merge E2E tests..."
+          echo "Commit: ${{ steps.commit_info.outputs.commit }}"
+          echo "Branch: ${{ steps.commit_info.outputs.branch }}"
+          echo "CLI binary: $(pwd)/../../target/release/controlpath"
+          
+          # Run tests with verbose output
+          npm test -- --reporter=verbose 2>&1 | tee e2e-results.log
+          
+          # Capture exit code
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=${TEST_EXIT_CODE}" >> $GITHUB_OUTPUT
+          
+          exit ${TEST_EXIT_CODE}
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results-${{ steps.commit_info.outputs.commit }}
+          path: |
+            tests/e2e/e2e-results.log
+          retention-days: 7
+
+      - name: Report test status
+        if: always()
+        run: |
+          EXIT_CODE="${{ steps.e2e_tests.outputs.exit_code }}"
+          COMMIT="${{ steps.commit_info.outputs.commit }}"
+          SHORT_SHA="${{ steps.commit_info.outputs.short_sha }}"
+          
+          if [ "${EXIT_CODE}" = "0" ]; then
+            echo "✅ Post-merge E2E tests PASSED for commit ${SHORT_SHA}"
+            echo "::notice title=E2E Tests Passed::All e2e tests passed for ${SHORT_SHA}"
+          else
+            echo "❌ Post-merge E2E tests FAILED for commit ${SHORT_SHA}"
+            echo "::error title=E2E Tests Failed::E2E tests failed for ${SHORT_SHA}"
+            echo ""
+            echo "⚠️  ACTION REQUIRED: Review test results"
+            echo ""
+            echo "Next steps:"
+            echo "1. Review the test results artifact: e2e-test-results-${COMMIT}"
+            echo "2. Check if this is a test issue or actual code problem"
+            echo "3. If code is broken, consider reverting the merge"
+            echo "4. If test is flaky, investigate and fix test"
+          fi
+
+      - name: Fail workflow if tests failed
+        if: steps.e2e_tests.outputs.exit_code != '0'
+        run: |
+          echo "❌ E2E tests failed. Post-merge verification unsuccessful."
+          exit 1
+

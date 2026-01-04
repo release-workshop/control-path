@@ -1,0 +1,22 @@
+{
+  "name": "@controlpath/e2e-tests",
+  "version": "0.1.0",
+  "description": "End-to-end tests for Control Path SDK generator",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@controlpath/runtime": "file:../../runtime/typescript"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}
+
