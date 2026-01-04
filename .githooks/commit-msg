@@ -1,35 +1,94 @@
 #!/bin/bash
 # Commit message validation hook
-# Validates Conventional Commits format
+# Validates Conventional Commits format using commitlint (same rules as CI)
 
 commit_msg_file="$1"
-commit_msg=$(cat "$commit_msg_file")
 
-# Conventional Commits pattern: type(scope): description
-# Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
-# Optional scope in parentheses
-# Description starts after colon and space
+# Ensure we're in the repo root
+cd "$(git rev-parse --show-toplevel)" || exit 1
 
-pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'
-
-if ! echo "$commit_msg" | head -n 1 | grep -qE "$pattern"; then
-  echo "❌ Invalid commit message format!"
-  echo ""
-  echo "Commit messages must follow Conventional Commits format:"
-  echo "  type(scope): description"
-  echo ""
-  echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
-  echo "Scopes: compiler, cli, runtime, repo, ci, docs, deps (optional)"
-  echo ""
-  echo "Examples:"
-  echo "  feat(compiler): add support for semver comparison"
-  echo "  fix(cli): handle missing flag definitions gracefully"
-  echo "  chore(ci): update GitHub Actions workflows"
-  echo ""
-  echo "Your message:"
-  echo "  $(echo "$commit_msg" | head -n 1)"
-  exit 1
+# Use shared commitlint config if it exists, otherwise create temp one
+if [ ! -f "commitlint.config.cjs" ]; then
+  echo "⚠️  Warning: commitlint.config.cjs not found. Using temporary config."
+  # This should not happen if config is committed, but provide fallback
+  cat > commitlint.config.cjs << 'EOF'
+module.exports = {
+  extends: ['@commitlint/config-conventional'],
+  rules: {
+    'scope-enum': [
+      2,
+      'always',
+      (parsed) => {
+        if (!parsed.scope) {
+          return [true];
+        }
+        const allowedScopes = ['compiler', 'cli', 'runtime', 'repo', 'ci', 'docs', 'deps'];
+        return [
+          allowedScopes.includes(parsed.scope),
+          `scope must be one of: ${allowedScopes.join(', ')}`,
+        ];
+      },
+    ],
+    'scope-empty': [
+      2,
+      'never',
+      (parsed) => {
+        if (parsed.type === 'chore' && !parsed.scope) {
+          return [true];
+        }
+        return [parsed.scope ? true : false, 'scope must be provided'];
+      },
+    ],
+  },
+};
+EOF
+  TEMP_CONFIG=true
+else
+  TEMP_CONFIG=false
 fi
 
-exit 0
+# Check if commitlint is available
+if command -v commitlint &> /dev/null; then
+  commitlint --edit "$commit_msg_file"
+  exit_code=$?
+elif command -v npx &> /dev/null; then
+  npx --yes @commitlint/cli@latest @commitlint/config-conventional@latest --edit "$commit_msg_file"
+  exit_code=$?
+else
+  echo "⚠️  Warning: commitlint not found. Install with: npm install -g @commitlint/cli"
+  echo "   Falling back to basic format check..."
+  
+  # Fallback to basic pattern check
+  commit_msg=$(cat "$commit_msg_file")
+  pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+'
+  
+  if ! echo "$commit_msg" | head -n 1 | grep -qE "$pattern"; then
+    echo "❌ Invalid commit message format!"
+    echo ""
+    echo "Commit messages must follow Conventional Commits format:"
+    echo "  type(scope): description"
+    echo ""
+    echo "Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert"
+    echo "Scopes: compiler, cli, runtime, repo, ci, docs, deps"
+    echo ""
+    echo "Examples:"
+    echo "  feat(compiler): add support for semver comparison"
+    echo "  fix(cli): handle missing flag definitions gracefully"
+    echo "  chore(ci): update GitHub Actions workflows"
+    echo "  chore: release 1.0.0  (allowed for release-please)"
+    echo ""
+    echo "Your message:"
+    echo "  $(echo "$commit_msg" | head -n 1)"
+    exit_code=1
+  else
+    exit_code=0
+  fi
+fi
+
+# Clean up temp config file if we created one
+if [ "$TEMP_CONFIG" = true ]; then
+  rm -f commitlint.config.cjs
+fi
+
+exit $exit_code
 
