@@ -6,10 +6,96 @@ on:
       - 'validation/**'
 
 jobs:
-  # Run tests in parallel with lint/typecheck
-  test:
-    name: Run tests with coverage
+  # Run Rust tests and build CLI in parallel with lint/typecheck
+  rust-tests:
+    name: Run Rust tests and clippy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      # Test all workspace crates (compiler library + CLI binary)
+      # This runs tests in both crates/compiler and crates/cli
+      - name: Run Rust CLI and compiler tests
+        run: cargo test --workspace
+
+  # Build CLI binary in parallel with Rust tests
+  # This job runs concurrently with rust-tests and lint-and-typecheck
+  build-cli:
+    name: Build Rust CLI binary
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      # Build Rust CLI binary for TypeScript integration tests
+      # The TypeScript tests need the CLI binary to compile AST artifacts
+      - name: Build Rust CLI binary
+        run: cargo build --release --bin controlpath
+
+      # Upload CLI binary as artifact for TypeScript tests job
+      - name: Upload CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: controlpath-cli
+          path: target/release/controlpath
+          retention-days: 1
+
+  # Run TypeScript tests after CLI is built
+  # This depends on build-cli to ensure the binary is available
+  typescript-tests:
+    name: Run TypeScript tests with coverage
+    runs-on: ubuntu-latest
+    needs: [build-cli]
     permissions:
       contents: read
     steps:
@@ -39,39 +125,22 @@ jobs:
         working-directory: runtime/typescript
         run: npm ci
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # Download CLI binary from build-cli job
+      - name: Download CLI binary
+        uses: actions/download-artifact@v4
         with:
-          toolchain: stable
+          name: controlpath-cli
+          path: target/release/
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      # Test all workspace crates (compiler library + CLI binary)
-      # This runs tests in both crates/compiler and crates/cli
-      - name: Run Rust CLI and compiler tests
-        run: cargo test --workspace
-
-      # Build Rust CLI binary for TypeScript integration tests
-      # The TypeScript tests need the CLI binary to compile AST artifacts
-      - name: Build Rust CLI binary
-        run: cargo build --release --bin controlpath
+      # Make CLI binary executable
+      - name: Make CLI binary executable
+        run: chmod +x target/release/controlpath
 
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
+        env:
+          # Ensure the CLI binary is in PATH for tests
+          PATH: ${{ github.workspace }}/target/release:${{ env.PATH }}
         run: |
           npm test -- --coverage --reporter=default --coverage.reporter=lcov
           # Coverage thresholds are enforced automatically by Vitest
@@ -125,7 +194,7 @@ jobs:
   merge:
     name: Merge into main
     runs-on: ubuntu-latest
-    needs: [test, lint-and-typecheck]
+    needs: [rust-tests, build-cli, typescript-tests, lint-and-typecheck]
     permissions:
       contents: write
       pull-requests: write
