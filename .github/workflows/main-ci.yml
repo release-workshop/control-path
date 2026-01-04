@@ -48,56 +48,26 @@ jobs:
       - name: Run Rust CLI and compiler tests
         run: cargo test --workspace
 
-  # Build CLI binary in parallel with Rust tests
-  # This job runs concurrently with rust-tests and lint-and-typecheck
-  build-cli:
-    name: Build Rust CLI binary
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      # Build Rust CLI binary for TypeScript integration tests
-      # The TypeScript tests need the CLI binary to compile AST artifacts
-      - name: Build Rust CLI binary
+      # Build release binary once for TypeScript tests (avoids rebuilding in other job)
+      # This builds on top of the test compilation, reusing cached dependencies
+      - name: Build release CLI binary
         run: cargo build --release --bin controlpath
 
-      # Upload CLI binary as artifact for TypeScript tests job
-      - name: Upload CLI binary
+      # Upload release binary for TypeScript tests job
+      - name: Upload release CLI binary
         uses: actions/upload-artifact@v4
         with:
-          name: controlpath-cli
+          name: controlpath-cli-release
           path: target/release/controlpath
           retention-days: 1
 
-  # Run TypeScript tests after CLI is built
-  # This depends on build-cli to ensure the binary is available
-  typescript-tests:
-    name: Run TypeScript tests with coverage
+  # Run TypeScript tests (CLI binary built in rust-tests job)
+  # This runs in parallel with lint-and-typecheck
+  # The CLI binary is built once in rust-tests and reused here via artifact
+  build-cli-and-test:
+    name: Run TypeScript tests
     runs-on: ubuntu-latest
-    needs: [build-cli]
+    needs: [rust-tests]
     permissions:
       contents: read
     steps:
@@ -126,19 +96,18 @@ jobs:
         working-directory: runtime/typescript
         run: npm ci
 
-      # Download CLI binary from build-cli job
-      # Download to temp location first, then move to correct path
-      - name: Download CLI binary
+      # Download release CLI binary from rust-tests job (built once, reused here)
+      - name: Download release CLI binary
         uses: actions/download-artifact@v4
         with:
-          name: controlpath-cli
+          name: controlpath-cli-release
           path: ${{ runner.temp }}/cli-artifact
 
-      # Move CLI binary to correct location and make executable
+      # Install CLI binary to correct location
       - name: Install CLI binary
         run: |
           mkdir -p target/release
-          # Find the binary in the downloaded artifact (it might be nested)
+          # Find the binary in the downloaded artifact
           if [ -f "${{ runner.temp }}/cli-artifact/controlpath" ]; then
             cp "${{ runner.temp }}/cli-artifact/controlpath" target/release/controlpath
           elif [ -f "${{ runner.temp }}/cli-artifact/target/release/controlpath" ]; then
@@ -151,7 +120,6 @@ jobs:
           fi
           chmod +x target/release/controlpath
           echo "✓ CLI binary installed at target/release/controlpath"
-          file target/release/controlpath || true
 
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
