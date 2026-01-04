@@ -126,21 +126,34 @@ jobs:
         run: npm ci
 
       # Download CLI binary from build-cli job
+      # Download to temp location first, then move to correct path
       - name: Download CLI binary
         uses: actions/download-artifact@v4
         with:
           name: controlpath-cli
-          path: target/release/
+          path: ${{ runner.temp }}/cli-artifact
 
-      # Make CLI binary executable
-      - name: Make CLI binary executable
-        run: chmod +x target/release/controlpath
+      # Move CLI binary to correct location and make executable
+      - name: Install CLI binary
+        run: |
+          mkdir -p target/release
+          # Find the binary in the downloaded artifact (it might be nested)
+          if [ -f "${{ runner.temp }}/cli-artifact/controlpath" ]; then
+            cp "${{ runner.temp }}/cli-artifact/controlpath" target/release/controlpath
+          elif [ -f "${{ runner.temp }}/cli-artifact/target/release/controlpath" ]; then
+            cp "${{ runner.temp }}/cli-artifact/target/release/controlpath" target/release/controlpath
+          else
+            echo "❌ Error: CLI binary not found in artifact"
+            echo "Artifact contents:"
+            find "${{ runner.temp }}/cli-artifact" -type f || echo "No files found"
+            exit 1
+          fi
+          chmod +x target/release/controlpath
+          echo "✓ CLI binary installed at target/release/controlpath"
+          file target/release/controlpath || true
 
       - name: Run runtime SDK tests with coverage
         working-directory: runtime/typescript
-        env:
-          # Ensure the CLI binary is in PATH for tests
-          PATH: ${{ github.workspace }}/target/release:${{ env.PATH }}
         run: |
           npm test -- --coverage --reporter=default --coverage.reporter=lcov
           # Coverage thresholds are enforced automatically by Vitest
