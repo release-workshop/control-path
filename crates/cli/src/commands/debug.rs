@@ -1026,7 +1026,7 @@ fn run_inner(options: &Options) -> CliResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use controlpath_compiler::ast::{Artifact, Expression, Rule, ServePayload};
+    use controlpath_compiler::ast::{Artifact, Rule, ServePayload};
 
     #[test]
     fn test_find_flag_index() {
@@ -1049,16 +1049,6 @@ mod tests {
     fn test_get_property_from_user() {
         let user = serde_json::json!({"id": "user-1", "role": "admin"});
         let context = None;
-
-        let artifact = Artifact {
-            version: "1.0".to_string(),
-            environment: "test".to_string(),
-            string_table: vec!["user.id".to_string(), "user.role".to_string()],
-            flags: vec![],
-            flag_names: vec![],
-            segments: None,
-            signature: None,
-        };
 
         let result1 = get_property("user.id", &user, &context);
         assert_eq!(result1, Some(Value::String("user-1".to_string())));
