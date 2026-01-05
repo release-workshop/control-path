@@ -78,4 +78,4 @@ jobs:
           echo "Linting commits from base ${BASE_REF} to HEAD"
           git fetch origin "${BASE_REF}:${BASE_REF}" || true
           FROM_SHA="$(git merge-base HEAD "${BASE_REF}")"
-          commitlint --from="${FROM_SHA}" --to=HEAD
+          commitlint --config commitlint.config.cjs --from="${FROM_SHA}" --to=HEAD
