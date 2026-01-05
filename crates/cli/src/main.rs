@@ -9,7 +9,7 @@ mod error;
 mod generator;
 
 use clap::{Parser, Subcommand};
-use commands::{compile, generate_sdk, init, validate};
+use commands::{compile, generate_sdk, init, validate, watch};
 
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
@@ -77,6 +77,18 @@ enum Commands {
         #[arg(long)]
         definitions: Option<String>,
     },
+    /// Watch for file changes and auto-compile/regenerate
+    Watch {
+        /// Language for SDK generation (default: typescript)
+        #[arg(long)]
+        lang: Option<String>,
+        /// Watch definitions file only
+        #[arg(long)]
+        definitions: bool,
+        /// Watch deployment files only
+        #[arg(long)]
+        deployments: bool,
+    },
 }
 
 fn main() {
@@ -134,6 +146,18 @@ fn main() {
                 definitions,
             };
             generate_sdk::run(&opts)
+        }
+        Commands::Watch {
+            lang,
+            definitions,
+            deployments,
+        } => {
+            let opts = watch::Options {
+                lang,
+                definitions,
+                deployments,
+            };
+            watch::run(&opts)
         }
     };
 
