@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control Path Debug UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .panel h2 {
+            margin-bottom: 15px;
+            color: #2563eb;
+            font-size: 18px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        select, textarea {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+        }
+
+        select {
+            cursor: pointer;
+        }
+
+        textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .result-panel {
+            grid-column: 1 / -1;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .result-value {
+            font-size: 24px;
+            font-weight: bold;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .result-value.true {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .result-value.false {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .result-value.string {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .result-value.number {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .result-value.null {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .rules-list {
+            list-style: none;
+        }
+
+        .rule-item {
+            padding: 15px;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .rule-item.matched {
+            border-color: #10b981;
+            background: #f0fdf4;
+        }
+
+        .rule-item:not(.matched) {
+            border-color: #e5e7eb;
+            background: #f9fafb;
+        }
+
+        .rule-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .rule-type {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            text-transform: uppercase;
+        }
+
+        .rule-type.serve {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .rule-type.variations {
+            background: #e9d5ff;
+            color: #6b21a8;
+        }
+
+        .rule-type.rollout {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .rule-matched {
+            font-weight: bold;
+            color: #10b981;
+        }
+
+        .rule-not-matched {
+            color: #6b7280;
+        }
+
+        .rule-details {
+            font-size: 13px;
+            color: #6b7280;
+            margin-top: 8px;
+        }
+
+        .rule-when {
+            font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+            background: #f3f4f6;
+            padding: 8px;
+            border-radius: 4px;
+            margin-top: 8px;
+            font-size: 12px;
+        }
+
+        .error {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+        }
+
+        .environment-info {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+        }
+
+        .evaluation-time {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 5px;
+            font-style: italic;
+        }
+
+        .copy-btn {
+            background: #6b7280;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        .copy-btn:hover {
+            background: #4b5563;
+        }
+
+        .copy-btn:active {
+            background: #374151;
+        }
+
+        .spinner {
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #2563eb;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Control Path Debug UI</h1>
+            <div class="subtitle">Test flag evaluation with different user and context values</div>
+        </header>
+
+        <div class="main-content">
+            <div class="panel">
+                <h2>Configuration</h2>
+                <div class="form-group">
+                    <label for="flag-select">Flag</label>
+                    <select id="flag-select">
+                        <option value="">Loading flags...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="user-input">User (JSON)</label>
+                    <textarea id="user-input" placeholder='{"id": "user-123", "role": "admin", "email": "user@example.com"}'></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="context-input">Context (JSON, optional)</label>
+                    <textarea id="context-input" placeholder='{"environment": "production", "device": {"type": "mobile"}}'></textarea>
+                </div>
+                <button id="evaluate-btn" onclick="evaluateFlag()">Evaluate Flag</button>
+            </div>
+
+            <div class="panel">
+                <h2>Quick Examples</h2>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button onclick="loadExample('admin')" style="background: #10b981;">Admin User</button>
+                    <button onclick="loadExample('regular')" style="background: #3b82f6;">Regular User</button>
+                    <button onclick="loadExample('mobile')" style="background: #8b5cf6;">Mobile Device</button>
+                    <button onclick="loadExample('empty')" style="background: #6b7280;">Empty Context</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel result-panel" id="result-panel" style="display: none;">
+            <div class="result-header">
+                <div>
+                    <h2>Evaluation Result</h2>
+                    <div class="environment-info" id="env-info"></div>
+                    <div class="evaluation-time" id="eval-time"></div>
+                </div>
+                <button class="copy-btn" onclick="copyResult()" title="Copy result to clipboard">📋 Copy</button>
+            </div>
+            <div id="result-value"></div>
+            <div id="rules-list"></div>
+        </div>
+
+        <div id="error-message" style="display: none;"></div>
+    </div>
+
+    <script>
+        let flags = [];
+
+        // Load flags on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            await loadFlags();
+            
+            // Add keyboard shortcuts
+            document.addEventListener('keydown', (e) => {
+                // Ctrl+Enter or Cmd+Enter to evaluate
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    evaluateFlag();
+                }
+            });
+        });
+
+        async function loadFlags() {
+            try {
+                const response = await fetch('/api/flags');
+                if (!response.ok) {
+                    throw new Error('Failed to load flags');
+                }
+                flags = await response.json();
+                const select = document.getElementById('flag-select');
+                select.innerHTML = '<option value="">Select a flag...</option>';
+                flags.forEach(flag => {
+                    const option = document.createElement('option');
+                    option.value = flag.name;
+                    option.textContent = flag.name;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                showError('Failed to load flags: ' + error.message);
+            }
+        }
+
+        async function evaluateFlag() {
+            const flagSelect = document.getElementById('flag-select');
+            const userInput = document.getElementById('user-input');
+            const contextInput = document.getElementById('context-input');
+            const evaluateBtn = document.getElementById('evaluate-btn');
+            const resultPanel = document.getElementById('result-panel');
+            const errorMessage = document.getElementById('error-message');
+
+            // Hide previous results
+            resultPanel.style.display = 'none';
+            errorMessage.style.display = 'none';
+
+            const flagName = flagSelect.value;
+            if (!flagName) {
+                showError('Please select a flag');
+                return;
+            }
+
+            // Parse user JSON
+            let user = null;
+            try {
+                const userText = userInput.value.trim();
+                if (userText) {
+                    user = JSON.parse(userText);
+                }
+            } catch (e) {
+                showError('Invalid user JSON: ' + e.message);
+                return;
+            }
+
+            // Parse context JSON
+            let context = null;
+            try {
+                const contextText = contextInput.value.trim();
+                if (contextText) {
+                    context = JSON.parse(contextText);
+                }
+            } catch (e) {
+                showError('Invalid context JSON: ' + e.message);
+                return;
+            }
+
+            // Disable button and show loading
+            evaluateBtn.disabled = true;
+            evaluateBtn.innerHTML = '<span class="spinner"></span>Evaluating...';
+
+            const startTime = performance.now();
+
+            try {
+                const response = await fetch('/api/evaluate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        flag: flagName,
+                        user: user,
+                        context: context,
+                    }),
+                });
+
+                const endTime = performance.now();
+                const evalTime = (endTime - startTime).toFixed(2);
+
+                if (!response.ok) {
+                    let errorText = 'Evaluation failed';
+                    try {
+                        const errorData = await response.json();
+                        if (errorData && errorData.error) {
+                            errorText = errorData.error;
+                        } else if (typeof errorData === 'string') {
+                            errorText = errorData;
+                        }
+                    } catch (e) {
+                        // If JSON parsing fails, try text
+                        try {
+                            errorText = await response.text() || errorText;
+                        } catch (e2) {
+                            // Fallback to status text
+                            errorText = response.statusText || errorText;
+                        }
+                    }
+                    throw new Error(errorText);
+                }
+
+                const result = await response.json();
+                displayResult(result, evalTime);
+            } catch (error) {
+                showError('Evaluation error: ' + error.message);
+            } finally {
+                evaluateBtn.disabled = false;
+                evaluateBtn.textContent = 'Evaluate Flag';
+            }
+        }
+
+        function displayResult(result, evalTime) {
+            const resultPanel = document.getElementById('result-panel');
+            const resultValue = document.getElementById('result-value');
+            const rulesList = document.getElementById('rules-list');
+            const envInfo = document.getElementById('env-info');
+            const evalTimeEl = document.getElementById('eval-time');
+
+            // Show environment info
+            envInfo.textContent = `Environment: ${result.environment}`;
+            evalTimeEl.textContent = `Evaluated in ${evalTime}ms`;
+
+            // Display value
+            let valueClass = 'null';
+            let valueText = 'null';
+            if (result.value !== null && result.value !== undefined) {
+                if (typeof result.value === 'boolean') {
+                    valueClass = result.value ? 'true' : 'false';
+                    valueText = String(result.value);
+                } else if (typeof result.value === 'string') {
+                    valueClass = 'string';
+                    valueText = `"${result.value}"`;
+                } else if (typeof result.value === 'number') {
+                    valueClass = 'number';
+                    valueText = String(result.value);
+                } else {
+                    valueText = JSON.stringify(result.value);
+                }
+            }
+            resultValue.className = `result-value ${valueClass}`;
+            resultValue.textContent = valueText;
+
+            // Display rules
+            rulesList.innerHTML = '';
+            if (result.rules && result.rules.length > 0) {
+                const ul = document.createElement('ul');
+                ul.className = 'rules-list';
+                result.rules.forEach((rule, index) => {
+                    const li = document.createElement('li');
+                    li.className = `rule-item ${rule.matched ? 'matched' : ''}`;
+                    
+                    let ruleValueText = rule.value !== null && rule.value !== undefined
+                        ? JSON.stringify(rule.value)
+                        : 'none';
+
+                    li.innerHTML = `
+                        <div class="rule-header">
+                            <span class="rule-type ${rule.rule_type}">${rule.rule_type}</span>
+                            <span class="${rule.matched ? 'rule-matched' : 'rule-not-matched'}">
+                                ${rule.matched ? '✓ Matched' : '✗ Not Matched'}
+                            </span>
+                        </div>
+                        <div class="rule-details">
+                            <div><strong>Rule ${rule.index + 1}:</strong> ${rule.reason}</div>
+                            ${rule.value !== null && rule.value !== undefined
+                                ? `<div><strong>Value:</strong> ${ruleValueText}</div>`
+                                : ''}
+                            ${rule.when_clause
+                                ? `<div class="rule-when"><strong>When:</strong> ${rule.when_clause}<br>
+                                   <strong>Result:</strong> ${rule.when_result !== null && rule.when_result !== undefined ? rule.when_result : 'N/A'}</div>`
+                                : ''}
+                        </div>
+                    `;
+                    ul.appendChild(li);
+                });
+                rulesList.appendChild(ul);
+            } else {
+                rulesList.innerHTML = '<div class="loading">No rules found for this flag</div>';
+            }
+
+            resultPanel.style.display = 'block';
+        }
+
+        function showError(message) {
+            const errorMessage = document.getElementById('error-message');
+            errorMessage.className = 'error';
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+
+        function loadExample(type) {
+            const userInput = document.getElementById('user-input');
+            const contextInput = document.getElementById('context-input');
+
+            switch (type) {
+                case 'admin':
+                    userInput.value = JSON.stringify({
+                        id: 'admin-123',
+                        role: 'admin',
+                        email: 'admin@example.com'
+                    }, null, 2);
+                    contextInput.value = '';
+                    break;
+                case 'regular':
+                    userInput.value = JSON.stringify({
+                        id: 'user-456',
+                        role: 'user',
+                        email: 'user@example.com'
+                    }, null, 2);
+                    contextInput.value = '';
+                    break;
+                case 'mobile':
+                    userInput.value = JSON.stringify({
+                        id: 'user-789',
+                        role: 'user'
+                    }, null, 2);
+                    contextInput.value = JSON.stringify({
+                        device: {
+                            type: 'mobile',
+                            platform: 'ios'
+                        }
+                    }, null, 2);
+                    break;
+                case 'empty':
+                    userInput.value = '';
+                    contextInput.value = '';
+                    break;
+            }
+        }
+
+        function copyResult() {
+            const resultPanel = document.getElementById('result-panel');
+            if (resultPanel.style.display === 'none') {
+                return;
+            }
+
+            const resultValue = document.getElementById('result-value');
+            const rulesList = document.getElementById('rules-list');
+            const envInfo = document.getElementById('env-info');
+            const evalTime = document.getElementById('eval-time');
+
+            let text = `Flag Evaluation Result\n`;
+            text += `${envInfo.textContent}\n`;
+            text += `${evalTime.textContent}\n\n`;
+            text += `Value: ${resultValue.textContent}\n\n`;
+            text += `Rules:\n`;
+
+            const ruleItems = rulesList.querySelectorAll('.rule-item');
+            ruleItems.forEach((item, index) => {
+                const ruleHeader = item.querySelector('.rule-header');
+                const ruleDetails = item.querySelector('.rule-details');
+                if (ruleHeader && ruleDetails) {
+                    text += `${index + 1}. ${ruleHeader.textContent.trim()}\n`;
+                    text += `   ${ruleDetails.textContent.trim()}\n\n`;
+                }
+            });
+
+            navigator.clipboard.writeText(text).then(() => {
+                const copyBtn = document.querySelector('.copy-btn');
+                const originalText = copyBtn.textContent;
+                copyBtn.textContent = '✓ Copied!';
+                setTimeout(() => {
+                    copyBtn.textContent = originalText;
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy:', err);
+                showError('Failed to copy to clipboard');
+            });
+        }
+    </script>
+</body>
+</html>
+

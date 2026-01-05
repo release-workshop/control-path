@@ -1,6 +1,7 @@
 //! CLI commands
 
 pub mod compile;
+pub mod debug;
 pub mod explain;
 pub mod generate_sdk;
 pub mod init;

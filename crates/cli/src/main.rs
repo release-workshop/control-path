@@ -9,7 +9,7 @@ mod error;
 mod generator;
 
 use clap::{Parser, Subcommand};
-use commands::{compile, explain, generate_sdk, init, validate, watch};
+use commands::{compile, debug, explain, generate_sdk, init, validate, watch};
 
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
@@ -110,6 +110,21 @@ enum Commands {
         #[arg(long)]
         trace: bool,
     },
+    /// Start interactive debug UI
+    Debug {
+        /// Port for web server (default: 8080)
+        #[arg(long)]
+        port: Option<u16>,
+        /// Environment name (uses .controlpath/<env>.ast)
+        #[arg(long)]
+        env: Option<String>,
+        /// Path to AST file (alternative to --env)
+        #[arg(long)]
+        ast: Option<String>,
+        /// Open browser automatically
+        #[arg(long)]
+        open: bool,
+    },
 }
 
 fn main() {
@@ -197,6 +212,20 @@ fn main() {
                 trace,
             };
             explain::run(&opts)
+        }
+        Commands::Debug {
+            port,
+            env,
+            ast,
+            open,
+        } => {
+            let opts = debug::Options {
+                port,
+                env,
+                ast,
+                open,
+            };
+            debug::run(&opts)
         }
     };
 
