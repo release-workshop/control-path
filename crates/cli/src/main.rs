@@ -9,7 +9,7 @@ mod error;
 mod generator;
 
 use clap::{Parser, Subcommand};
-use commands::{compile, generate_sdk, init, validate, watch};
+use commands::{compile, explain, generate_sdk, init, validate, watch};
 
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
@@ -89,6 +89,27 @@ enum Commands {
         #[arg(long)]
         deployments: bool,
     },
+    /// Explain flag evaluation with user/context
+    Explain {
+        /// Flag name to explain
+        #[arg(long)]
+        flag: String,
+        /// Path to user JSON file
+        #[arg(long)]
+        user: Option<String>,
+        /// Path to context JSON file (optional)
+        #[arg(long)]
+        context: Option<String>,
+        /// Environment name (uses .controlpath/<env>.ast)
+        #[arg(long)]
+        env: Option<String>,
+        /// Path to AST file (alternative to --env)
+        #[arg(long)]
+        ast: Option<String>,
+        /// Show detailed trace of evaluation
+        #[arg(long)]
+        trace: bool,
+    },
 }
 
 fn main() {
@@ -158,6 +179,24 @@ fn main() {
                 deployments,
             };
             watch::run(&opts)
+        }
+        Commands::Explain {
+            flag,
+            user,
+            context,
+            env,
+            ast,
+            trace,
+        } => {
+            let opts = explain::Options {
+                flag,
+                user,
+                context,
+                env,
+                ast,
+                trace,
+            };
+            explain::run(&opts)
         }
     };
 
