@@ -8,6 +8,7 @@ jobs:
   lint-commits:
     name: Enforce conventional commits
     runs-on: ubuntu-latest
+    if: github.head_ref != 'release-please--branches--main'
 
     permissions:
       contents: read

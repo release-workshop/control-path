@@ -14,6 +14,7 @@ jobs:
   rust-tests:
     name: Run Rust tests and clippy
     runs-on: ubuntu-latest
+    if: github.ref_name != 'release-please--branches--main' && github.head_ref != 'release-please--branches--main'
     permissions:
       contents: read
     steps:
@@ -53,6 +54,7 @@ jobs:
   build-cli:
     name: Build CLI binary
     runs-on: ubuntu-latest
+    if: github.ref_name != 'release-please--branches--main' && github.head_ref != 'release-please--branches--main'
     permissions:
       contents: read
     steps:
@@ -160,6 +162,7 @@ jobs:
   lint-and-typecheck:
     name: Lint and typecheck
     runs-on: ubuntu-latest
+    if: github.ref_name != 'release-please--branches--main' && github.head_ref != 'release-please--branches--main'
     permissions:
       contents: read
     steps:
