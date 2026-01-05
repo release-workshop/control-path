@@ -8,6 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tera::{Context, Tera};
 
 /// TypeScript SDK generator
@@ -36,8 +37,16 @@ impl TypeScriptGenerator {
     pub fn new() -> Result<Self, CliError> {
         // Always use embedded templates by writing them to temporary files
         // This ensures consistency and works in all environments (including tests)
+        // Use a unique directory per instance to avoid race conditions in concurrent tests
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let temp_dir = std::env::temp_dir();
-        let temp_template_dir = temp_dir.join("controlpath_templates");
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let unique_id = format!("{}_{}", timestamp, counter);
+        let temp_template_dir = temp_dir.join(format!("controlpath_templates_{}", unique_id));
         if fs::create_dir_all(&temp_template_dir).is_err() {
             return Err(CliError::Message(
                 "Failed to create temporary template directory".to_string(),
