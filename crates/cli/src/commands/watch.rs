@@ -504,8 +504,12 @@ rules: {}
 
         let files = find_deployment_files();
         assert_eq!(files.len(), 2);
-        assert!(files.iter().any(|f| f.to_string_lossy().contains("production")));
-        assert!(files.iter().any(|f| f.to_string_lossy().contains("staging")));
+        assert!(files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("production")));
+        assert!(files
+            .iter()
+            .any(|f| f.to_string_lossy().contains("staging")));
     }
 
     #[test]
@@ -1085,11 +1089,7 @@ rules: {}
         let _guard = DirGuard::new(temp_path);
 
         // Create invalid definitions file
-        fs::write(
-            "flags.definitions.yaml",
-            r"invalid: yaml: [",
-        )
-        .unwrap();
+        fs::write("flags.definitions.yaml", r"invalid: yaml: [").unwrap();
 
         let options = Options {
             lang: None,

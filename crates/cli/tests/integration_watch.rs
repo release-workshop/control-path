@@ -21,10 +21,10 @@ fn test_watch_mode_definitions_change() {
     cmd.stderr(Stdio::null());
 
     let mut child = cmd.spawn().expect("Failed to spawn watch command");
-    
+
     // Wait a short time to verify the watch process starts successfully
     thread::sleep(Duration::from_millis(500));
-    
+
     // Verify the process is still running (watch started successfully)
     match child.try_wait() {
         Ok(Some(status)) => {

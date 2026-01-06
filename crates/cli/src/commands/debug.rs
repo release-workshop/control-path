@@ -1028,7 +1028,7 @@ mod tests {
     use super::*;
     use controlpath_compiler::ast::{Artifact, Rule, ServePayload};
     use serial_test::serial;
-    
+
     // Helper for tests that need to change directory
     struct DirGuard {
         original_dir: PathBuf,
@@ -1395,7 +1395,10 @@ mod tests {
 
         // Test with array
         let expr3 = Expression::Literal {
-            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+            value: Value::Array(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+            ]),
         };
         let expr4 = Expression::Literal {
             value: Value::String("a".to_string()),
@@ -1473,7 +1476,13 @@ mod tests {
             value: Value::Number(0.into()),
         };
 
-        let result = evaluate_function(FuncCode::Upper as u8, std::slice::from_ref(&expr), &artifact, &user, &None);
+        let result = evaluate_function(
+            FuncCode::Upper as u8,
+            std::slice::from_ref(&expr),
+            &artifact,
+            &user,
+            &None,
+        );
         assert_eq!(result, Some(Value::String("HELLO".to_string())));
 
         let result2 = evaluate_function(FuncCode::Lower as u8, &[expr], &artifact, &user, &None);
@@ -1506,7 +1515,10 @@ mod tests {
 
         // Test with array
         let expr2 = Expression::Literal {
-            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+            value: Value::Array(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+            ]),
         };
         let result2 = evaluate_function(FuncCode::Length as u8, &[expr2], &artifact, &user, &None);
         assert_eq!(result2, Some(Value::Number(2.into())));
@@ -1533,10 +1545,19 @@ mod tests {
             value: Value::String("a".to_string()),
         };
         let expr2 = Expression::Literal {
-            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+            value: Value::Array(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+            ]),
         };
 
-        let result = evaluate_function(FuncCode::In as u8, &[expr1.clone(), expr2.clone()], &artifact, &user, &None);
+        let result = evaluate_function(
+            FuncCode::In as u8,
+            &[expr1.clone(), expr2.clone()],
+            &artifact,
+            &user,
+            &None,
+        );
         assert_eq!(result, Some(Value::Bool(true)));
 
         // Test with value not in array
@@ -1544,16 +1565,26 @@ mod tests {
             value: Value::String("c".to_string()),
         };
         let expr2_clone = Expression::Literal {
-            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+            value: Value::Array(vec![
+                Value::String("a".to_string()),
+                Value::String("b".to_string()),
+            ]),
         };
-        let result2 = evaluate_function(FuncCode::In as u8, &[expr3, expr2_clone], &artifact, &user, &None);
+        let result2 = evaluate_function(
+            FuncCode::In as u8,
+            &[expr3, expr2_clone],
+            &artifact,
+            &user,
+            &None,
+        );
         assert_eq!(result2, Some(Value::Bool(false)));
 
         // Test with non-array
         let expr4 = Expression::Literal {
             value: Value::String("not an array".to_string()),
         };
-        let result3 = evaluate_function(FuncCode::In as u8, &[expr1, expr4], &artifact, &user, &None);
+        let result3 =
+            evaluate_function(FuncCode::In as u8, &[expr1, expr4], &artifact, &user, &None);
         assert_eq!(result3, Some(Value::Bool(false)));
     }
 
@@ -1674,10 +1705,22 @@ mod tests {
 
     #[test]
     fn test_coerce_to_boolean_edge_cases() {
-        assert_eq!(coerce_to_boolean(&Value::String("1".to_string())), Some(true));
-        assert_eq!(coerce_to_boolean(&Value::String("0".to_string())), Some(false));
-        assert_eq!(coerce_to_boolean(&Value::String("TRUE".to_string())), Some(true));
-        assert_eq!(coerce_to_boolean(&Value::String("FALSE".to_string())), Some(false));
+        assert_eq!(
+            coerce_to_boolean(&Value::String("1".to_string())),
+            Some(true)
+        );
+        assert_eq!(
+            coerce_to_boolean(&Value::String("0".to_string())),
+            Some(false)
+        );
+        assert_eq!(
+            coerce_to_boolean(&Value::String("TRUE".to_string())),
+            Some(true)
+        );
+        assert_eq!(
+            coerce_to_boolean(&Value::String("FALSE".to_string())),
+            Some(false)
+        );
         assert_eq!(coerce_to_boolean(&Value::Number(42.into())), Some(true));
         assert_eq!(coerce_to_boolean(&Value::Null), None);
         assert_eq!(coerce_to_boolean(&Value::Array(vec![])), None);
@@ -1687,13 +1730,23 @@ mod tests {
     fn test_compare_values() {
         let num5 = Value::Number(5.into());
         let num3 = Value::Number(3.into());
-        
+
         assert!(compare_values(&num5, &num3) > 0);
         assert!(compare_values(&num3, &num5) < 0);
         // Note: compare_values uses signum which may have floating point issues
         // For equal values, we just verify the comparison works correctly
-        assert!(compare_values(&Value::String("b".to_string()), &Value::String("a".to_string())) > 0);
-        assert!(compare_values(&Value::String("a".to_string()), &Value::String("b".to_string())) < 0);
+        assert!(
+            compare_values(
+                &Value::String("b".to_string()),
+                &Value::String("a".to_string())
+            ) > 0
+        );
+        assert!(
+            compare_values(
+                &Value::String("a".to_string()),
+                &Value::String("b".to_string())
+            ) < 0
+        );
     }
 
     #[test]
@@ -1710,7 +1763,10 @@ mod tests {
         );
         // Test exact match
         assert_eq!(
-            coerce_and_compare(&Value::String("test".to_string()), &Value::String("test".to_string())),
+            coerce_and_compare(
+                &Value::String("test".to_string()),
+                &Value::String("test".to_string())
+            ),
             0
         );
     }
@@ -1824,14 +1880,17 @@ mod tests {
         };
         let result = determine_ast_path(&options);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), PathBuf::from(".controlpath/production.ast"));
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from(".controlpath/production.ast")
+        );
     }
 
     #[test]
     #[serial]
     fn test_determine_ast_path_default_finds_file() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
@@ -1853,8 +1912,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_determine_ast_path_default_finds_any_ast() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
@@ -1876,8 +1935,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_determine_ast_path_default_no_files() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
@@ -1905,8 +1964,8 @@ mod tests {
     #[test]
     #[serial]
     fn test_load_artifact_invalid_data() {
-        use tempfile::TempDir;
         use std::fs;
+        use tempfile::TempDir;
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
@@ -2047,7 +2106,13 @@ mod tests {
             value: Value::String("[invalid regex".to_string()),
         };
 
-        let result = evaluate_function(FuncCode::Matches as u8, &[expr1, expr2], &artifact, &user, &None);
+        let result = evaluate_function(
+            FuncCode::Matches as u8,
+            &[expr1, expr2],
+            &artifact,
+            &user,
+            &None,
+        );
         assert_eq!(result, Some(Value::Bool(false))); // Should return false for invalid regex
     }
 

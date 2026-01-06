@@ -49,10 +49,10 @@ fn test_debug_ui_command_structure() {
     cmd.stderr(Stdio::null());
 
     let mut child = cmd.spawn().expect("Failed to spawn debug command");
-    
+
     // Wait a short time to verify the server starts successfully
     thread::sleep(Duration::from_millis(500));
-    
+
     // Verify the process is still running (server started successfully)
     match child.try_wait() {
         Ok(Some(status)) => {
@@ -79,10 +79,10 @@ fn test_debug_ui_command_structure() {
     cmd2.stderr(Stdio::null());
 
     let mut child2 = cmd2.spawn().expect("Failed to spawn debug command");
-    
+
     // Wait a short time to verify the server starts successfully
     thread::sleep(Duration::from_millis(500));
-    
+
     // Verify the process is still running
     match child2.try_wait() {
         Ok(Some(status)) => {

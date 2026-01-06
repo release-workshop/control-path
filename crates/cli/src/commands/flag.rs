@@ -1193,7 +1193,6 @@ rules:
         assert!(similar.is_empty());
     }
 
-
     #[test]
     #[serial]
     fn test_flag_remove_nonexistent_flag() {
@@ -1223,7 +1222,6 @@ rules:
         let exit_code = run(&options);
         assert_ne!(exit_code, 0);
     }
-
 
     #[test]
     #[serial]
@@ -1782,10 +1780,8 @@ rules:
         )
         .unwrap();
 
-        let mut deployment = read_deployment(&PathBuf::from(
-            ".controlpath/production.deployment.yaml",
-        ))
-        .unwrap();
+        let mut deployment =
+            read_deployment(&PathBuf::from(".controlpath/production.deployment.yaml")).unwrap();
 
         // Try to sync a flag that already exists
         sync_flag_to_deployment(&mut deployment, "existing_flag", &Value::Bool(false)).unwrap();
@@ -2172,7 +2168,6 @@ rules:
         assert_eq!(exit_code, 0);
     }
 
-
     #[test]
     #[serial]
     fn test_flag_show_with_deployment_multiple_envs() {
@@ -2461,10 +2456,16 @@ rules: {}
         });
 
         // Test syncing with "ON" string
-        sync_flag_to_deployment(&mut deployment, "flag_on", &Value::String("ON".to_string())).unwrap();
-        
+        sync_flag_to_deployment(&mut deployment, "flag_on", &Value::String("ON".to_string()))
+            .unwrap();
+
         // Test syncing with "OFF" string
-        sync_flag_to_deployment(&mut deployment, "flag_off", &Value::String("OFF".to_string())).unwrap();
+        sync_flag_to_deployment(
+            &mut deployment,
+            "flag_off",
+            &Value::String("OFF".to_string()),
+        )
+        .unwrap();
 
         let rules = deployment.get("rules").and_then(|r| r.as_object()).unwrap();
         assert!(rules.contains_key("flag_on"));

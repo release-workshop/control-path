@@ -210,7 +210,7 @@ fn test_setup_workflow() {
     // Remove .controlpath directory (TestProject::new() creates it, but setup needs a clean project)
     // Setup will call init internally, which will fail if .controlpath already exists
     fs::remove_dir_all(project.path(".controlpath")).unwrap();
-    
+
     // Run setup (it will initialize the project, compile, and generate SDK)
     project.run_command_success(&["setup", "--lang", "typescript", "--skip-install"]);
 
