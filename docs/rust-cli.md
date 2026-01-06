@@ -173,6 +173,479 @@ controlpath init --force
 - `0`: Initialization succeeded
 - `1`: Initialization failed
 
+### `setup`
+
+One-command setup for new projects. Creates project structure, sample flags, compiles ASTs, installs runtime SDK, and generates type-safe SDKs.
+
+#### Usage
+
+```bash
+controlpath setup [OPTIONS]
+```
+
+#### Options
+
+- `--lang <LANGUAGE>`: Language for SDK generation (auto-detected if not provided)
+- `--skip-install`: Skip installing runtime SDK package
+
+#### Examples
+
+Auto-detect language and setup:
+
+```bash
+controlpath setup
+```
+
+Setup with specific language:
+
+```bash
+controlpath setup --lang typescript
+```
+
+Setup without installing runtime SDK:
+
+```bash
+controlpath setup --lang typescript --skip-install
+```
+
+#### Exit Codes
+
+- `0`: Setup successful
+- `1`: Setup failed
+
+### `watch`
+
+Watches files and auto-regenerates SDK/AST on changes.
+
+#### Usage
+
+```bash
+controlpath watch [OPTIONS]
+```
+
+#### Options
+
+- `--lang <LANGUAGE>`: Language for SDK generation (default: typescript, required when watching definitions)
+- `--definitions`: Watch definitions file only
+- `--deployments`: Watch deployment files only
+
+#### Examples
+
+Watch everything (definitions + deployments):
+
+```bash
+controlpath watch --lang typescript
+```
+
+Watch definitions only (regenerates SDK on change):
+
+```bash
+controlpath watch --definitions --lang typescript
+```
+
+Watch deployments only (recompiles AST on change):
+
+```bash
+controlpath watch --deployments
+```
+
+#### Behavior
+
+- Validates files exist before watching
+- Shows what files are being watched on startup
+- Watches `flags.definitions.yaml` → Regenerates SDK (if `--lang` provided)
+- Watches `.controlpath/*.deployment.yaml` → Recompiles AST
+- Shows output when files change
+- Handles file errors gracefully
+- Runs until interrupted (Ctrl+C)
+
+#### Exit Codes
+
+- `0`: Normal exit
+- `1`: Error (file missing, permission error, etc.)
+
+### `explain`
+
+Explains flag evaluation for a given user/context.
+
+#### Usage
+
+```bash
+controlpath explain [OPTIONS]
+```
+
+#### Options
+
+- `--flag <NAME>`: Flag name (required)
+- `--user <FILE|JSON>`: User JSON file or JSON string (required)
+- `--context <FILE|JSON>`: Context JSON file or JSON string (optional)
+- `--env <ENV>`: Environment name (uses `.controlpath/<env>.ast`)
+- `--ast <FILE>`: Path to AST file (alternative to `--env`)
+- `--trace`: Show detailed trace of evaluation
+
+#### Examples
+
+Explain with user file:
+
+```bash
+controlpath explain --flag new_dashboard --user user.json --env production
+```
+
+Explain with detailed trace:
+
+```bash
+controlpath explain --flag new_dashboard --user user.json --env production --trace
+```
+
+Explain with JSON string:
+
+```bash
+controlpath explain --flag new_dashboard --user '{"id":"123","role":"admin"}' --env production
+```
+
+#### Output
+
+Shows:
+- Flag value
+- Which rule matched (if any)
+- Why rule matched/didn't match
+- Expression evaluation details (if `--trace`)
+
+#### Exit Codes
+
+- `0`: Success
+- `1`: Error
+
+### `debug`
+
+Starts interactive debug UI.
+
+#### Usage
+
+```bash
+controlpath debug [OPTIONS]
+```
+
+#### Options
+
+- `--port <PORT>`: Port for web server (default: 8080)
+- `--env <ENV>`: Environment name (uses `.controlpath/<env>.ast`)
+- `--ast <FILE>`: Path to AST file (alternative to `--env`)
+- `--open`: Open browser automatically
+
+#### Examples
+
+Start debug UI with default settings:
+
+```bash
+controlpath debug
+```
+
+Start on custom port:
+
+```bash
+controlpath debug --port 3000
+```
+
+Start and open browser automatically:
+
+```bash
+controlpath debug --open
+```
+
+#### Behavior
+
+- Starts web server at http://localhost:8080 (or specified port)
+- Provides UI for flag evaluation
+- Shows rule matching details
+- Allows testing different users/contexts
+- Shows all flags and their current values
+- Runs until interrupted (Ctrl+C)
+
+#### Exit Codes
+
+- `0`: Normal exit
+- `1`: Error
+
+### `flag`
+
+Manage flags (add, list, show, remove).
+
+#### `flag add`
+
+Adds a new flag to definitions and optionally syncs to deployments.
+
+##### Usage
+
+```bash
+controlpath flag add [OPTIONS]
+```
+
+##### Options
+
+- `--name <NAME>`: Flag name (required, snake_case format)
+- `--type <TYPE>`: Flag type (boolean or multivariate)
+- `--default <VALUE>`: Default value
+- `--description <TEXT>`: Description
+- `--lang <LANGUAGE>`: Language for SDK regeneration
+- `--sync`: Sync to deployment files
+- `--no-interactive`: Disable interactive mode
+
+##### Examples
+
+Interactive mode (prompts for values):
+
+```bash
+controlpath flag add
+```
+
+Add with all options:
+
+```bash
+controlpath flag add --name my_feature --type boolean --default false --description "My feature flag"
+```
+
+Add and sync to deployments:
+
+```bash
+controlpath flag add --name my_feature --sync
+```
+
+#### `flag list`
+
+Lists flags from definitions or deployment.
+
+##### Usage
+
+```bash
+controlpath flag list [OPTIONS]
+```
+
+##### Options
+
+- `--definitions`: List from definitions file
+- `--deployment <ENV>`: List from deployment file (specify environment)
+- `--format <FORMAT>`: Output format (table, json, yaml, default: table)
+
+##### Examples
+
+List from definitions (default):
+
+```bash
+controlpath flag list
+```
+
+List from specific deployment:
+
+```bash
+controlpath flag list --deployment production
+```
+
+List as JSON:
+
+```bash
+controlpath flag list --format json
+```
+
+#### `flag show`
+
+Shows detailed information about a flag.
+
+##### Usage
+
+```bash
+controlpath flag show [OPTIONS]
+```
+
+##### Options
+
+- `--name <NAME>`: Flag name (required)
+- `--deployment <ENV>`: Show deployment info for environment
+- `--format <FORMAT>`: Output format (table, json, yaml)
+
+##### Examples
+
+Show flag details:
+
+```bash
+controlpath flag show --name my_feature
+```
+
+Show flag in specific environment:
+
+```bash
+controlpath flag show --name my_feature --deployment production
+```
+
+#### `flag remove`
+
+Removes a flag from definitions and optionally from deployments.
+
+##### Usage
+
+```bash
+controlpath flag remove [OPTIONS]
+```
+
+##### Options
+
+- `--name <NAME>`: Flag name (required)
+- `--from-deployments`: Remove from deployment files (default: true)
+- `--env <ENV>`: Remove from specific environment only
+- `--force`: Force removal without confirmation
+
+##### Examples
+
+Remove from definitions only:
+
+```bash
+controlpath flag remove --name my_feature --from-deployments false
+```
+
+Remove from all deployments:
+
+```bash
+controlpath flag remove --name my_feature
+```
+
+Force removal without confirmation:
+
+```bash
+controlpath flag remove --name my_feature --force
+```
+
+### `env`
+
+Manage environments (add, sync, list, remove).
+
+#### `env add`
+
+Adds a new environment.
+
+##### Usage
+
+```bash
+controlpath env add [OPTIONS]
+```
+
+##### Options
+
+- `--name <NAME>`: Environment name
+- `--template <ENV>`: Template environment to copy from
+- `--interactive`: Interactive mode (prompts for missing values)
+
+##### Examples
+
+Add new environment (interactive):
+
+```bash
+controlpath env add
+```
+
+Add with name:
+
+```bash
+controlpath env add --name staging
+```
+
+Add with template:
+
+```bash
+controlpath env add --name staging --template production
+```
+
+#### `env sync`
+
+Syncs flags from definitions to deployment files.
+
+##### Usage
+
+```bash
+controlpath env sync [OPTIONS]
+```
+
+##### Options
+
+- `--env <ENV>`: Environment to sync (syncs all if not specified)
+- `--dry-run`: Show what would be synced without making changes
+
+##### Examples
+
+Sync all environments:
+
+```bash
+controlpath env sync
+```
+
+Sync specific environment:
+
+```bash
+controlpath env sync --env staging
+```
+
+Dry run (show what would be synced):
+
+```bash
+controlpath env sync --dry-run
+```
+
+#### `env list`
+
+Lists all environments.
+
+##### Usage
+
+```bash
+controlpath env list [OPTIONS]
+```
+
+##### Options
+
+- `--format <FORMAT>`: Output format (table, json, yaml, default: table)
+
+##### Examples
+
+List as table (default):
+
+```bash
+controlpath env list
+```
+
+List as JSON:
+
+```bash
+controlpath env list --format json
+```
+
+#### `env remove`
+
+Removes an environment.
+
+##### Usage
+
+```bash
+controlpath env remove [OPTIONS]
+```
+
+##### Options
+
+- `--name <NAME>`: Environment name (required)
+- `--force`: Force removal without confirmation
+
+##### Examples
+
+Remove environment (with confirmation):
+
+```bash
+controlpath env remove --name staging
+```
+
+Force removal without confirmation:
+
+```bash
+controlpath env remove --name staging --force
+```
+
 ## File Organization
 
 ### Standard Structure
