@@ -20,6 +20,7 @@ thiserror = "1.0"
 serde_json = "1.0"
 tera = "1.20"
 serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
 notify = "6.1"
 rmp-serde = "1.1"
 regex = "1.10"
@@ -29,6 +30,9 @@ axum = "0.7"
 tokio = { version = "1.35", features = ["full"] }
 tower = "0.4"
 tower-http = { version = "0.5", features = ["fs", "cors"] }
+atty = "0.2"
+dialoguer = "0.11"
+strsim = "0.11"
 
 [dev-dependencies]
 tempfile = "3.8"

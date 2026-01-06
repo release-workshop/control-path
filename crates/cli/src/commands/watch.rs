@@ -362,7 +362,26 @@ mod tests {
     use super::*;
     use serial_test::serial;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    struct DirGuard {
+        original_dir: PathBuf,
+    }
+
+    impl DirGuard {
+        fn new(temp_path: &std::path::Path) -> Self {
+            let original_dir = std::env::current_dir().unwrap();
+            std::env::set_current_dir(temp_path).unwrap();
+            DirGuard { original_dir }
+        }
+    }
+
+    impl Drop for DirGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original_dir);
+        }
+    }
 
     #[test]
     fn test_determine_definitions_path() {
@@ -402,8 +421,7 @@ mod tests {
         .unwrap();
 
         // Change to temp directory
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp_path).unwrap();
+        let _guard = DirGuard::new(temp_path);
 
         let options = Options {
             lang: Some("typescript".to_string()),
@@ -413,9 +431,6 @@ mod tests {
 
         let result = regenerate_sdk(&options);
         assert!(result.is_ok());
-
-        // Restore directory (ignore errors if directory no longer exists)
-        let _ = std::env::set_current_dir(&original_dir);
     }
 
     #[test]
@@ -452,16 +467,12 @@ rules:
         .unwrap();
 
         // Change to temp directory
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp_path).unwrap();
+        let _guard = DirGuard::new(temp_path);
 
         let result = recompile_ast(&deployment_path);
         assert!(result.is_ok());
 
         let output_path = controlpath_dir.join("test.ast");
         assert!(output_path.exists());
-
-        // Restore directory (ignore errors if directory no longer exists)
-        let _ = std::env::set_current_dir(&original_dir);
     }
 }

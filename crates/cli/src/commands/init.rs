@@ -94,17 +94,35 @@ mod tests {
     use super::*;
     use serial_test::serial;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    struct DirGuard {
+        original_dir: PathBuf,
+    }
+
+    impl DirGuard {
+        fn new(temp_path: &std::path::Path) -> Self {
+            let original_dir = std::env::current_dir().unwrap();
+            std::env::set_current_dir(temp_path).unwrap();
+            DirGuard { original_dir }
+        }
+    }
+
+    impl Drop for DirGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original_dir);
+        }
+    }
 
     #[test]
     #[serial]
     fn test_check_existing_project() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let original_dir = std::env::current_dir().unwrap();
+        let _guard = DirGuard::new(temp_path);
 
         // Should return false when no files exist
-        std::env::set_current_dir(temp_path).unwrap();
         assert!(!check_existing_project());
 
         // Create definitions file (using relative path since we changed directory)
@@ -115,9 +133,6 @@ mod tests {
         fs::remove_file("flags.definitions.yaml").ok();
         fs::create_dir_all(".controlpath").unwrap();
         assert!(check_existing_project());
-
-        // Restore original directory (ignore errors if directory no longer exists)
-        let _ = std::env::set_current_dir(&original_dir);
     }
 
     #[test]
@@ -125,10 +140,7 @@ mod tests {
     fn test_init_command_success() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let original_dir = std::env::current_dir().unwrap();
-
-        // Change to temp directory right before running command
-        std::env::set_current_dir(temp_path).unwrap();
+        let _guard = DirGuard::new(temp_path);
 
         let options = Options {
             force: false,
@@ -151,9 +163,6 @@ mod tests {
             deployment_path.exists(),
             "production.deployment.yaml should exist at {deployment_path:?}"
         );
-
-        // Restore original directory (ignore errors if directory no longer exists)
-        let _ = std::env::set_current_dir(&original_dir);
     }
 
     #[test]
@@ -161,10 +170,7 @@ mod tests {
     fn test_init_command_with_force() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let original_dir = std::env::current_dir().unwrap();
-
-        // Change to temp directory
-        std::env::set_current_dir(temp_path).unwrap();
+        let _guard = DirGuard::new(temp_path);
 
         // Create existing file (using relative path since we changed directory)
         fs::write("flags.definitions.yaml", "flags: []").unwrap();
@@ -184,9 +190,6 @@ mod tests {
             definitions_path.exists(),
             "flags.definitions.yaml should exist at {definitions_path:?}"
         );
-
-        // Restore original directory (ignore errors if directory no longer exists)
-        let _ = std::env::set_current_dir(&original_dir);
     }
 
     #[test]
@@ -194,10 +197,7 @@ mod tests {
     fn test_init_command_without_examples() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let original_dir = std::env::current_dir().unwrap();
-
-        // Change to temp directory
-        std::env::set_current_dir(temp_path).unwrap();
+        let _guard = DirGuard::new(temp_path);
 
         // Verify temp directory doesn't have the definitions file before running
         assert!(
@@ -225,8 +225,5 @@ mod tests {
             deployment_path.exists(),
             "production.deployment.yaml should be created at {deployment_path:?}"
         );
-
-        // Restore original directory (ignore errors if directory no longer exists)
-        let _ = std::env::set_current_dir(&original_dir);
     }
 }
