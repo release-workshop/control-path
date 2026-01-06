@@ -15,11 +15,15 @@ use commands::{
     workflow,
 };
 
+// Version from VERSION file (set by build.rs) or fallback to Cargo.toml version
+// build.rs always sets CONTROLPATH_VERSION, so this is safe
+const VERSION: &str = env!("CONTROLPATH_VERSION");
+
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
 #[command(name = "controlpath")]
 #[command(about = "Control Path CLI - Compile and validate flag definitions", long_about = None)]
-#[command(version)]
+#[command(version = VERSION)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
