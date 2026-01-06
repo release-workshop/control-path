@@ -9,9 +9,10 @@ mod error;
 mod generator;
 mod utils;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
-    compile, debug, env, explain, flag, generate_sdk, init, setup, validate, watch, workflow,
+    compile, completion, debug, env, explain, flag, generate_sdk, init, setup, validate, watch,
+    workflow,
 };
 
 /// Control Path CLI - Compile and validate flag definitions
@@ -204,6 +205,12 @@ enum Commands {
         #[arg(long)]
         skip_validation: bool,
     },
+    /// Generate shell completion scripts
+    Completion {
+        /// Shell type (bash, zsh, fish)
+        #[arg(value_name = "SHELL")]
+        shell: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -311,6 +318,11 @@ enum EnvSubcommand {
         #[arg(long)]
         force: bool,
     },
+}
+
+/// Get the CLI command structure for completion generation
+pub fn get_cli_command() -> clap::Command {
+    Cli::command()
 }
 
 fn main() {
@@ -585,6 +597,10 @@ fn main() {
                 skip_validation,
             };
             workflow::run_deploy(&opts)
+        }
+        Commands::Completion { shell } => {
+            let opts = completion::Options { shell };
+            completion::run(&opts)
         }
     };
 

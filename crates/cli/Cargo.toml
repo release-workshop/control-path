@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 controlpath-compiler = { path = "../compiler" }
 clap = { version = "4.4", features = ["derive"] }
+clap_complete = "4.4"
 anyhow = "1.0"
 thiserror = "1.0"
 serde_json = "1.0"
