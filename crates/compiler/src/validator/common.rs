@@ -55,3 +55,92 @@ where
         errors: all_errors,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_with_schema_valid() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"}
+            }
+        });
+        let data = serde_json::json!({
+            "name": "test"
+        });
+        let result = validate_with_schema(&schema, "test.yaml", &data, |_, _| vec![]);
+        assert!(result.valid);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_with_schema_invalid_schema() {
+        let invalid_schema = serde_json::json!({
+            "type": "invalid_type_that_does_not_exist"
+        });
+        let data = serde_json::json!({});
+        let result = validate_with_schema(&invalid_schema, "test.yaml", &data, |_, _| vec![]);
+        assert!(!result.valid);
+        assert!(!result.errors.is_empty());
+        assert!(result.errors[0].message.contains("schema"));
+    }
+
+    #[test]
+    fn test_validate_with_schema_schema_errors() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["name"]
+        });
+        let data = serde_json::json!({});
+        let result = validate_with_schema(&schema, "test.yaml", &data, |_, _| vec![]);
+        assert!(!result.valid);
+        assert!(!result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_with_schema_additional_errors() {
+        let schema = serde_json::json!({
+            "type": "object"
+        });
+        let data = serde_json::json!({});
+        let additional_error = ValidationError {
+            file: "test.yaml".to_string(),
+            line: None,
+            column: None,
+            message: "Custom validation error".to_string(),
+            path: None,
+            suggestion: None,
+        };
+        let result = validate_with_schema(&schema, "test.yaml", &data, |_, _| {
+            vec![additional_error.clone()]
+        });
+        assert!(!result.valid);
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].message, "Custom validation error");
+    }
+
+    #[test]
+    fn test_validate_with_schema_combined_errors() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "required": ["name"]
+        });
+        let data = serde_json::json!({});
+        let additional_error = ValidationError {
+            file: "test.yaml".to_string(),
+            line: None,
+            column: None,
+            message: "Additional error".to_string(),
+            path: None,
+            suggestion: None,
+        };
+        let result =
+            validate_with_schema(&schema, "test.yaml", &data, |_, _| vec![additional_error]);
+        assert!(!result.valid);
+        // Should have both schema errors and additional errors
+        assert!(!result.errors.is_empty());
+    }
+}

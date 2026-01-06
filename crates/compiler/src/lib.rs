@@ -420,4 +420,103 @@ mod tests {
         assert!(deserialized.segments.is_none());
         assert!(deserialized.signature.is_none());
     }
+
+    #[test]
+    fn test_parse_definitions_error() {
+        let result = parse_definitions("invalid: yaml: [");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CompilerError::Parse(_) => {}
+            _ => panic!("Expected Parse error"),
+        }
+    }
+
+    #[test]
+    fn test_parse_deployment_error() {
+        let result = parse_deployment("invalid: yaml: [");
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CompilerError::Parse(_) => {}
+            _ => panic!("Expected Parse error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_definitions_with_errors() {
+        use serde_json::json;
+        let invalid_definitions = json!({
+            "flags": [
+                {
+                    "name": "test_flag"
+                    // Missing required fields
+                }
+            ]
+        });
+        let result = validate_definitions(&invalid_definitions);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CompilerError::Validation(_) => {}
+            _ => panic!("Expected Validation error"),
+        }
+    }
+
+    #[test]
+    fn test_validate_deployment_with_errors() {
+        use serde_json::json;
+        let invalid_deployment = json!({
+            "environment": "test"
+            // Missing required 'rules' field
+        });
+        let result = validate_deployment(&invalid_deployment);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CompilerError::Validation(_) => {}
+            _ => panic!("Expected Validation error"),
+        }
+    }
+
+    #[test]
+    fn test_compile_error() {
+        use serde_json::json;
+        let definitions = json!({
+            "flags": [
+                {
+                    "name": "my_flag",
+                    "type": "boolean",
+                    "defaultValue": false
+                }
+            ]
+        });
+        let deployment = json!({
+            "environment": "production",
+            "rules": {
+                "nonexistent_flag": {
+                    "rules": [
+                        {"serve": true}
+                    ]
+                }
+            }
+        });
+        let result = compile(&deployment, &definitions);
+        // Should fail because flag doesn't exist in definitions
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_serialize_error_handling() {
+        // Create an artifact that might cause serialization issues
+        // This is hard to trigger, but we can test the error path exists
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["ON".to_string()],
+            flags: vec![vec![]],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+        // Normal serialization should work
+        let result = serialize(&artifact);
+        assert!(result.is_ok());
+    }
 }

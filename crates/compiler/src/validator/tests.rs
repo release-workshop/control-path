@@ -215,4 +215,107 @@ mod tests {
             .iter()
             .any(|e| e.message.contains("percentage") && e.message.contains("between")));
     }
+
+    #[test]
+    fn test_validator_with_schemas() {
+        let custom_definitions_schema = json!({
+            "type": "object",
+            "properties": {
+                "flags": {
+                    "type": "array"
+                }
+            }
+        });
+        let custom_deployment_schema = json!({
+            "type": "object",
+            "properties": {
+                "environment": {
+                    "type": "string"
+                }
+            }
+        });
+
+        let validator =
+            Validator::with_schemas(custom_definitions_schema, custom_deployment_schema);
+        let data = json!({"flags": []});
+        let result = validator.validate_definitions("test.yaml", &data);
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn test_validator_default() {
+        let validator = Validator::default();
+        let valid_data = json!({
+            "flags": [
+                {
+                    "name": "test_flag",
+                    "type": "boolean",
+                    "defaultValue": false
+                }
+            ]
+        });
+        let result = validator.validate_definitions("test.yaml", &valid_data);
+        assert!(result.valid);
+    }
+
+    #[test]
+    fn test_format_errors_empty() {
+        let validator = Validator::new();
+        let errors = vec![];
+        let formatted = validator.format_errors(&errors);
+        assert_eq!(formatted, "");
+    }
+
+    #[test]
+    fn test_format_errors_with_all_fields() {
+        use super::super::error::ValidationError;
+        let validator = Validator::new();
+        let errors = vec![ValidationError {
+            file: "test.yaml".to_string(),
+            line: Some(5),
+            column: Some(10),
+            path: Some("flags[0].name".to_string()),
+            message: "Invalid flag name".to_string(),
+            suggestion: Some("Use lowercase letters only".to_string()),
+        }];
+        let formatted = validator.format_errors(&errors);
+        assert!(formatted.contains("✗ Validation failed"));
+        assert!(formatted.contains("test.yaml:5:10"));
+        assert!(formatted.contains("Invalid flag name"));
+        assert!(formatted.contains("Path: flags[0].name"));
+        assert!(formatted.contains("Suggestion: Use lowercase letters only"));
+    }
+
+    #[test]
+    fn test_format_errors_without_line_column() {
+        use super::super::error::ValidationError;
+        let validator = Validator::new();
+        let errors = vec![ValidationError {
+            file: "test.yaml".to_string(),
+            line: None,
+            column: None,
+            path: None,
+            message: "Invalid file".to_string(),
+            suggestion: None,
+        }];
+        let formatted = validator.format_errors(&errors);
+        assert!(formatted.contains("test.yaml"));
+        assert!(formatted.contains("Invalid file"));
+    }
+
+    #[test]
+    fn test_format_errors_with_line_no_column() {
+        use super::super::error::ValidationError;
+        let validator = Validator::new();
+        let errors = vec![ValidationError {
+            file: "test.yaml".to_string(),
+            line: Some(5),
+            column: None,
+            path: None,
+            message: "Invalid file".to_string(),
+            suggestion: None,
+        }];
+        let formatted = validator.format_errors(&errors);
+        assert!(formatted.contains("test.yaml:5"));
+    }
 }
