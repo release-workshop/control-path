@@ -2320,14 +2320,14 @@ mod tests {
         assert!(day_result.is_some());
         if let Some(Value::Number(n)) = day_result {
             let day = n.as_u64().unwrap();
-            assert!(day >= 1 && day <= 31);
+            assert!((1..=31).contains(&day));
         }
 
         let month_result = evaluate_function(FuncCode::Month as u8, &[], &artifact, &user, &None);
         assert!(month_result.is_some());
         if let Some(Value::Number(n)) = month_result {
             let month = n.as_u64().unwrap();
-            assert!(month >= 1 && month <= 12);
+            assert!((1..=12).contains(&month));
         }
     }
 
