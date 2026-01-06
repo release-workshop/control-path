@@ -46,6 +46,8 @@ mod tests {
 
     impl DirGuard {
         fn new(temp_path: &std::path::Path) -> Self {
+            // Ensure directory exists
+            fs::create_dir_all(temp_path).unwrap();
             let original_dir = std::env::current_dir().unwrap();
             std::env::set_current_dir(temp_path).unwrap();
             DirGuard { original_dir }

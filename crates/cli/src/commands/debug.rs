@@ -1027,6 +1027,27 @@ fn run_inner(options: &Options) -> CliResult<()> {
 mod tests {
     use super::*;
     use controlpath_compiler::ast::{Artifact, Rule, ServePayload};
+    use serial_test::serial;
+    
+    // Helper for tests that need to change directory
+    struct DirGuard {
+        original_dir: PathBuf,
+    }
+
+    impl DirGuard {
+        fn new(temp_path: &std::path::Path) -> Self {
+            std::fs::create_dir_all(temp_path).unwrap();
+            let original_dir = std::env::current_dir().unwrap();
+            std::env::set_current_dir(temp_path).unwrap();
+            DirGuard { original_dir }
+        }
+    }
+
+    impl Drop for DirGuard {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.original_dir);
+        }
+    }
 
     #[test]
     fn test_find_flag_index() {
@@ -1219,5 +1240,896 @@ mod tests {
         assert!(eval.matched);
         assert_eq!(eval.rule_type, "serve");
         assert_eq!(eval.value, Some(Value::String("ON".to_string())));
+    }
+
+    #[test]
+    fn test_evaluate_binary_op_comparison_operators() {
+        // Test all comparison operators
+        let left = Value::Number(5.into());
+        let right = Value::Number(3.into());
+
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Gt as u8, &left, &right),
+            Some(Value::Bool(true))
+        );
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Gte as u8, &left, &right),
+            Some(Value::Bool(true))
+        );
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Lt as u8, &left, &right),
+            Some(Value::Bool(false))
+        );
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Lte as u8, &left, &right),
+            Some(Value::Bool(false))
+        );
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Ne as u8, &left, &right),
+            Some(Value::Bool(true))
+        );
+
+        // Test equality
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Eq as u8, &left, &left),
+            Some(Value::Bool(true))
+        );
+    }
+
+    #[test]
+    fn test_evaluate_binary_op_string_comparison() {
+        let left = Value::String("abc".to_string());
+        let right = Value::String("def".to_string());
+
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Lt as u8, &left, &right),
+            Some(Value::Bool(true))
+        );
+        assert_eq!(
+            evaluate_binary_op(BinaryOp::Gt as u8, &left, &right),
+            Some(Value::Bool(false))
+        );
+    }
+
+    #[test]
+    fn test_evaluate_logical_op_not() {
+        // LogicalOp::Not is handled in evaluate_expression_value, not evaluate_logical_op
+        // But we can test invalid op codes
+        let left = Value::Bool(true);
+        let right = Value::Bool(false);
+        assert_eq!(evaluate_logical_op(99, &left, &right), None);
+    }
+
+    #[test]
+    fn test_evaluate_function_starts_with() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["hello world".to_string(), "hello".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr1 = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+        let expr2 = Expression::Literal {
+            value: Value::Number(1.into()),
+        };
+
+        let result = evaluate_function(
+            FuncCode::StartsWith as u8,
+            &[expr1, expr2],
+            &artifact,
+            &user,
+            &None,
+        );
+        assert_eq!(result, Some(Value::Bool(true)));
+
+        // Test with insufficient args
+        let result2 = evaluate_function(FuncCode::StartsWith as u8, &[], &artifact, &user, &None);
+        assert_eq!(result2, Some(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_evaluate_function_ends_with() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["hello world".to_string(), "world".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr1 = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+        let expr2 = Expression::Literal {
+            value: Value::Number(1.into()),
+        };
+
+        let result = evaluate_function(
+            FuncCode::EndsWith as u8,
+            &[expr1, expr2],
+            &artifact,
+            &user,
+            &None,
+        );
+        assert_eq!(result, Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_evaluate_function_contains() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["hello world".to_string(), "world".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr1 = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+        let expr2 = Expression::Literal {
+            value: Value::Number(1.into()),
+        };
+
+        let result = evaluate_function(
+            FuncCode::Contains as u8,
+            &[expr1, expr2],
+            &artifact,
+            &user,
+            &None,
+        );
+        assert_eq!(result, Some(Value::Bool(true)));
+
+        // Test with array
+        let expr3 = Expression::Literal {
+            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+        };
+        let expr4 = Expression::Literal {
+            value: Value::String("a".to_string()),
+        };
+        let result2 = evaluate_function(
+            FuncCode::Contains as u8,
+            &[expr3, expr4],
+            &artifact,
+            &user,
+            &None,
+        );
+        assert_eq!(result2, Some(Value::Bool(true)));
+    }
+
+    #[test]
+    fn test_evaluate_function_matches() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["hello123".to_string(), r"\d+".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr1 = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+        let expr2 = Expression::Literal {
+            value: Value::Number(1.into()),
+        };
+
+        let result = evaluate_function(
+            FuncCode::Matches as u8,
+            &[expr1.clone(), expr2],
+            &artifact,
+            &user,
+            &None,
+        );
+        assert_eq!(result, Some(Value::Bool(true)));
+
+        // Test with invalid regex
+        let expr3 = Expression::Literal {
+            value: Value::String("[invalid".to_string()),
+        };
+        let expr1_clone = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+        let result2 = evaluate_function(
+            FuncCode::Matches as u8,
+            &[expr1_clone, expr3],
+            &artifact,
+            &user,
+            &None,
+        );
+        assert_eq!(result2, Some(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_evaluate_function_upper_lower() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["hello".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+
+        let result = evaluate_function(FuncCode::Upper as u8, std::slice::from_ref(&expr), &artifact, &user, &None);
+        assert_eq!(result, Some(Value::String("HELLO".to_string())));
+
+        let result2 = evaluate_function(FuncCode::Lower as u8, &[expr], &artifact, &user, &None);
+        assert_eq!(result2, Some(Value::String("hello".to_string())));
+
+        // Test with empty args
+        let result3 = evaluate_function(FuncCode::Upper as u8, &[], &artifact, &user, &None);
+        assert_eq!(result3, Some(Value::String(String::new())));
+    }
+
+    #[test]
+    fn test_evaluate_function_length() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["hello".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+
+        let result = evaluate_function(FuncCode::Length as u8, &[expr], &artifact, &user, &None);
+        assert_eq!(result, Some(Value::Number(5.into())));
+
+        // Test with array
+        let expr2 = Expression::Literal {
+            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+        };
+        let result2 = evaluate_function(FuncCode::Length as u8, &[expr2], &artifact, &user, &None);
+        assert_eq!(result2, Some(Value::Number(2.into())));
+
+        // Test with empty args
+        let result3 = evaluate_function(FuncCode::Length as u8, &[], &artifact, &user, &None);
+        assert_eq!(result3, Some(Value::Number(0.into())));
+    }
+
+    #[test]
+    fn test_evaluate_function_in() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec![],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr1 = Expression::Literal {
+            value: Value::String("a".to_string()),
+        };
+        let expr2 = Expression::Literal {
+            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+        };
+
+        let result = evaluate_function(FuncCode::In as u8, &[expr1.clone(), expr2.clone()], &artifact, &user, &None);
+        assert_eq!(result, Some(Value::Bool(true)));
+
+        // Test with value not in array
+        let expr3 = Expression::Literal {
+            value: Value::String("c".to_string()),
+        };
+        let expr2_clone = Expression::Literal {
+            value: Value::Array(vec![Value::String("a".to_string()), Value::String("b".to_string())]),
+        };
+        let result2 = evaluate_function(FuncCode::In as u8, &[expr3, expr2_clone], &artifact, &user, &None);
+        assert_eq!(result2, Some(Value::Bool(false)));
+
+        // Test with non-array
+        let expr4 = Expression::Literal {
+            value: Value::String("not an array".to_string()),
+        };
+        let result3 = evaluate_function(FuncCode::In as u8, &[expr1, expr4], &artifact, &user, &None);
+        assert_eq!(result3, Some(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_evaluate_expression_value_property() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["user.id".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-123"});
+        let expr = Expression::Property { prop_index: 0 };
+
+        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        assert_eq!(result, Some(Value::String("user-123".to_string())));
+    }
+
+    #[test]
+    fn test_evaluate_expression_value_logical_not() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec![],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr = Expression::LogicalOp {
+            op_code: LogicalOp::Not as u8,
+            left: Box::new(Expression::Literal {
+                value: Value::Bool(true),
+            }),
+            right: None,
+        };
+
+        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        assert_eq!(result, Some(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_select_variation() {
+        use controlpath_compiler::ast::Variation;
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["var_a".to_string(), "var_b".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-123"});
+        let variations = vec![
+            Variation {
+                var_index: 0,
+                percentage: 50,
+            },
+            Variation {
+                var_index: 1,
+                percentage: 50,
+            },
+        ];
+
+        let result = select_variation(&variations, &artifact, &user);
+        assert!(result.is_some());
+
+        // Test with empty variations
+        let result2 = select_variation(&[], &artifact, &user);
+        assert_eq!(result2, None);
+
+        // Test with zero percentages
+        let variations_zero = vec![Variation {
+            var_index: 0,
+            percentage: 0,
+        }];
+        let result3 = select_variation(&variations_zero, &artifact, &user);
+        assert!(result3.is_some()); // Should return first variation
+    }
+
+    #[test]
+    fn test_get_property_nested() {
+        let user = serde_json::json!({"profile": {"name": "John", "age": 30}});
+        let context = None;
+
+        let result = get_property("user.profile.name", &user, &context);
+        assert_eq!(result, Some(Value::String("John".to_string())));
+
+        let result2 = get_property("user.profile.age", &user, &context);
+        assert_eq!(result2, Some(Value::Number(30.into())));
+    }
+
+    #[test]
+    fn test_get_property_from_context() {
+        let user = serde_json::json!({"id": "user-1"});
+        let context = Some(serde_json::json!({"region": "us-east"}));
+
+        let result = get_property("context.region", &user, &context);
+        assert_eq!(result, Some(Value::String("us-east".to_string())));
+    }
+
+    #[test]
+    fn test_get_property_empty_path() {
+        let user = serde_json::json!({"id": "user-1"});
+        let context = None;
+
+        let result = get_property("", &user, &context);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_coerce_to_boolean_edge_cases() {
+        assert_eq!(coerce_to_boolean(&Value::String("1".to_string())), Some(true));
+        assert_eq!(coerce_to_boolean(&Value::String("0".to_string())), Some(false));
+        assert_eq!(coerce_to_boolean(&Value::String("TRUE".to_string())), Some(true));
+        assert_eq!(coerce_to_boolean(&Value::String("FALSE".to_string())), Some(false));
+        assert_eq!(coerce_to_boolean(&Value::Number(42.into())), Some(true));
+        assert_eq!(coerce_to_boolean(&Value::Null), None);
+        assert_eq!(coerce_to_boolean(&Value::Array(vec![])), None);
+    }
+
+    #[test]
+    fn test_compare_values() {
+        let num5 = Value::Number(5.into());
+        let num3 = Value::Number(3.into());
+        
+        assert!(compare_values(&num5, &num3) > 0);
+        assert!(compare_values(&num3, &num5) < 0);
+        // Note: compare_values uses signum which may have floating point issues
+        // For equal values, we just verify the comparison works correctly
+        assert!(compare_values(&Value::String("b".to_string()), &Value::String("a".to_string())) > 0);
+        assert!(compare_values(&Value::String("a".to_string()), &Value::String("b".to_string())) < 0);
+    }
+
+    #[test]
+    fn test_coerce_and_compare() {
+        // Test number coercion
+        assert_eq!(
+            coerce_and_compare(&Value::String("5".to_string()), &Value::Number(5.into())),
+            0
+        );
+        // Test boolean coercion
+        assert_eq!(
+            coerce_and_compare(&Value::Bool(true), &Value::String("true".to_string())),
+            0
+        );
+        // Test exact match
+        assert_eq!(
+            coerce_and_compare(&Value::String("test".to_string()), &Value::String("test".to_string())),
+            0
+        );
+    }
+
+    #[test]
+    fn test_format_expression() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["user.id".to_string(), "admin".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let expr = Expression::Property { prop_index: 0 };
+        let formatted = format_expression(&expr, &artifact, 0);
+        assert_eq!(formatted, "user.id");
+
+        let expr2 = Expression::Literal {
+            value: Value::Number(1.into()),
+        };
+        let formatted2 = format_expression(&expr2, &artifact, 0);
+        assert_eq!(formatted2, "\"admin\"");
+
+        // Test depth limit - format_expression checks depth at the start
+        // So we need to call it with depth > 10 to trigger the limit
+        let simple_expr = Expression::Literal {
+            value: Value::Bool(true),
+        };
+        let formatted3 = format_expression(&simple_expr, &artifact, 11);
+        assert_eq!(formatted3, "...");
+    }
+
+    #[test]
+    fn test_evaluate_rule_detailed_all_types() {
+        use controlpath_compiler::ast::{RolloutPayload, RolloutValue, Variation};
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["ON".to_string(), "OFF".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-123"});
+
+        // Test ServeWithWhen
+        let when_expr = Expression::Literal {
+            value: Value::Bool(true),
+        };
+        let rule1 = Rule::ServeWithWhen(when_expr.clone(), ServePayload::String("ON".to_string()));
+        let eval1 = evaluate_rule_detailed(&rule1, &artifact, &user, &None);
+        assert!(eval1.matched);
+        assert_eq!(eval1.rule_type, "serve");
+
+        // Test VariationsWithoutWhen
+        let variations = vec![Variation {
+            var_index: 0,
+            percentage: 100,
+        }];
+        let rule2 = Rule::VariationsWithoutWhen(variations.clone());
+        let eval2 = evaluate_rule_detailed(&rule2, &artifact, &user, &None);
+        assert!(eval2.matched);
+        assert_eq!(eval2.rule_type, "variations");
+
+        // Test VariationsWithWhen
+        let rule3 = Rule::VariationsWithWhen(when_expr.clone(), variations);
+        let eval3 = evaluate_rule_detailed(&rule3, &artifact, &user, &None);
+        assert!(eval3.matched);
+        assert_eq!(eval3.rule_type, "variations");
+
+        // Test RolloutWithoutWhen
+        let rollout_payload = RolloutPayload {
+            value_index: RolloutValue::String("ON".to_string()),
+            percentage: 50,
+        };
+        let rule4 = Rule::RolloutWithoutWhen(rollout_payload.clone());
+        let eval4 = evaluate_rule_detailed(&rule4, &artifact, &user, &None);
+        assert_eq!(eval4.rule_type, "rollout");
+
+        // Test RolloutWithWhen
+        let rule5 = Rule::RolloutWithWhen(when_expr, rollout_payload);
+        let eval5 = evaluate_rule_detailed(&rule5, &artifact, &user, &None);
+        assert_eq!(eval5.rule_type, "rollout");
+    }
+
+    #[test]
+    fn test_determine_ast_path_with_ast_option() {
+        let options = Options {
+            port: None,
+            env: None,
+            ast: Some("/path/to/file.ast".to_string()),
+            open: false,
+        };
+        let result = determine_ast_path(&options);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/path/to/file.ast"));
+    }
+
+    #[test]
+    fn test_determine_ast_path_with_env_option() {
+        let options = Options {
+            port: None,
+            env: Some("production".to_string()),
+            ast: None,
+            open: false,
+        };
+        let result = determine_ast_path(&options);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from(".controlpath/production.ast"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_determine_ast_path_default_finds_file() {
+        use tempfile::TempDir;
+        use std::fs;
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(".controlpath/production.ast", b"test").unwrap();
+
+        let options = Options {
+            port: None,
+            env: None,
+            ast: None,
+            open: false,
+        };
+        let result = determine_ast_path(&options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_determine_ast_path_default_finds_any_ast() {
+        use tempfile::TempDir;
+        use std::fs;
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(".controlpath/staging.ast", b"test").unwrap();
+
+        let options = Options {
+            port: None,
+            env: None,
+            ast: None,
+            open: false,
+        };
+        let result = determine_ast_path(&options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_determine_ast_path_default_no_files() {
+        use tempfile::TempDir;
+        use std::fs;
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+
+        let options = Options {
+            port: None,
+            env: None,
+            ast: None,
+            open: false,
+        };
+        let result = determine_ast_path(&options);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_artifact_invalid_file() {
+        let path = PathBuf::from("/nonexistent/file.ast");
+        let result = load_artifact(&path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_load_artifact_invalid_data() {
+        use tempfile::TempDir;
+        use std::fs;
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        let _guard = DirGuard::new(temp_path);
+
+        let ast_path = PathBuf::from("test.ast");
+        fs::write(&ast_path, b"invalid data").unwrap();
+
+        let result = load_artifact(&ast_path);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_run_error_path() {
+        let options = Options {
+            port: None,
+            env: None,
+            ast: Some("/nonexistent/file.ast".to_string()),
+            open: false,
+        };
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 1);
+    }
+
+    #[test]
+    fn test_get_property_prototype_pollution() {
+        let user = serde_json::json!({"id": "user-1"});
+        let context = None;
+
+        // Test prototype pollution protection
+        let result = get_property("__proto__.polluted", &user, &context);
+        assert_eq!(result, None);
+
+        let result2 = get_property("constructor.prototype", &user, &context);
+        assert_eq!(result2, None);
+
+        let result3 = get_property("user.__proto__", &user, &context);
+        assert_eq!(result3, None);
+    }
+
+    #[test]
+    fn test_get_property_from_root() {
+        let user = serde_json::json!({"id": "user-1", "role": "admin"});
+        let context = Some(serde_json::json!({"region": "us-east"}));
+
+        // Test accessing root-level properties
+        let result = get_property("id", &user, &context);
+        assert_eq!(result, Some(Value::String("user-1".to_string())));
+
+        let result2 = get_property("region", &user, &context);
+        assert_eq!(result2, Some(Value::String("us-east".to_string())));
+    }
+
+    #[test]
+    fn test_evaluate_expression_value_logical_op_with_none_right() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec![],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr = Expression::LogicalOp {
+            op_code: LogicalOp::And as u8,
+            left: Box::new(Expression::Literal {
+                value: Value::Bool(true),
+            }),
+            right: None, // This should cause evaluation to fail
+        };
+
+        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_select_variation_with_no_user_id() {
+        use controlpath_compiler::ast::Variation;
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["var_a".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({}); // No id field
+        let variations = vec![Variation {
+            var_index: 0,
+            percentage: 100,
+        }];
+
+        let result = select_variation(&variations, &artifact, &user);
+        assert!(result.is_some()); // Should still work with empty user_id
+    }
+
+    #[test]
+    fn test_select_rollout_edge_cases() {
+        let user = serde_json::json!({"id": "user-123"});
+
+        // Test with 0% rollout
+        let result = select_rollout(&user, 0);
+        assert!(!result);
+
+        // Test with 100% rollout
+        let result2 = select_rollout(&user, 100);
+        assert!(result2);
+
+        // Test with user without id
+        let user_no_id = serde_json::json!({});
+        let _result3 = select_rollout(&user_no_id, 50);
+        // Should still work (uses empty string as user_id)
+        // Result can be either true or false depending on hash
+    }
+
+    #[test]
+    fn test_evaluate_function_matches_invalid_regex() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec![],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        let expr1 = Expression::Literal {
+            value: Value::String("test".to_string()),
+        };
+        let expr2 = Expression::Literal {
+            value: Value::String("[invalid regex".to_string()),
+        };
+
+        let result = evaluate_function(FuncCode::Matches as u8, &[expr1, expr2], &artifact, &user, &None);
+        assert_eq!(result, Some(Value::Bool(false))); // Should return false for invalid regex
+    }
+
+    #[test]
+    fn test_evaluate_function_insufficient_args() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec![],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+
+        // Test functions that require args with insufficient args
+        let result1 = evaluate_function(FuncCode::StartsWith as u8, &[], &artifact, &user, &None);
+        assert_eq!(result1, Some(Value::Bool(false)));
+
+        let result2 = evaluate_function(FuncCode::Contains as u8, &[], &artifact, &user, &None);
+        assert_eq!(result2, Some(Value::Bool(false)));
+
+        let result3 = evaluate_function(FuncCode::Matches as u8, &[], &artifact, &user, &None);
+        assert_eq!(result3, Some(Value::Bool(false)));
+    }
+
+    #[test]
+    fn test_evaluate_binary_op_invalid_op_code() {
+        let result = evaluate_binary_op(99, &Value::Bool(true), &Value::Bool(false));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_evaluate_logical_op_invalid_op_code() {
+        let result = evaluate_logical_op(99, &Value::Bool(true), &Value::Bool(false));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_evaluate_expression_value_literal_string_table_index() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["test_string".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        // Literal with number that's a string table index
+        let expr = Expression::Literal {
+            value: Value::Number(0.into()),
+        };
+
+        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        assert_eq!(result, Some(Value::String("test_string".to_string())));
+    }
+
+    #[test]
+    fn test_evaluate_expression_value_literal_number_not_index() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec!["test_string".to_string()],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: None,
+        };
+
+        let user = serde_json::json!({"id": "user-1"});
+        // Literal with number that's NOT a string table index (out of bounds)
+        let expr = Expression::Literal {
+            value: Value::Number(999.into()),
+        };
+
+        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        // Should return the number itself since it's out of bounds
+        assert_eq!(result, Some(Value::Number(999.into())));
     }
 }

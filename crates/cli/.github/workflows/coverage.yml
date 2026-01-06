@@ -1,0 +1,42 @@
+# Coverage reporting workflow
+# This workflow runs tests with coverage and uploads results
+
+name: Test Coverage
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    
+    - name: Install cargo-tarpaulin
+      run: |
+        # Install dependencies for cargo-tarpaulin
+        sudo apt-get update
+        sudo apt-get install -y libssl-dev pkg-config
+        cargo install cargo-tarpaulin
+    
+    - name: Run tests with coverage
+      run: cargo tarpaulin --out Xml --output-dir coverage --timeout 120
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/cobertura.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+

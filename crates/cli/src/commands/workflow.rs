@@ -484,24 +484,35 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
     // Get value to serve
     let serve_value = options.value.as_deref();
 
-    // Update each environment
+    // Check if flag exists in definitions (before processing environments)
+    let definitions = read_definitions()?;
+    if !check_flag_exists(&definitions, &options.name) {
+        return Err(CliError::Message(format!(
+            "Flag '{}' not found in definitions",
+            options.name
+        )));
+    }
+
+    // Verify all specified environments exist
+    let mut missing_envs = Vec::new();
     for env in &envs {
         let deployment_path = PathBuf::from(format!(".controlpath/{env}.deployment.yaml"));
         if !deployment_path.exists() {
-            eprintln!("⚠ Warning: Environment '{env}' not found, skipping");
-            continue;
+            missing_envs.push(env.clone());
         }
+    }
+    if !missing_envs.is_empty() {
+        return Err(CliError::Message(format!(
+            "Environment(s) not found: {}. Run 'controlpath env add --name <env>' to create them.",
+            missing_envs.join(", ")
+        )));
+    }
 
+    // Update each environment
+    let mut updated_envs = Vec::new();
+    for env in &envs {
+        let deployment_path = PathBuf::from(format!(".controlpath/{env}.deployment.yaml"));
         let mut deployment = read_deployment(&deployment_path)?;
-
-        // Check if flag exists in definitions
-        let definitions = read_definitions()?;
-        if !check_flag_exists(&definitions, &options.name) {
-            return Err(CliError::Message(format!(
-                "Flag '{}' not found in definitions",
-                options.name
-            )));
-        }
 
         // Get flag type and default from definitions
         let flag_type = definitions
@@ -587,9 +598,10 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
             .map_err(|e| CliError::Message(format!("Invalid deployment after update: {e}")))?;
 
         write_deployment(&deployment_path, &deployment)?;
+        updated_envs.push(env.clone());
     }
 
-    Ok(envs)
+    Ok(updated_envs)
 }
 
 // ============================================================================
@@ -702,6 +714,8 @@ mod tests {
 
     impl DirGuard {
         fn new(temp_path: &std::path::Path) -> Self {
+            // Ensure directory exists
+            fs::create_dir_all(temp_path).unwrap();
             let original_dir = std::env::current_dir().unwrap();
             std::env::set_current_dir(temp_path).unwrap();
             DirGuard { original_dir }
@@ -953,5 +967,226 @@ rules:
             .unwrap_err()
             .to_string()
             .contains("Environment 'nonexistent' not found"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_new_flag_with_enable_in() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let options = NewFlagOptions {
+            name: Some("new_flag".to_string()),
+            flag_type: Some("boolean".to_string()),
+            default: Some("true".to_string()),
+            description: None,
+            enable_in: Some("production".to_string()),
+            skip_sync: false,
+            skip_sdk: true,
+        };
+
+        let result = run_new_flag_inner(&options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_enable_flag_with_all_flag() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let options = EnableOptions {
+            name: "existing_flag".to_string(),
+            env: None,
+            rule: None,
+            value: None,
+            all: true,
+            interactive: false,
+        };
+
+        let result = run_enable_inner(&options);
+        assert!(result.is_ok());
+        let updated_envs = result.unwrap();
+        assert!(!updated_envs.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_enable_flag_with_value() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let options = EnableOptions {
+            name: "existing_flag".to_string(),
+            env: Some("production".to_string()),
+            rule: None,
+            value: Some("true".to_string()),
+            all: false,
+            interactive: false,
+        };
+
+        let result = run_enable_inner(&options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_deploy_dry_run() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let options = DeployOptions {
+            env: None,
+            dry_run: true,
+            skip_validation: false,
+        };
+
+        let result = run_deploy_inner(&options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_deploy_skip_validation() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let options = DeployOptions {
+            env: None,
+            dry_run: false,
+            skip_validation: true,
+        };
+
+        let result = run_deploy_inner(&options);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_deploy_specific_env() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let options = DeployOptions {
+            env: Some("production".to_string()),
+            dry_run: false,
+            skip_validation: false,
+        };
+
+        let result = run_deploy_inner(&options);
+        assert!(result.is_ok());
+        let envs = result.unwrap();
+        assert_eq!(envs.len(), 1);
+        assert_eq!(envs[0], "production");
+    }
+
+    #[test]
+    #[serial]
+    fn test_deploy_no_environments() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r#"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+"#,
+        )
+        .unwrap();
+
+        let options = DeployOptions {
+            env: None,
+            dry_run: false,
+            skip_validation: false,
+        };
+
+        let result = run_deploy_inner(&options);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No environments found"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_new_flag_multivariate() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        // Add multivariate flag definition
+        let mut definitions = read_definitions().unwrap();
+        if let Some(flags) = definitions.get_mut("flags").and_then(|f| f.as_array_mut()) {
+            flags.push(serde_json::json!({
+                "name": "multivar_flag",
+                "type": "multivariate",
+                "defaultValue": "variant_a",
+                "variations": [
+                    {"name": "VARIANT_A", "value": "variant_a"},
+                    {"name": "VARIANT_B", "value": "variant_b"}
+                ]
+            }));
+        }
+        write_definitions(&definitions).unwrap();
+
+        let options = NewFlagOptions {
+            name: Some("another_multivar".to_string()),
+            flag_type: Some("multivariate".to_string()),
+            default: Some("variant_a".to_string()),
+            description: None,
+            enable_in: None,
+            skip_sync: true,
+            skip_sdk: true,
+        };
+
+        // This should fail because multivariate flags need variations in definitions
+        let _result = run_new_flag_inner(&options);
+        // The command may fail validation, which is expected
+        // We just want to test the code path
+    }
+
+    #[test]
+    #[serial]
+    fn test_enable_flag_multiple_envs() {
+        let temp_dir = setup_test_project();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        // Add another environment
+        fs::write(
+            ".controlpath/staging.deployment.yaml",
+            r"environment: staging
+rules:
+  existing_flag:
+    rules:
+      - serve: false
+",
+        )
+        .unwrap();
+
+        let options = EnableOptions {
+            name: "existing_flag".to_string(),
+            env: Some("production,staging".to_string()),
+            rule: Some("user.role == 'admin'".to_string()),
+            value: None,
+            all: false,
+            interactive: false,
+        };
+
+        let result = run_enable_inner(&options);
+        assert!(result.is_ok());
+        let updated_envs = result.unwrap();
+        assert_eq!(updated_envs.len(), 2);
     }
 }

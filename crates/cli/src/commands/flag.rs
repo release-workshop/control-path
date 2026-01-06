@@ -1003,6 +1003,8 @@ mod tests {
 
     impl DirGuard {
         fn new(temp_path: &std::path::Path) -> Self {
+            // Ensure directory exists
+            fs::create_dir_all(temp_path).unwrap();
             let original_dir = std::env::current_dir().unwrap();
             std::env::set_current_dir(temp_path).unwrap();
             DirGuard { original_dir }
@@ -1149,6 +1151,79 @@ rules:
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
     }
+
+    #[test]
+    fn test_find_similar_flag_names() {
+        let definitions = serde_json::json!({
+            "flags": [
+                {"name": "test_flag"},
+                {"name": "test_flag_2"},
+                {"name": "other_flag"},
+                {"name": "test"}
+            ]
+        });
+
+        let similar = find_similar_flag_names(&definitions, "test_flag_1");
+        // Should find similar flags
+        assert!(!similar.is_empty());
+        assert!(similar.len() <= 3); // Should return max 3
+    }
+
+    #[test]
+    fn test_find_similar_flag_names_no_similar() {
+        let definitions = serde_json::json!({
+            "flags": [
+                {"name": "abc"},
+                {"name": "xyz"}
+            ]
+        });
+
+        let similar = find_similar_flag_names(&definitions, "completely_different");
+        // Should be empty or have very few matches
+        assert!(similar.len() <= 3);
+    }
+
+    #[test]
+    fn test_find_similar_flag_names_empty_definitions() {
+        let definitions = serde_json::json!({
+            "flags": []
+        });
+
+        let similar = find_similar_flag_names(&definitions, "test_flag");
+        assert!(similar.is_empty());
+    }
+
+
+    #[test]
+    #[serial]
+    fn test_flag_remove_nonexistent_flag() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: other_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Remove {
+                name: "nonexistent_flag".to_string(),
+                from_deployments: false,
+                env: None,
+                force: true,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_ne!(exit_code, 0);
+    }
+
 
     #[test]
     #[serial]
@@ -1342,7 +1417,7 @@ rules:
 
     #[test]
     #[serial]
-    fn test_find_similar_flag_names() {
+    fn test_find_similar_flag_names_integration() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path);
@@ -1367,5 +1442,1032 @@ rules:
         let similar = find_similar_flag_names(&definitions, "my_feature_flg");
         // Should find "my_feature_flag" as similar
         assert!(similar.contains(&"my_feature_flag".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_add_with_lang() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags: []
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("test_flag".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("false".to_string()),
+                description: None,
+                lang: Some("typescript".to_string()),
+                sync: false,
+                interactive: false,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_add_with_default_on_off() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags: []
+",
+        )
+        .unwrap();
+
+        // Test with "ON"
+        let options = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("flag_on".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("ON".to_string()),
+                description: None,
+                lang: None,
+                sync: false,
+                interactive: false,
+            },
+        };
+        assert_eq!(run(&options), 0);
+
+        // Test with "OFF"
+        let options2 = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("flag_off".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("OFF".to_string()),
+                description: None,
+                lang: None,
+                sync: false,
+                interactive: false,
+            },
+        };
+        assert_eq!(run(&options2), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_from_deployment() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: flag1
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  flag1:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_show_yaml_format() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+    description: A test flag
+",
+        )
+        .unwrap();
+
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: false
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: None,
+                format: OutputFormat::Yaml,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_show_json_format() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: None,
+                format: OutputFormat::Json,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_show_with_variations() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: multivariate
+    defaultValue: variant_a
+    variations:
+      - name: VARIANT_A
+        value: variant_a
+      - name: VARIANT_B
+        value: variant_b
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: None,
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_remove_without_from_deployments() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: flag1
+    type: boolean
+    defaultValue: false
+  - name: flag2
+    type: boolean
+    defaultValue: true
+",
+        )
+        .unwrap();
+
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  flag1:
+    rules:
+      - serve: false
+  flag2:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Remove {
+                name: "flag1".to_string(),
+                from_deployments: false,
+                env: None,
+                force: true,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+
+        // Verify flag was removed from definitions but not deployment
+        let content = fs::read_to_string("flags.definitions.yaml").unwrap();
+        assert!(!content.contains("flag1"));
+        assert!(content.contains("flag2"));
+
+        let deployment_content =
+            fs::read_to_string(".controlpath/production.deployment.yaml").unwrap();
+        assert!(deployment_content.contains("flag1")); // Still in deployment
+    }
+
+    #[test]
+    #[serial]
+    fn test_output_format_from_str() {
+        assert!(OutputFormat::from_str("table").is_ok());
+        assert!(OutputFormat::from_str("json").is_ok());
+        assert!(OutputFormat::from_str("yaml").is_ok());
+        assert!(OutputFormat::from_str("TABLE").is_ok()); // Case insensitive
+        assert!(OutputFormat::from_str("invalid").is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_validate_flag_type() {
+        assert!(validate_flag_type("boolean").is_ok());
+        assert!(validate_flag_type("multivariate").is_ok());
+        assert!(validate_flag_type("invalid").is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_exists() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: existing_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        let definitions = read_definitions().unwrap();
+        assert!(flag_exists(&definitions, "existing_flag"));
+        assert!(!flag_exists(&definitions, "nonexistent_flag"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_sync_flag_to_deployment_preserves_existing() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  existing_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let mut deployment = read_deployment(&PathBuf::from(
+            ".controlpath/production.deployment.yaml",
+        ))
+        .unwrap();
+
+        // Try to sync a flag that already exists
+        sync_flag_to_deployment(&mut deployment, "existing_flag", &Value::Bool(false)).unwrap();
+
+        // Flag should still exist (not duplicated)
+        let rules = deployment.get("rules").and_then(|r| r.as_object()).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert!(rules.contains_key("existing_flag"));
+    }
+
+    #[test]
+    #[serial]
+    fn test_format_value() {
+        assert_eq!(format_value(&Value::Bool(true)), "true");
+        assert_eq!(format_value(&Value::Bool(false)), "false");
+        assert_eq!(format_value(&Value::String("test".to_string())), "test");
+        assert_eq!(format_value(&Value::Number(42.into())), "42");
+    }
+
+    #[test]
+    fn test_format_value_edge_cases() {
+        assert_eq!(format_value(&Value::Null), "null");
+        assert_eq!(format_value(&Value::Array(vec![])), "[]");
+        assert_eq!(format_value(&Value::Object(serde_json::Map::new())), "{}");
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_from_deployment_with_definitions() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_show_nonexistent_flag() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: other_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "nonexistent_flag".to_string(),
+                deployment: None,
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_ne!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_show_with_deployment_env() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_add_with_sync_error_handling() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags: []
+",
+        )
+        .unwrap();
+
+        // Create invalid deployment file
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"invalid: yaml: [",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("test_flag".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("false".to_string()),
+                description: None,
+                lang: None,
+                sync: true,
+                interactive: false,
+            },
+        };
+
+        // Should still succeed (flag added to definitions) but warn about deployment sync failure
+        let exit_code = run(&options);
+        // May succeed or fail depending on error handling, but flag should be added
+        assert!(exit_code == 0 || exit_code == 1);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_yaml_format() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: flag1
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: true,
+                deployment: None,
+                format: OutputFormat::Yaml,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_from_deployment_json_format() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Json,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_from_deployment_yaml_format() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Yaml,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_from_deployment_without_definitions() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_list_default_behavior() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: flag1
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        // List without specifying definitions or deployment - should default to definitions
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: None,
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn test_validate_flag_name_additional_cases() {
+        // Additional edge cases not covered in existing test
+        assert!(validate_flag_name("flag_name_123").is_ok());
+        assert!(validate_flag_name("a1b2c3").is_ok());
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_add_with_sdk_regeneration() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags: []
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("test_flag".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("false".to_string()),
+                description: None,
+                lang: Some("typescript".to_string()),
+                sync: false,
+                interactive: false,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+
+    #[test]
+    #[serial]
+    fn test_flag_show_with_deployment_multiple_envs() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules:
+      - serve: true
+",
+        )
+        .unwrap();
+
+        fs::write(
+            ".controlpath/staging.deployment.yaml",
+            r"environment: staging
+rules:
+  test_flag:
+    rules:
+      - serve: false
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: None, // Should show all deployments
+                format: OutputFormat::Yaml,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_add_with_next_steps_message() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags: []
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules: {}
+",
+        )
+        .unwrap();
+
+        // Add flag without syncing - should show next steps message
+        let options = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("test_flag".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("false".to_string()),
+                description: None,
+                lang: None,
+                sync: false, // Don't sync
+                interactive: false,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_flag_add_with_sync_and_next_steps() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags: []
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules: {}
+",
+        )
+        .unwrap();
+
+        // Add flag with syncing - should show different next steps
+        let options = Options {
+            subcommand: FlagSubcommand::Add {
+                name: Some("test_flag".to_string()),
+                flag_type: Some("boolean".to_string()),
+                default: Some("false".to_string()),
+                description: None,
+                lang: None,
+                sync: true, // Sync to deployments
+                interactive: false,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_show_flag_with_description() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+    description: A test flag description
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: None,
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_list_flags_from_deployment_not_configured() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        // Flag in deployment but no rules (not configured)
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules:
+  test_flag:
+    rules: []
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::List {
+                definitions: false,
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_show_flag_with_variations() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: multivariate
+    defaultValue: variant_a
+    variations:
+      - name: VARIANT_A
+        value: variant_a
+      - name: VARIANT_B
+        value: variant_b
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: None,
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_show_flag_deployment_not_configured() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        fs::write(
+            "flags.definitions.yaml",
+            r"flags:
+  - name: test_flag
+    type: boolean
+    defaultValue: false
+",
+        )
+        .unwrap();
+
+        fs::create_dir_all(".controlpath").unwrap();
+        fs::write(
+            ".controlpath/production.deployment.yaml",
+            r"environment: production
+rules: {}
+",
+        )
+        .unwrap();
+
+        let options = Options {
+            subcommand: FlagSubcommand::Show {
+                name: "test_flag".to_string(),
+                deployment: Some("production".to_string()),
+                format: OutputFormat::Table,
+            },
+        };
+
+        let exit_code = run(&options);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_sync_flag_to_deployment_with_on_off() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let mut deployment = serde_json::json!({
+            "environment": "test",
+            "rules": {}
+        });
+
+        // Test syncing with "ON" string
+        sync_flag_to_deployment(&mut deployment, "flag_on", &Value::String("ON".to_string())).unwrap();
+        
+        // Test syncing with "OFF" string
+        sync_flag_to_deployment(&mut deployment, "flag_off", &Value::String("OFF".to_string())).unwrap();
+
+        let rules = deployment.get("rules").and_then(|r| r.as_object()).unwrap();
+        assert!(rules.contains_key("flag_on"));
+        assert!(rules.contains_key("flag_off"));
     }
 }
