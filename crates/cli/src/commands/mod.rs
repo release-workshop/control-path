@@ -10,3 +10,4 @@ pub mod init;
 pub mod setup;
 pub mod validate;
 pub mod watch;
+pub mod workflow;

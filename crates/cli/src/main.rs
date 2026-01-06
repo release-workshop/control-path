@@ -10,7 +10,9 @@ mod generator;
 mod utils;
 
 use clap::{Parser, Subcommand};
-use commands::{compile, debug, env, explain, flag, generate_sdk, init, setup, validate, watch};
+use commands::{
+    compile, debug, env, explain, flag, generate_sdk, init, setup, validate, watch, workflow,
+};
 
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
@@ -144,6 +146,63 @@ enum Commands {
     Env {
         #[command(subcommand)]
         subcommand: EnvSubcommand,
+    },
+    /// Complete workflow for adding a new flag (add, sync, regenerate SDK)
+    NewFlag {
+        /// Flag name (optional, prompts if not provided)
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+        /// Flag type (boolean, multivariate)
+        #[arg(long)]
+        r#type: Option<String>,
+        /// Default value
+        #[arg(long)]
+        default: Option<String>,
+        /// Description
+        #[arg(long)]
+        description: Option<String>,
+        /// Enable flag in specific environment(s) (comma-separated)
+        #[arg(long)]
+        enable_in: Option<String>,
+        /// Don't sync to environments
+        #[arg(long)]
+        skip_sync: bool,
+        /// Don't regenerate SDK
+        #[arg(long)]
+        skip_sdk: bool,
+    },
+    /// Enable a flag in one or more environments with a rule
+    Enable {
+        /// Flag name (required)
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Environment(s) (comma-separated, prompts if not provided)
+        #[arg(long)]
+        env: Option<String>,
+        /// Rule expression (e.g., "user.role == 'admin'")
+        #[arg(long)]
+        rule: Option<String>,
+        /// Enable for all users (no rule, just serve default)
+        #[arg(long)]
+        all: bool,
+        /// Value to serve (for boolean: true/false, for multivariate: variation name)
+        #[arg(long)]
+        value: Option<String>,
+        /// Interactive rule builder
+        #[arg(long)]
+        interactive: bool,
+    },
+    /// Validate, compile, and prepare flags for deployment
+    Deploy {
+        /// Environment(s) to deploy (comma-separated, defaults to all)
+        #[arg(long)]
+        env: Option<String>,
+        /// Validate and compile but show what would happen
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip validation step
+        #[arg(long)]
+        skip_validation: bool,
     },
 }
 
@@ -476,6 +535,56 @@ fn main() {
                 subcommand: env_subcommand,
             };
             env::run(&opts)
+        }
+        Commands::NewFlag {
+            name,
+            r#type,
+            default,
+            description,
+            enable_in,
+            skip_sync,
+            skip_sdk,
+        } => {
+            let opts = workflow::NewFlagOptions {
+                name,
+                flag_type: r#type,
+                default,
+                description,
+                enable_in,
+                skip_sync,
+                skip_sdk,
+            };
+            workflow::run_new_flag(&opts)
+        }
+        Commands::Enable {
+            name,
+            env,
+            rule,
+            all,
+            value,
+            interactive,
+        } => {
+            let opts = workflow::EnableOptions {
+                name,
+                env,
+                rule,
+                all,
+                value,
+                interactive,
+            };
+            workflow::run_enable(&opts)
+        }
+        Commands::Deploy {
+            env,
+            dry_run,
+            skip_validation,
+        } => {
+            let opts = workflow::DeployOptions {
+                env,
+                dry_run,
+                skip_validation,
+            };
+            workflow::run_deploy(&opts)
         }
     };
 
