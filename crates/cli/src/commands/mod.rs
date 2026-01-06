@@ -7,5 +7,6 @@ pub mod explain;
 pub mod flag;
 pub mod generate_sdk;
 pub mod init;
+pub mod setup;
 pub mod validate;
 pub mod watch;

@@ -7,9 +7,10 @@
 mod commands;
 mod error;
 mod generator;
+mod utils;
 
 use clap::{Parser, Subcommand};
-use commands::{compile, debug, env, explain, flag, generate_sdk, init, validate, watch};
+use commands::{compile, debug, env, explain, flag, generate_sdk, init, setup, validate, watch};
 
 /// Control Path CLI - Compile and validate flag definitions
 #[derive(Parser)]
@@ -64,6 +65,15 @@ enum Commands {
         /// Skip creating example files
         #[arg(long)]
         no_examples: bool,
+    },
+    /// Setup a new Control Path project (init + compile + SDK generation)
+    Setup {
+        /// Language for SDK generation (auto-detected if not provided)
+        #[arg(long)]
+        lang: Option<String>,
+        /// Skip installing runtime SDK package
+        #[arg(long)]
+        skip_install: bool,
     },
     /// Generate type-safe SDKs from flag definitions
     GenerateSdk {
@@ -287,6 +297,13 @@ fn main() {
                 no_examples,
             };
             init::run(&opts)
+        }
+        Commands::Setup { lang, skip_install } => {
+            let opts = setup::Options {
+                lang: lang.clone(),
+                skip_install,
+            };
+            setup::run(&opts)
         }
         Commands::GenerateSdk {
             lang,

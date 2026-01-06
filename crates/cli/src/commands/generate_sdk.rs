@@ -2,6 +2,7 @@
 
 use crate::error::{CliError, CliResult};
 use crate::generator::generate_sdk;
+use crate::utils::language;
 use controlpath_compiler::{parse_definitions, validate_definitions};
 use std::fs;
 use std::path::PathBuf;
@@ -52,12 +53,8 @@ fn run_inner(options: &Options) -> CliResult<()> {
     // Validate definitions
     validate_definitions(&definitions)?;
 
-    // Determine language (default to typescript)
-    let language = options
-        .lang
-        .as_deref()
-        .unwrap_or("typescript")
-        .to_lowercase();
+    // Determine language (priority: CLI flag > Config > Auto-detect > Default)
+    let language = language::determine_language(options.lang.clone())?.to_lowercase();
 
     // Generate SDK
     generate_sdk(&language, &definitions, &output_path)?;
