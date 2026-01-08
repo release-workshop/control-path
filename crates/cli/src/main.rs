@@ -11,9 +11,10 @@ mod utils;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
-    compile, completion, debug, env, explain, flag, generate_sdk, init, setup, validate, watch,
-    workflow,
+    compile, completion, debug, env, explain, flag, generate_sdk, init, r#override as override_cmd,
+    setup, validate, watch, workflow,
 };
+use std::path::PathBuf;
 
 // Version from VERSION file (set by build.rs) or fallback to Cargo.toml version
 // build.rs always sets CONTROLPATH_VERSION, so this is safe
@@ -332,6 +333,27 @@ enum Commands {
         #[arg(long)]
         skip_validation: bool,
     },
+    /// Manage override files (kill switches)
+    ///
+    /// Commands for managing runtime flag overrides without redeploying code.
+    /// Override files can be stored locally and uploaded to any URL-accessible location.
+    ///
+    /// Examples:
+    ///   # Set an override
+    ///   controlpath override set new_dashboard OFF --file overrides.json --reason "Emergency kill switch"
+    ///
+    ///   # Clear an override
+    ///   controlpath override clear new_dashboard --file overrides.json
+    ///
+    ///   # List all overrides
+    ///   controlpath override list --file overrides.json
+    ///
+    ///   # View override history
+    ///   controlpath override history new_dashboard --file overrides.json
+    Override {
+        #[command(subcommand)]
+        subcommand: OverrideSubcommand,
+    },
     /// Generate shell completion scripts
     Completion {
         /// Shell type (bash, zsh, fish)
@@ -505,6 +527,89 @@ enum FlagSubcommand {
         /// When set, skips the confirmation prompt and immediately removes the flag.
         #[arg(long)]
         force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum OverrideSubcommand {
+    /// Set an override for a flag
+    ///
+    /// Sets a runtime override for a flag. The override takes precedence over AST evaluation.
+    /// Supports both boolean flags (ON/OFF) and multivariate flags (variation name).
+    ///
+    /// Examples:
+    ///   # Set boolean flag to OFF
+    ///   controlpath override set new_dashboard OFF --file overrides.json
+    ///
+    ///   # Set with reason and operator
+    ///   controlpath override set new_dashboard OFF --file overrides.json --reason "Emergency kill switch" --operator "alice@example.com"
+    ///
+    ///   # Set multivariate flag variation
+    ///   controlpath override set api_version V1 --file overrides.json
+    Set {
+        /// Flag name
+        #[arg(value_name = "FLAG")]
+        flag: String,
+        /// Override value (ON/OFF for boolean, variation name for multivariate)
+        #[arg(value_name = "VALUE")]
+        value: String,
+        /// Reason for override (optional, recommended for audit trail)
+        #[arg(long)]
+        reason: Option<String>,
+        /// Operator who set the override (optional, recommended for audit trail)
+        #[arg(long)]
+        operator: Option<String>,
+        /// Path to override file
+        #[arg(long, default_value = "overrides.json")]
+        file: String,
+        /// Path to flag definitions file (for validation)
+        #[arg(long)]
+        definitions: Option<String>,
+    },
+    /// Clear an override for a flag
+    ///
+    /// Removes a runtime override for a flag. The flag will fall back to AST evaluation.
+    ///
+    /// Examples:
+    ///   # Clear override
+    ///   controlpath override clear new_dashboard --file overrides.json
+    Clear {
+        /// Flag name
+        #[arg(value_name = "FLAG")]
+        flag: String,
+        /// Path to override file
+        #[arg(long, default_value = "overrides.json")]
+        file: String,
+    },
+    /// List all current overrides
+    ///
+    /// Displays all current overrides with their values, timestamps, reasons, and operators.
+    ///
+    /// Examples:
+    ///   # List all overrides
+    ///   controlpath override list --file overrides.json
+    List {
+        /// Path to override file
+        #[arg(long, default_value = "overrides.json")]
+        file: String,
+    },
+    /// View override history
+    ///
+    /// Displays the history of override changes for a flag or all flags.
+    ///
+    /// Examples:
+    ///   # View history for a specific flag
+    ///   controlpath override history new_dashboard --file overrides.json
+    ///
+    ///   # View history for all flags
+    ///   controlpath override history --file overrides.json
+    History {
+        /// Flag name (optional, shows all flags if not provided)
+        #[arg(value_name = "FLAG")]
+        flag: Option<String>,
+        /// Path to override file
+        #[arg(long, default_value = "overrides.json")]
+        file: String,
     },
 }
 
@@ -893,6 +998,45 @@ fn main() {
                 skip_validation,
             };
             workflow::run_deploy(&opts)
+        }
+        Commands::Override { subcommand } => {
+            let override_subcommand = match subcommand {
+                OverrideSubcommand::Set {
+                    flag,
+                    value,
+                    reason,
+                    operator,
+                    file,
+                    definitions,
+                } => override_cmd::OverrideSubcommand::Set {
+                    flag,
+                    value,
+                    reason,
+                    operator,
+                    file: PathBuf::from(file),
+                    definitions: definitions.map(PathBuf::from),
+                },
+                OverrideSubcommand::Clear { flag, file } => {
+                    override_cmd::OverrideSubcommand::Clear {
+                        flag,
+                        file: PathBuf::from(file),
+                    }
+                }
+                OverrideSubcommand::List { file } => override_cmd::OverrideSubcommand::List {
+                    file: PathBuf::from(file),
+                },
+                OverrideSubcommand::History { flag, file } => {
+                    override_cmd::OverrideSubcommand::History {
+                        flag,
+                        file: PathBuf::from(file),
+                    }
+                }
+            };
+
+            let opts = override_cmd::Options {
+                subcommand: override_subcommand,
+            };
+            override_cmd::run(&opts)
         }
         Commands::Completion { shell } => {
             let opts = completion::Options { shell };

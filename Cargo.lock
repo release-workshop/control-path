@@ -419,6 +419,7 @@ dependencies = [
  "clap_complete",
  "controlpath-compiler",
  "dialoguer",
+ "jsonschema",
  "notify",
  "regex",
  "rmp-serde",

@@ -34,6 +34,7 @@ tower-http = { version = "0.5", features = ["fs", "cors"] }
 atty = "0.2"
 dialoguer = "0.11"
 strsim = "0.11"
+jsonschema = "0.17"
 
 [dev-dependencies]
 tempfile = "3.8"
