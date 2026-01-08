@@ -4,7 +4,7 @@
  * See the LICENSE file in the project root for details.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { writeFile, mkdir, rm, stat } from 'fs/promises';
 import { writeFileSync } from 'fs';
 import { join } from 'path';
@@ -1248,22 +1248,513 @@ describe('Provider', () => {
       const provider = new Provider({ overrideUrl: overrideFile, enableCache: true });
       await provider.loadArtifact(testFile);
 
-      // First evaluation - should cache (returns 'ON' from artifact)
-      const result1 = provider.resolveBooleanEvaluation('flag1', false);
-      expect(result1.value).toBe(true); // From artifact
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Override should take precedence over AST
+      const result = provider.resolveBooleanEvaluation('flag1', false);
+      expect(result.value).toBe(false); // From override (OFF)
+      expect(result.reason).toBe('OVERRIDE');
+    });
+  });
+
+  describe('override evaluation priority', () => {
+    it('should prioritize override over AST for boolean flags', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1', 'ON'],
+        flags: [[[0, undefined, 1]]], // Returns 'ON'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          flag1: 'OFF',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const provider = new Provider({ overrideUrl: overrideFile });
+      await provider.loadArtifact(testFile);
 
       // Wait for override to load
       await new Promise((resolve) => setTimeout(resolve, 200));
 
-      // Cache should be cleared when override loads
-      // Note: Override evaluation is not yet implemented (1.1.4)
-      // This test verifies that cache clearing is called (we can't verify the override
-      // takes effect until 1.1.4 is implemented)
-      const result2 = provider.resolveBooleanEvaluation('flag1', false);
-      // Result should still be from artifact (override evaluation not yet implemented)
-      expect(result2.value).toBe(true);
-      // But cache should have been cleared, so result2 is a new evaluation
-      expect(provider).toBeDefined();
+      // Override should take precedence (OFF overrides ON from AST)
+      const result = provider.resolveBooleanEvaluation('flag1', false);
+      expect(result.value).toBe(false);
+      expect(result.reason).toBe('OVERRIDE');
+    });
+
+    it('should prioritize override over AST for string/multivariate flags', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['api_version', 'V2'],
+        flags: [[[0, undefined, 1]]], // Returns 'V2'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          api_version: 'V1',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const provider = new Provider({ overrideUrl: overrideFile });
+      await provider.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Override should take precedence (V1 overrides V2 from AST)
+      const result = provider.resolveStringEvaluation('api_version', 'V3');
+      expect(result.value).toBe('V1');
+      expect(result.reason).toBe('OVERRIDE');
+      expect(result.variant).toBe('V1');
+    });
+
+    it('should prioritize override over AST for number flags', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['max_items'],
+        flags: [[[0, undefined, '100']]], // Returns '100'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          max_items: '50',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const provider = new Provider({ overrideUrl: overrideFile });
+      await provider.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Override should take precedence (50 overrides 100 from AST)
+      const result = provider.resolveNumberEvaluation('max_items', 200);
+      expect(result.value).toBe(50);
+      expect(result.reason).toBe('OVERRIDE');
+    });
+
+    it('should fall back to AST when override is not set', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1', 'ON'],
+        flags: [[[0, undefined, 1]]], // Returns 'ON'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          // flag1 is not in overrides
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const provider = new Provider({ overrideUrl: overrideFile });
+      await provider.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should use AST evaluation (no override for this flag)
+      const result = provider.resolveBooleanEvaluation('flag1', false);
+      expect(result.value).toBe(true); // From AST (ON)
+      expect(result.reason).toBe('TARGETING_MATCH');
+    });
+
+    it('should fall back to default when override and AST are not available', async () => {
+      const testDir = getTestDir();
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          // flag1 is not in overrides
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const provider = new Provider({ overrideUrl: overrideFile });
+      // No artifact loaded
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should use default value (no override, no AST)
+      const result = provider.resolveBooleanEvaluation('flag1', false);
+      expect(result.value).toBe(false); // Default value
+      expect(result.reason).toBe('DEFAULT');
+    });
+
+    it('should handle invalid boolean override values gracefully', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1', 'ON'],
+        flags: [[[0, undefined, 1]]], // Returns 'ON'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          flag1: 'INVALID_VALUE',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const logger = {
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+
+      const provider = new Provider({ overrideUrl: overrideFile, logger });
+      await provider.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should fall back to AST evaluation (invalid override value)
+      const result = provider.resolveBooleanEvaluation('flag1', false);
+      expect(result.value).toBe(true); // From AST (ON)
+      expect(result.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid override value')
+      );
+    });
+
+    it('should handle invalid number override values gracefully', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['max_items'],
+        flags: [[[0, undefined, '100']]], // Returns '100'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          max_items: 'NOT_A_NUMBER',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const logger = {
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+
+      const provider = new Provider({ overrideUrl: overrideFile, logger });
+      await provider.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should fall back to AST evaluation (invalid override value)
+      const result = provider.resolveNumberEvaluation('max_items', 200);
+      expect(result.value).toBe(100); // From AST
+      expect(result.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid override value')
+      );
+    });
+
+    it('should support various boolean override formats (ON, OFF, true, false, 1, 0)', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1', 'ON'],
+        flags: [[[0, undefined, 1]]], // Returns 'ON'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const testCases = [
+        { override: 'ON', expected: true },
+        { override: 'OFF', expected: false },
+        { override: 'true', expected: true },
+        { override: 'false', expected: false },
+        { override: 'TRUE', expected: true },
+        { override: 'FALSE', expected: false },
+        { override: '1', expected: true },
+        { override: '0', expected: false },
+        { override: 'YES', expected: true },
+        { override: 'NO', expected: false },
+      ];
+
+      for (const testCase of testCases) {
+        const overrideFile = join(testDir, `overrides-${testCase.override}.json`);
+        const overrideContent = {
+          version: '1.0',
+          overrides: {
+            flag1: testCase.override,
+          },
+        };
+
+        writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+        const provider = new Provider({ overrideUrl: overrideFile });
+        await provider.loadArtifact(testFile);
+
+        // Wait for override to load
+        await new Promise((resolve) => setTimeout(resolve, 200));
+
+        const result = provider.resolveBooleanEvaluation('flag1', false);
+        expect(result.value).toBe(testCase.expected);
+        expect(result.reason).toBe('OVERRIDE');
+      }
+    });
+
+    it('should handle invalid object override values gracefully', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['config'],
+        flags: [[[0, undefined, '{"theme":"light"}']]], // Returns '{"theme":"light"}'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const logger = {
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+
+      // Test case 1: Invalid JSON
+      const overrideContent1 = {
+        version: '1.0',
+        overrides: {
+          config: 'not valid json',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent1));
+
+      const provider1 = new Provider({ overrideUrl: overrideFile, logger });
+      await provider1.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const result1 = provider1.resolveObjectEvaluation('config', { theme: 'default' });
+      expect(result1.value).toEqual({ theme: 'light' }); // From AST
+      expect(result1.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Invalid override value.*is not valid JSON/)
+      );
+
+      // Reset logger
+      logger.warn.mockClear();
+
+      // Test case 2: JSON array (not an object)
+      const overrideContent2 = {
+        version: '1.0',
+        overrides: {
+          config: '[1,2,3]',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent2));
+
+      const provider2 = new Provider({ overrideUrl: overrideFile, logger });
+      await provider2.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const result2 = provider2.resolveObjectEvaluation('config', { theme: 'default' });
+      expect(result2.value).toEqual({ theme: 'light' }); // From AST
+      expect(result2.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Invalid override value.*is not a valid object/)
+      );
+
+      // Reset logger
+      logger.warn.mockClear();
+
+      // Test case 3: JSON null (not an object)
+      const overrideContent3 = {
+        version: '1.0',
+        overrides: {
+          config: 'null',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent3));
+
+      const provider3 = new Provider({ overrideUrl: overrideFile, logger });
+      await provider3.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const result3 = provider3.resolveObjectEvaluation('config', { theme: 'default' });
+      expect(result3.value).toEqual({ theme: 'light' }); // From AST
+      expect(result3.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Invalid override value.*is not a valid object/)
+      );
+
+      // Reset logger
+      logger.warn.mockClear();
+
+      // Test case 4: JSON string (not an object)
+      const overrideContent4 = {
+        version: '1.0',
+        overrides: {
+          config: '"just a string"',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent4));
+
+      const provider4 = new Provider({ overrideUrl: overrideFile, logger });
+      await provider4.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      const result4 = provider4.resolveObjectEvaluation('config', { theme: 'default' });
+      expect(result4.value).toEqual({ theme: 'light' }); // From AST
+      expect(result4.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/Invalid override value.*is not a valid object/)
+      );
+    });
+
+    it('should reject partial number parsing (e.g., "123abc")', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      const overrideFile = join(testDir, 'overrides.json');
+      await mkdir(testDir, { recursive: true });
+
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['max_items'],
+        flags: [[[0, undefined, '100']]], // Returns '100'
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const logger = {
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      };
+
+      // Test with partial number (should be rejected)
+      const overrideContent = {
+        version: '1.0',
+        overrides: {
+          max_items: '123abc',
+        },
+      };
+
+      writeFileSync(overrideFile, JSON.stringify(overrideContent));
+
+      const provider = new Provider({ overrideUrl: overrideFile, logger });
+      await provider.loadArtifact(testFile);
+
+      // Wait for override to load
+      await new Promise((resolve) => setTimeout(resolve, 200));
+
+      // Should fall back to AST (not use partial number 123)
+      const result = provider.resolveNumberEvaluation('max_items', 200);
+      expect(result.value).toBe(100); // From AST, not 123
+      expect(result.reason).toBe('TARGETING_MATCH');
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid override value')
+      );
     });
   });
 });

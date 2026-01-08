@@ -825,6 +825,25 @@ export class Provider implements OpenFeatureProvider {
 
   /**
    * Internal synchronous boolean evaluation (called by both sync and async methods)
+   * Evaluation priority: Override → AST → Default
+   *
+   * @example
+   * // Override takes precedence
+   * // Override file: { "new_feature": "OFF" }
+   * // AST would return: "ON"
+   * // Result: false (from override), reason: "OVERRIDE"
+   *
+   * @example
+   * // No override, use AST
+   * // Override file: {} (no override for this flag)
+   * // AST returns: "ON"
+   * // Result: true (from AST), reason: "TARGETING_MATCH"
+   *
+   * @example
+   * // No override, no AST match, use default
+   * // Override file: {} (no override)
+   * // AST: no matching rules
+   * // Result: false (default value), reason: "DEFAULT"
    * @private
    */
   private resolveBooleanEvaluationSync(
@@ -842,6 +861,50 @@ export class Provider implements OpenFeatureProvider {
         }
       }
 
+      // Priority 1: Check override file first
+      const overrideValue = this.getOverrideValue(flagKey);
+      if (overrideValue !== undefined) {
+        // Convert override value to boolean
+        // Handle various boolean representations: "ON", "OFF", "true", "false", "1", "0", "YES", "NO"
+        // Leading and trailing whitespace is automatically ignored via .trim()
+        const overrideStr = overrideValue.toUpperCase().trim();
+        let boolValue: boolean | undefined;
+        if (
+          overrideStr === 'OFF' ||
+          overrideStr === 'FALSE' ||
+          overrideStr === '0' ||
+          overrideStr === 'NO'
+        ) {
+          boolValue = false;
+        } else if (
+          overrideStr === 'ON' ||
+          overrideStr === 'TRUE' ||
+          overrideStr === '1' ||
+          overrideStr === 'YES'
+        ) {
+          boolValue = true;
+        }
+
+        // If we successfully parsed the override value, return it
+        if (boolValue !== undefined) {
+          const details: ResolutionDetails<boolean> = {
+            value: boolValue,
+            reason: 'OVERRIDE',
+          };
+          this.setCachedResult(flagKey, evalContext, details);
+          return details;
+        } else {
+          // Invalid override value - log warning and fall back to AST
+          if (this.logger) {
+            this.logger.warn(
+              `Invalid override value for boolean flag "${flagKey}": "${overrideValue}". Falling back to AST evaluation.`
+            );
+          }
+          // Fall through to AST evaluation
+        }
+      }
+
+      // Priority 2: AST evaluation (if no override or override invalid)
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
@@ -935,6 +998,19 @@ export class Provider implements OpenFeatureProvider {
 
   /**
    * Internal synchronous string evaluation (called by both sync and async methods)
+   * Evaluation priority: Override → AST → Default
+   *
+   * @example
+   * // Override takes precedence for multivariate flags
+   * // Override file: { "api_version": "V1" }
+   * // AST would return: "V2"
+   * // Result: "V1" (from override), reason: "OVERRIDE", variant: "V1"
+   *
+   * @example
+   * // No override, use AST
+   * // Override file: {} (no override)
+   * // AST returns: "V2"
+   * // Result: "V2" (from AST), reason: "TARGETING_MATCH"
    * @private
    */
   private resolveStringEvaluationSync(
@@ -952,6 +1028,21 @@ export class Provider implements OpenFeatureProvider {
         }
       }
 
+      // Priority 1: Check override file first
+      const overrideValue = this.getOverrideValue(flagKey);
+      if (overrideValue !== undefined) {
+        // For string/multivariate flags, return override value as-is
+        // Override value is already a string (variation name or string value)
+        const details: ResolutionDetails<string> = {
+          value: overrideValue,
+          reason: 'OVERRIDE',
+          variant: overrideValue, // For multivariate flags, variant is the variation name
+        };
+        this.setCachedResult(flagKey, evalContext, details);
+        return details;
+      }
+
+      // Priority 2: AST evaluation (if no override)
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
@@ -1025,6 +1116,20 @@ export class Provider implements OpenFeatureProvider {
 
   /**
    * Internal synchronous number evaluation (called by both sync and async methods)
+   * Evaluation priority: Override → AST → Default
+   *
+   * @example
+   * // Override takes precedence
+   * // Override file: { "max_items": "50" }
+   * // AST would return: 100
+   * // Result: 50 (from override), reason: "OVERRIDE"
+   *
+   * @example
+   * // Invalid override value falls back to AST
+   * // Override file: { "max_items": "NOT_A_NUMBER" }
+   * // AST returns: 100
+   * // Result: 100 (from AST), reason: "TARGETING_MATCH"
+   * // Warning logged: "Invalid override value..."
    * @private
    */
   private resolveNumberEvaluationSync(
@@ -1042,6 +1147,33 @@ export class Provider implements OpenFeatureProvider {
         }
       }
 
+      // Priority 1: Check override file first
+      const overrideValue = this.getOverrideValue(flagKey);
+      if (overrideValue !== undefined) {
+        // Convert override value to number
+        // Use strict validation: only accept if the entire string is a valid number
+        // This prevents partial parsing (e.g., "123abc" would be rejected)
+        const numValue = parseFloat(overrideValue);
+        const trimmedValue = overrideValue.trim();
+        if (!isNaN(numValue) && isFinite(numValue) && trimmedValue === String(numValue)) {
+          const details: ResolutionDetails<number> = {
+            value: numValue,
+            reason: 'OVERRIDE',
+          };
+          this.setCachedResult(flagKey, evalContext, details);
+          return details;
+        } else {
+          // Invalid override value - log warning and fall back to AST
+          if (this.logger) {
+            this.logger.warn(
+              `Invalid override value for number flag "${flagKey}": "${overrideValue}". Falling back to AST evaluation.`
+            );
+          }
+          // Fall through to AST evaluation
+        }
+      }
+
+      // Priority 2: AST evaluation (if no override or override invalid)
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
@@ -1117,6 +1249,27 @@ export class Provider implements OpenFeatureProvider {
 
   /**
    * Internal synchronous object evaluation (called by both sync and async methods)
+   * Evaluation priority: Override → AST → Default
+   *
+   * @example
+   * // Override takes precedence
+   * // Override file: { "config": "{\"theme\":\"dark\"}" }
+   * // AST would return: { theme: "light" }
+   * // Result: { theme: "dark" } (from override), reason: "OVERRIDE"
+   *
+   * @example
+   * // Invalid override (JSON array) falls back to AST
+   * // Override file: { "config": "[1,2,3]" }
+   * // AST returns: { theme: "light" }
+   * // Result: { theme: "light" } (from AST), reason: "TARGETING_MATCH"
+   * // Warning logged: "Invalid override value... is not a valid object"
+   *
+   * @example
+   * // Invalid override (invalid JSON) falls back to AST
+   * // Override file: { "config": "not valid json" }
+   * // AST returns: { theme: "light" }
+   * // Result: { theme: "light" } (from AST), reason: "TARGETING_MATCH"
+   * // Warning logged: "Invalid override value... is not valid JSON"
    * @private
    */
   private resolveObjectEvaluationSync<T extends Record<string, unknown>>(
@@ -1134,6 +1287,40 @@ export class Provider implements OpenFeatureProvider {
         }
       }
 
+      // Priority 1: Check override file first
+      const overrideValue = this.getOverrideValue(flagKey);
+      if (overrideValue !== undefined) {
+        // Try to parse override value as JSON object
+        try {
+          const objValue = JSON.parse(overrideValue) as T;
+          if (typeof objValue === 'object' && objValue !== null && !Array.isArray(objValue)) {
+            const details: ResolutionDetails<T> = {
+              value: objValue,
+              reason: 'OVERRIDE',
+            };
+            this.setCachedResult(flagKey, evalContext, details);
+            return details;
+          } else {
+            // Not a valid object - log warning and fall back to AST
+            if (this.logger) {
+              this.logger.warn(
+                `Invalid override value for object flag "${flagKey}": "${overrideValue}" is not a valid object. Falling back to AST evaluation.`
+              );
+            }
+            // Fall through to AST evaluation
+          }
+        } catch {
+          // JSON parse error - log warning and fall back to AST
+          if (this.logger) {
+            this.logger.warn(
+              `Invalid override value for object flag "${flagKey}": "${overrideValue}" is not valid JSON. Falling back to AST evaluation.`
+            );
+          }
+          // Fall through to AST evaluation
+        }
+      }
+
+      // Priority 2: AST evaluation (if no override or override invalid)
       if (!this.artifact) {
         if (this.logger) {
           this.logger.debug('No artifact loaded, returning default value');
