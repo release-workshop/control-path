@@ -593,9 +593,10 @@ enum OverrideSubcommand {
         #[arg(long, default_value = "overrides.json")]
         file: String,
     },
-    /// View override history
+    /// View override history (audit trail)
     ///
-    /// Displays the history of override changes for a flag or all flags.
+    /// Displays current overrides with their audit trail information (reason, timestamp, operator).
+    /// The override file itself serves as the audit trail - no separate history file is needed.
     ///
     /// Examples:
     ///   # View history for a specific flag

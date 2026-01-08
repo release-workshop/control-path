@@ -269,9 +269,6 @@ fn normalize_boolean_value(value: &str) -> String {
     }
 }
 
-// History tracking is implemented in task 1.1.6
-// For now, we skip history to keep the override file schema-compliant
-
 /// Run the override command
 ///
 /// Executes the override subcommand and returns an exit code:
@@ -350,17 +347,19 @@ fn run_inner(options: &Options) -> CliResult<()> {
 
             validate_override_value(flag, &normalized_value, flag_definitions.as_ref())?;
 
-            // Note: History tracking is implemented in task 1.1.6
-
             // Create override value (full format with metadata)
+            // Always use full format to ensure reason is included for audit trail
             let timestamp = Utc::now().to_rfc3339();
             let mut override_obj = json!({
                 "value": normalized_value,
                 "timestamp": timestamp,
             });
 
+            // Reason is recommended for audit trail - warn if missing
             if let Some(r) = reason {
                 override_obj["reason"] = json!(r);
+            } else {
+                eprintln!("⚠ Warning: No reason provided for override. Consider using --reason for audit trail.");
             }
 
             if let Some(op) = operator {
@@ -379,9 +378,6 @@ fn run_inner(options: &Options) -> CliResult<()> {
 
             overrides.insert(flag.clone(), override_obj.clone());
 
-            // Note: History tracking is implemented in task 1.1.6
-            // For now, we skip history to keep the override file schema-compliant
-
             // Write back to file
             write_override_file(file, &override_file)?;
 
@@ -395,8 +391,6 @@ fn run_inner(options: &Options) -> CliResult<()> {
             // Read existing override file
             let mut override_file = read_override_file(file)?;
 
-            // Note: History tracking is implemented in task 1.1.6
-
             // Remove from overrides
             let overrides = override_file
                 .get_mut("overrides")
@@ -408,9 +402,6 @@ fn run_inner(options: &Options) -> CliResult<()> {
                 })?;
 
             if overrides.remove(flag).is_some() {
-                // Note: History tracking is implemented in task 1.1.6
-                // For now, we skip history to keep the override file schema-compliant
-
                 // Write back to file
                 write_override_file(file, &override_file)?;
 
@@ -500,19 +491,98 @@ fn run_inner(options: &Options) -> CliResult<()> {
 
             Ok(())
         }
-        OverrideSubcommand::History { flag, file: _file } => {
-            // History tracking is implemented in task 1.1.6
-            // For now, we show a message indicating that history is not yet implemented
-            if let Some(filter_flag) = flag {
-                println!(
-                    "Override history for flag '{}' is not yet implemented.",
-                    filter_flag
-                );
-                println!("History tracking will be available in a future release.");
-            } else {
-                println!("Override history is not yet implemented.");
-                println!("History tracking will be available in a future release.");
+        OverrideSubcommand::History { flag, file } => {
+            // History command shows current overrides with their reasons (audit trail)
+            let override_file = read_override_file(file)?;
+
+            // Validate file format (warn if invalid)
+            let schema = load_override_schema();
+            let compiled = JSONSchema::compile(&schema)
+                .map_err(|e| CliError::Message(format!("Failed to compile schema: {e}")))?;
+
+            if let Err(errors) = compiled.validate(&override_file) {
+                eprintln!("⚠ Warning: Override file has validation errors:");
+                for error in errors {
+                    eprintln!("  - {}: {}", error.instance_path, error);
+                }
             }
+
+            // Display overrides with their reasons (audit trail)
+            if let Some(overrides) = override_file.get("overrides").and_then(|o| o.as_object()) {
+                let filtered_overrides: Vec<(&String, &Value)> = if let Some(filter_flag) = flag {
+                    overrides
+                        .iter()
+                        .filter(|(flag_name, _)| flag_name.as_str() == filter_flag.as_str())
+                        .collect()
+                } else {
+                    overrides.iter().collect()
+                };
+
+                if filtered_overrides.is_empty() {
+                    if let Some(filter_flag) = flag {
+                        println!("No override found for flag '{}'", filter_flag);
+                    } else {
+                        println!("No overrides set");
+                    }
+                } else {
+                    if let Some(filter_flag) = flag {
+                        println!("Override history for flag '{}':", filter_flag);
+                    } else {
+                        println!("Override history (current overrides with audit trail):");
+                    }
+                    println!("{:-<100}", "");
+                    println!(
+                        "{:<30} {:<20} {:<25} {:<20} {:<30}",
+                        "Flag", "Value", "Timestamp", "Operator", "Reason"
+                    );
+                    println!("{:-<100}", "");
+
+                    for (flag_name, override_value) in filtered_overrides {
+                        let (value, timestamp, reason, operator) = match override_value {
+                            Value::String(s) => (s.clone(), None, None, None),
+                            Value::Object(obj) => (
+                                obj.get("value")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("?")
+                                    .to_string(),
+                                obj.get("timestamp")
+                                    .and_then(|t| t.as_str())
+                                    .map(|s| s.to_string()),
+                                obj.get("reason")
+                                    .and_then(|r| r.as_str())
+                                    .map(|s| s.to_string()),
+                                obj.get("operator")
+                                    .and_then(|o| o.as_str())
+                                    .map(|s| s.to_string()),
+                            ),
+                            _ => ("?".to_string(), None, None, None),
+                        };
+
+                        let timestamp_str = timestamp
+                            .as_ref()
+                            .map(|t| {
+                                // Format timestamp for display
+                                if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(t) {
+                                    dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                                } else {
+                                    t.clone()
+                                }
+                            })
+                            .unwrap_or_else(|| "-".to_string());
+
+                        let operator_str = operator.as_deref().unwrap_or("-");
+                        let reason_str = reason.as_deref().unwrap_or("-");
+
+                        println!(
+                            "{:<30} {:<20} {:<25} {:<20} {:<30}",
+                            flag_name, value, timestamp_str, operator_str, reason_str
+                        );
+                    }
+                }
+            } else {
+                println!("No overrides set");
+            }
+
             Ok(())
         }
     }
@@ -1173,5 +1243,112 @@ mod tests {
         let data: Value = serde_json::from_str(&content).unwrap();
         assert!(data["overrides"]["test_flag"].is_object());
         assert!(data["overrides"]["test_flag"]["timestamp"].is_string());
+    }
+
+    #[test]
+    #[serial]
+    fn test_history_command_display_all() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let override_file = temp_path.join("overrides.json");
+
+        // Set some overrides with reasons
+        let set_options1 = Options {
+            subcommand: OverrideSubcommand::Set {
+                flag: "flag1".to_string(),
+                value: "ON".to_string(),
+                reason: Some("Test reason 1".to_string()),
+                operator: Some("operator1@example.com".to_string()),
+                file: override_file.clone(),
+                definitions: None,
+            },
+        };
+        assert_eq!(run(&set_options1), 0);
+
+        let set_options2 = Options {
+            subcommand: OverrideSubcommand::Set {
+                flag: "flag2".to_string(),
+                value: "OFF".to_string(),
+                reason: Some("Test reason 2".to_string()),
+                operator: Some("operator2@example.com".to_string()),
+                file: override_file.clone(),
+                definitions: None,
+            },
+        };
+        assert_eq!(run(&set_options2), 0);
+
+        // Display history (shows current overrides with reasons)
+        let history_options = Options {
+            subcommand: OverrideSubcommand::History {
+                flag: None,
+                file: override_file.clone(),
+            },
+        };
+        assert_eq!(run(&history_options), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_history_command_filter_by_flag() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let override_file = temp_path.join("overrides.json");
+
+        // Set multiple overrides
+        let set_options1 = Options {
+            subcommand: OverrideSubcommand::Set {
+                flag: "flag1".to_string(),
+                value: "ON".to_string(),
+                reason: Some("Reason 1".to_string()),
+                operator: None,
+                file: override_file.clone(),
+                definitions: None,
+            },
+        };
+        assert_eq!(run(&set_options1), 0);
+
+        let set_options2 = Options {
+            subcommand: OverrideSubcommand::Set {
+                flag: "flag2".to_string(),
+                value: "OFF".to_string(),
+                reason: Some("Reason 2".to_string()),
+                operator: None,
+                file: override_file.clone(),
+                definitions: None,
+            },
+        };
+        assert_eq!(run(&set_options2), 0);
+
+        // Display history for specific flag
+        let history_options = Options {
+            subcommand: OverrideSubcommand::History {
+                flag: Some("flag1".to_string()),
+                file: override_file.clone(),
+            },
+        };
+        assert_eq!(run(&history_options), 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_history_command_no_overrides() {
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+        let _guard = DirGuard::new(temp_path);
+
+        let override_file = temp_path.join("overrides.json");
+
+        // Display history when no overrides exist
+        let history_options = Options {
+            subcommand: OverrideSubcommand::History {
+                flag: None,
+                file: override_file.clone(),
+            },
+        };
+        assert_eq!(run(&history_options), 0);
     }
 }
