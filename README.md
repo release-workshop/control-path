@@ -1,6 +1,6 @@
 # Control Path
 
-Git-native feature flags with type-safe SDKs.
+Developer-first feature flags for safe releases. Git-native, type-safe, zero network calls.
 
 ## ⚠️ Development Status
 
@@ -17,7 +17,7 @@ Git-native feature flags with type-safe SDKs.
 
 ## Why Control Path?
 
-Feature flags are essential for modern software development, enabling gradual rollouts, A/B testing, and safe deployments. However, traditional feature flag systems come with significant drawbacks:
+Feature flags are essential for safe software releases, enabling gradual rollouts, deployment guardrails, and release safety mechanisms. However, traditional feature flag systems come with significant drawbacks:
 
 ### The Problems with Traditional Feature Flags
 
@@ -51,7 +51,7 @@ Feature flags are essential for modern software development, enabling gradual ro
 
 **🔴 Separation of Concerns**
 
-- Engineering defines flags, but Product manages targeting rules
+- Flag configuration lives outside your codebase
 - Changes require coordination across teams and tools
 - No single source of truth for flag definitions and rules
 
@@ -64,6 +64,28 @@ Control Path solves these problems with a **developer-first, Git-native approach
 - ✅ **Git-Native Workflow** - Flag definitions and deployment rules live in your repository
 - ✅ **OpenFeature Compatible** - Works with industry-standard OpenFeature SDKs
 - ✅ **Fast & Reliable** - No external dependencies, works offline, no single point of failure
+
+## Who Control Path is For
+
+**Control Path is designed for engineering teams focused on release safety:**
+
+- ✅ **Engineering teams** who need release guardrails and safety mechanisms
+- ✅ **Teams deploying frequently** who need confidence in their releases
+- ✅ **Organizations where engineering owns** the safety infrastructure
+- ✅ **Developers who want** Git-native workflows and type-safe SDKs
+
+**Control Path is NOT designed for:**
+
+- ❌ **Product teams** running A/B tests and experimentation campaigns
+- ❌ **Teams primarily using** feature flags for product optimization
+- ❌ **Organizations where experimentation** is the primary use case
+
+**When to Use Control Path:**
+
+- **Use Control Path** if: Engineering owns release safety, you need Git-native workflows, you want type-safe SDKs, you value zero network calls, you need release guardrails
+- **Consider other tools** if: Product team runs experiments, you need A/B testing analytics, experimentation is your primary use case
+
+*Note: Control Path focuses on release safety for engineering teams, not product experimentation. We serve engineering teams who need release guardrails, not product teams who need experimentation platforms.*
 
 ## What is Control Path?
 
@@ -136,6 +158,12 @@ Control Path is a **Git-native feature flag system** that generates **type-safe 
 - Or load from CDN/object storage at runtime
 - Support for multiple environments (production, staging, dev)
 - Hot reloading support for development
+
+**🛡️ Release Safety (Coming Soon)**
+
+- Advanced release safety features that don't exist in other feature flag tools
+- Engineering-focused release guardrails
+- Enhanced safety mechanisms for confident deployments
 
 ## How to Use Control Path
 
@@ -303,6 +331,23 @@ For development, you can reload AST artifacts without restarting:
 // Reload artifact when it changes
 await evaluator.reloadArtifact('./.controlpath/production.ast');
 ```
+
+## Roadmap
+
+Control Path is actively being developed with a focus on release safety for engineering teams:
+
+**Current Phase: Developer-First Feature Flags**
+- ✅ Git-native workflows
+- ✅ Type-safe SDKs
+- ✅ Zero network calls
+- ✅ File-based kill switches
+
+**Coming Soon: Release Safety Features**
+- 🔜 Advanced release safety capabilities - Features that don't exist in other feature flag tools
+- 🔜 Enhanced safety mechanisms - Additional guardrails for confident deployments
+- 🔜 Engineering-focused release infrastructure - Complete release safety tooling
+
+*Control Path's mission is to improve release safety for engineering teams. We're building unique release safety features that will provide capabilities not available in other feature flag tools, giving engineering teams unprecedented confidence in their deployments.*
 
 ## Development
 
