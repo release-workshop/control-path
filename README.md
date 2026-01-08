@@ -2,6 +2,8 @@
 
 Developer-first feature flags for safe releases. Git-native, type-safe, zero network calls.
 
+**Learn more:** [releaseworkshop.com](https://releaseworkshop.com)
+
 ## ⚠️ Development Status
 
 **⚠️ WARNING: This project is currently under active development and is NOT ready for production use.**
@@ -90,6 +92,8 @@ Control Path solves these problems with a **developer-first, Git-native approach
 ## What is Control Path?
 
 Control Path is a **Git-native feature flag system** that generates **type-safe SDKs** from your flag definitions. It uses a two-layer architecture.
+
+For more information about Control Path, visit [releaseworkshop.com](https://releaseworkshop.com).
 
 ### Two-Layer Architecture
 
@@ -508,3 +512,5 @@ For more details, see the [LICENSE](LICENSE) file and [CONTRIBUTING.md](CONTRIBU
 ### Contributing
 
 We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines. By contributing, you agree to our [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md), which grants Release Workshop Ltd ownership of your contributions.
+
+**Learn more:** Visit [releaseworkshop.com](https://releaseworkshop.com) for product information, documentation, and updates.
