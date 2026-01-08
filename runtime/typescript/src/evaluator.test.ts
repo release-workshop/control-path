@@ -2071,6 +2071,103 @@ describe('Evaluator', () => {
         const result = evaluateRule(rule, artifact, mockUser);
         expect(result).toBeUndefined();
       });
+
+      it('should return false when IN_SEGMENT has insufficient args', () => {
+        const rule: Rule = [
+          RuleType.SERVE,
+          [
+            ExpressionType.FUNC,
+            FuncCode.IN_SEGMENT,
+            [[ExpressionType.PROPERTY, 1]], // Only one arg, needs at least 2
+          ],
+          3,
+        ];
+        const result = evaluateRule(rule, artifact, mockUser);
+        expect(result).toBeUndefined();
+      });
+
+      it('should handle segmentName as number (string table index)', () => {
+        const rule: Rule = [
+          RuleType.SERVE,
+          [
+            ExpressionType.FUNC,
+            FuncCode.IN_SEGMENT,
+            [
+              [ExpressionType.PROPERTY, 1],
+              [ExpressionType.LITERAL, 0], // String table index for 'beta_users'
+            ],
+          ],
+          3,
+        ];
+        const user: User = { id: 'user1', role: 'beta' };
+        const result = evaluateRule(rule, artifact, user);
+        expect(result).toBe('ON');
+      });
+
+      it('should return false when segmentName is not string or valid number', () => {
+        const rule: Rule = [
+          RuleType.SERVE,
+          [
+            ExpressionType.FUNC,
+            FuncCode.IN_SEGMENT,
+            [
+              [ExpressionType.PROPERTY, 1],
+              [ExpressionType.LITERAL, true], // Invalid type (boolean)
+            ],
+          ],
+          3,
+        ];
+        const result = evaluateRule(rule, artifact, mockUser);
+        expect(result).toBeUndefined();
+      });
+
+      it('should return false when artifact has no segments', () => {
+        const artifactWithoutSegments: Artifact = {
+          v: '1.0',
+          env: 'test',
+          strs: ['beta_users', 'ON'],
+          flags: [],
+          // segments is undefined
+        };
+        const rule: Rule = [
+          RuleType.SERVE,
+          [
+            ExpressionType.FUNC,
+            FuncCode.IN_SEGMENT,
+            [
+              [ExpressionType.PROPERTY, 1],
+              [ExpressionType.LITERAL, 'beta_users'],
+            ],
+          ],
+          1,
+        ];
+        const result = evaluateRule(rule, artifactWithoutSegments, mockUser);
+        expect(result).toBeUndefined();
+      });
+
+      it('should return false when artifact has empty segments array', () => {
+        const artifactWithEmptySegments: Artifact = {
+          v: '1.0',
+          env: 'test',
+          strs: ['beta_users', 'ON'],
+          flags: [],
+          segments: [], // Empty array
+        };
+        const rule: Rule = [
+          RuleType.SERVE,
+          [
+            ExpressionType.FUNC,
+            FuncCode.IN_SEGMENT,
+            [
+              [ExpressionType.PROPERTY, 1],
+              [ExpressionType.LITERAL, 'beta_users'],
+            ],
+          ],
+          1,
+        ];
+        const result = evaluateRule(rule, artifactWithEmptySegments, mockUser);
+        expect(result).toBeUndefined();
+      });
     });
   });
 

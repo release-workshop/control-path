@@ -175,6 +175,105 @@ describe('Override Loader', () => {
       await expect(loadOverrideFromFile(testFile)).rejects.toThrow('Invalid override file format');
     });
 
+    it('should throw error for invalid timestamp type (not string)', async () => {
+      const testDir = getTestDir();
+      const testFile = join(testDir, 'invalid.json');
+      await mkdir(testDir, { recursive: true });
+
+      writeFileSync(
+        testFile,
+        JSON.stringify({
+          version: '1.0',
+          overrides: {
+            flag1: {
+              value: 'OFF',
+              timestamp: 12345, // Invalid: should be string
+            },
+          },
+        })
+      );
+
+      await expect(loadOverrideFromFile(testFile)).rejects.toThrow('Invalid override file format');
+    });
+
+    it('should throw error for invalid reason type (not string)', async () => {
+      const testDir = getTestDir();
+      const testFile = join(testDir, 'invalid.json');
+      await mkdir(testDir, { recursive: true });
+
+      writeFileSync(
+        testFile,
+        JSON.stringify({
+          version: '1.0',
+          overrides: {
+            flag1: {
+              value: 'OFF',
+              reason: 12345, // Invalid: should be string
+            },
+          },
+        })
+      );
+
+      await expect(loadOverrideFromFile(testFile)).rejects.toThrow('Invalid override file format');
+    });
+
+    it('should throw error for invalid operator type (not string)', async () => {
+      const testDir = getTestDir();
+      const testFile = join(testDir, 'invalid.json');
+      await mkdir(testDir, { recursive: true });
+
+      writeFileSync(
+        testFile,
+        JSON.stringify({
+          version: '1.0',
+          overrides: {
+            flag1: {
+              value: 'OFF',
+              operator: true, // Invalid: should be string
+            },
+          },
+        })
+      );
+
+      await expect(loadOverrideFromFile(testFile)).rejects.toThrow('Invalid override file format');
+    });
+
+    it('should throw error for invalid override value type (not string or object)', async () => {
+      const testDir = getTestDir();
+      const testFile = join(testDir, 'invalid.json');
+      await mkdir(testDir, { recursive: true });
+
+      writeFileSync(
+        testFile,
+        JSON.stringify({
+          version: '1.0',
+          overrides: {
+            flag1: 12345, // Invalid: should be string or object
+          },
+        })
+      );
+
+      await expect(loadOverrideFromFile(testFile)).rejects.toThrow('Invalid override file format');
+    });
+
+    it('should throw error for invalid override value type (array)', async () => {
+      const testDir = getTestDir();
+      const testFile = join(testDir, 'invalid.json');
+      await mkdir(testDir, { recursive: true });
+
+      writeFileSync(
+        testFile,
+        JSON.stringify({
+          version: '1.0',
+          overrides: {
+            flag1: ['OFF'], // Invalid: should be string or object, not array
+          },
+        })
+      );
+
+      await expect(loadOverrideFromFile(testFile)).rejects.toThrow('Invalid override file format');
+    });
+
     it('should throw error for file too large', async () => {
       const testDir = getTestDir();
       const testFile = join(testDir, 'large.json');

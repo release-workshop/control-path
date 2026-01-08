@@ -12,6 +12,7 @@ import { tmpdir } from 'os';
 import { pack } from 'msgpackr';
 import { Provider } from './provider';
 import type { Artifact } from './types';
+import * as evaluator from './evaluator';
 
 describe('Provider', () => {
   // Track test directories per test to avoid interference when tests run in parallel
@@ -1755,6 +1756,88 @@ describe('Provider', () => {
       expect(logger.warn).toHaveBeenCalledWith(
         expect.stringContaining('Invalid override value')
       );
+    });
+  });
+
+  describe('resolveObjectEvaluation error handling', () => {
+    it('should handle errors gracefully and return default value', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      await mkdir(testDir, { recursive: true });
+
+      // Create an artifact that will cause an error during evaluation
+      // by using an invalid flag index that will cause issues
+      const artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['flag1'],
+        flags: [[]], // Empty flags array
+        flagNames: [0],
+      } as Artifact;
+
+      const buffer = Buffer.from(pack(artifact));
+      writeFileSync(testFile, buffer);
+
+      const provider = new Provider();
+      await provider.loadArtifact(testFile);
+
+      const logger = {
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+      };
+
+      const providerWithLogger = new Provider({ logger });
+      await providerWithLogger.loadArtifact(testFile);
+
+      // Mock evaluate to throw an error
+      const evaluateSpy = vi.spyOn(evaluator, 'evaluate').mockImplementation(() => {
+        throw new Error('Evaluation error');
+      });
+
+      const defaultObj = { theme: 'default' };
+      const result = providerWithLogger.resolveObjectEvaluation('flag1', defaultObj, {});
+
+      // Should return default value with ERROR reason
+      expect(result.value).toEqual(defaultObj);
+      expect(result.reason).toBe('ERROR');
+      expect(result.errorCode).toBeDefined();
+      expect(result.errorMessage).toContain('Evaluation error');
+      expect(logger.error).toHaveBeenCalled();
+
+      // Restore original evaluate
+      evaluateSpy.mockRestore();
+    });
+
+    it('should handle errors when artifact is corrupted', async () => {
+      const testDir = getTestDir();
+      const testFile = getTestFile(testDir);
+      await mkdir(testDir, { recursive: true });
+
+      // Create a corrupted artifact file
+      writeFileSync(testFile, Buffer.from([0x00, 0x01, 0x02, 0x03])); // Invalid msgpack
+
+      const logger = {
+        error: vi.fn(),
+        warn: vi.fn(),
+        debug: vi.fn(),
+      };
+
+      const provider = new Provider({ logger });
+
+      // Loading should fail, but evaluation should still handle gracefully
+      try {
+        await provider.loadArtifact(testFile);
+      } catch {
+        // Expected to fail loading
+      }
+
+      const defaultObj = { theme: 'default' };
+      const result = provider.resolveObjectEvaluation('flag1', defaultObj, {});
+
+      // Should return default value since artifact is not loaded
+      expect(result.value).toEqual(defaultObj);
+      expect(result.reason).toBe('DEFAULT');
     });
   });
 });
