@@ -362,4 +362,42 @@ export interface Context {
   [key: string]: unknown;
 }
 
+/**
+ * Override file format - supports both simple and full formats
+ */
+export interface OverrideFile {
+  /** Format version (e.g., "1.0") */
+  version: string;
+  /** Map of flag names to override values */
+  overrides: Record<string, OverrideValue>;
+}
+
+/**
+ * Override value - can be a simple string or a full object with metadata
+ */
+export type OverrideValue =
+  | string // Simple format: "ON", "OFF", "V1", etc.
+  | {
+      /** Override value (required) */
+      value: string;
+      /** ISO 8601 timestamp when override was set (optional) */
+      timestamp?: string;
+      /** Reason for override (optional) */
+      reason?: string;
+      /** Operator who set the override (optional) */
+      operator?: string;
+    };
+
+/**
+ * Override state - internal state for managing overrides in Provider
+ */
+export interface OverrideState {
+  /** Map of flag names to override values */
+  overrides: Record<string, string>; // Normalized to simple string values
+  /** ETag from last successful load (for HTTP conditional requests) */
+  etag?: string;
+  /** Timestamp of last successful load */
+  lastLoadTime?: number;
+}
+
 // EvaluationContext is now imported from @openfeature/server-sdk (see imports above)

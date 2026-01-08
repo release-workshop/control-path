@@ -16,10 +16,17 @@ import type {
   User,
   Context,
   EvaluationContext,
+  OverrideState,
+  OverrideValue,
 } from './types';
 import { ErrorCodeValues } from './types';
 import { PROTOTYPE_POLLUTING_KEYS } from './types';
 import { loadFromFile, loadFromURL, type LoadOptions } from './ast-loader';
+import {
+  loadOverrideFromFile,
+  loadOverrideFromURL,
+  OverrideFileNotModifiedError,
+} from './override-loader';
 import { evaluate } from './evaluator';
 // Import Provider type directly from OpenFeature (type-only import, no runtime dependency)
 import type { Provider as OpenFeatureProvider, Hook } from '@openfeature/server-sdk';
@@ -38,6 +45,12 @@ export interface ProviderOptions {
   enableCache?: boolean;
   /** Cache TTL in milliseconds (default: 5 minutes) */
   cacheTTL?: number;
+  /** Optional override file URL or file path (loaded and polled automatically during initialization) */
+  overrideUrl?: string | URL;
+  /** Polling interval in milliseconds (default: 3000ms / 3 seconds) */
+  pollingInterval?: number;
+  /** Enable/disable polling (default: true when overrideUrl is set) */
+  enablePolling?: boolean;
 }
 
 /**
@@ -58,6 +71,11 @@ interface CacheEntry {
 const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
 /**
+ * Default timeout for override file URL loading: 10 seconds
+ */
+const DEFAULT_OVERRIDE_URL_TIMEOUT = 10000;
+
+/**
  * Control Path Provider for OpenFeature.
  * Implements the OpenFeature Provider interface directly.
  *
@@ -72,6 +90,11 @@ export class Provider implements OpenFeatureProvider {
   private cache: Map<string, CacheEntry> = new Map();
   private cacheEnabled: boolean = true;
   private cacheTTL: number = DEFAULT_CACHE_TTL;
+  private overrideState: OverrideState | null = null;
+  private overrideUrl?: string | URL;
+  private pollingInterval: number = 3000; // Default: 3 seconds
+  private enablePolling: boolean = true;
+  private pollingTimer?: NodeJS.Timeout | number;
 
   /**
    * Metadata for OpenFeature compliance
@@ -99,6 +122,25 @@ export class Provider implements OpenFeatureProvider {
         publicKey: options.publicKey,
         requireSignature: options.requireSignature,
       };
+    }
+
+    // Override configuration
+    if (options?.overrideUrl) {
+      this.overrideUrl = options.overrideUrl;
+      this.pollingInterval = options?.pollingInterval ?? 3000;
+      this.enablePolling = options?.enablePolling ?? true;
+
+      // Load override file during initialization (async, but don't await)
+      // Polling will start automatically if enablePolling is true
+      this.loadOverrideFile().catch((error) => {
+        if (this.logger) {
+          this.logger.error(
+            'Failed to load override file during initialization',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+        // Don't throw - graceful degradation: continue without overrides
+      });
     }
   }
 
@@ -184,6 +226,161 @@ export class Provider implements OpenFeatureProvider {
    */
   clearCache(): void {
     this.cache.clear();
+  }
+
+  /**
+   * Normalize override values to simple strings
+   * Converts both simple string format and full object format to simple strings
+   * @param overrides - Override values (can be string or object with value field)
+   * @returns Normalized override values as simple strings
+   * @private
+   */
+  private normalizeOverrideValues(
+    overrides: Record<string, OverrideValue>
+  ): Record<string, string> {
+    const normalized: Record<string, string> = {};
+    for (const [flagName, overrideValue] of Object.entries(overrides)) {
+      normalized[flagName] =
+        typeof overrideValue === 'string' ? overrideValue : overrideValue.value;
+    }
+    return normalized;
+  }
+
+  /**
+   * Load override file from URL or file path
+   * Called automatically during initialization if overrideUrl is provided
+   * @private
+   */
+  private async loadOverrideFile(): Promise<void> {
+    if (!this.overrideUrl) {
+      return;
+    }
+
+    const overrideUrlStr =
+      this.overrideUrl instanceof URL ? this.overrideUrl.toString() : this.overrideUrl;
+
+    try {
+      // Determine if this is a URL or file path
+      if (overrideUrlStr.startsWith('http://') || overrideUrlStr.startsWith('https://')) {
+        // HTTP/HTTPS URL - use URL loader with ETag support
+        const etag = this.overrideState?.etag;
+        try {
+          const result = await loadOverrideFromURL(
+            overrideUrlStr,
+            etag,
+            DEFAULT_OVERRIDE_URL_TIMEOUT,
+            this.logger
+          );
+          // Normalize override values to simple strings
+          const normalizedOverrides = this.normalizeOverrideValues(result.overrideFile.overrides);
+          this.overrideState = {
+            overrides: normalizedOverrides,
+            etag: result.etag,
+            lastLoadTime: Date.now(),
+          };
+          // Clear cache when overrides change
+          this.clearCache();
+        } catch (error) {
+          // Handle 304 Not Modified (file hasn't changed)
+          if (error instanceof OverrideFileNotModifiedError) {
+            // File hasn't changed - keep existing override state
+            if (this.overrideState) {
+              this.overrideState.lastLoadTime = Date.now();
+            }
+            return;
+          }
+          throw error;
+        }
+      } else if (overrideUrlStr.startsWith('file://')) {
+        // file:// URL - remove protocol and use file loader
+        const filePath = overrideUrlStr.replace(/^file:\/\//, '');
+        const overrideFile = await loadOverrideFromFile(filePath);
+        // Normalize override values to simple strings
+        const normalizedOverrides = this.normalizeOverrideValues(overrideFile.overrides);
+        this.overrideState = {
+          overrides: normalizedOverrides,
+          lastLoadTime: Date.now(),
+        };
+        // Clear cache when overrides change
+        this.clearCache();
+      } else {
+        // Direct file path (Node.js)
+        const overrideFile = await loadOverrideFromFile(overrideUrlStr);
+        // Normalize override values to simple strings
+        const normalizedOverrides = this.normalizeOverrideValues(overrideFile.overrides);
+        this.overrideState = {
+          overrides: normalizedOverrides,
+          lastLoadTime: Date.now(),
+        };
+        // Clear cache when overrides change
+        this.clearCache();
+      }
+
+      // Start polling if enabled and URL is HTTP/HTTPS
+      if (
+        this.enablePolling &&
+        (overrideUrlStr.startsWith('http://') || overrideUrlStr.startsWith('https://'))
+      ) {
+        this.startPolling();
+      }
+    } catch (error) {
+      // Log error but don't throw - graceful degradation
+      if (this.logger) {
+        this.logger.warn(
+          `Failed to load override file from ${overrideUrlStr}`,
+          error instanceof Error ? error : new Error(String(error))
+        );
+      }
+      // Don't throw - application continues without overrides
+    }
+  }
+
+  /**
+   * Start polling for override file updates.
+   * Only works with HTTP/HTTPS URLs. Polling starts automatically during initialization
+   * when overrideUrl is provided and enablePolling is true.
+   *
+   * If polling is already active, it will be stopped and restarted with the current configuration.
+   */
+  startPolling(): void {
+    if (!this.overrideUrl) {
+      return;
+    }
+
+    const overrideUrlStr =
+      this.overrideUrl instanceof URL ? this.overrideUrl.toString() : this.overrideUrl;
+
+    // Only poll HTTP/HTTPS URLs (not file:// or direct paths)
+    if (!overrideUrlStr.startsWith('http://') && !overrideUrlStr.startsWith('https://')) {
+      return;
+    }
+
+    // Stop existing polling if any
+    this.stopPolling();
+
+    // Start polling
+    this.pollingTimer = setInterval(() => {
+      this.loadOverrideFile().catch((error) => {
+        if (this.logger) {
+          this.logger.warn(
+            'Failed to poll override file',
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
+        // Don't throw - continue polling
+      });
+    }, this.pollingInterval);
+  }
+
+  /**
+   * Stop polling for override file updates.
+   * This method is safe to call even if polling is not active.
+   */
+  stopPolling(): void {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = undefined;
+    }
   }
 
   // Method overloads for resolveBooleanEvaluation
@@ -409,6 +606,16 @@ export class Provider implements OpenFeatureProvider {
    */
   private getFlagIndex(flagKey: string): number | undefined {
     return this.flagNameMap[flagKey];
+  }
+
+  /**
+   * Get override value for a flag (if any)
+   * @param flagKey - Flag name
+   * @returns Override value or undefined if no override exists
+   * @private
+   */
+  private getOverrideValue(flagKey: string): string | undefined {
+    return this.overrideState?.overrides[flagKey];
   }
 
   /**

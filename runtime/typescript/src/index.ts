@@ -13,6 +13,12 @@
 
 export { Provider, type ProviderOptions } from './provider';
 export { loadFromFile, loadFromURL, loadFromBuffer, type LoadOptions } from './ast-loader';
+export {
+  loadOverrideFromFile,
+  loadOverrideFromURL,
+  OverrideFileNotModifiedError,
+  type OverrideLoadResult,
+} from './override-loader';
 export { evaluate, evaluateRule } from './evaluator';
 export { buildFlagNameMap, buildFlagNameMapFromArtifact } from './utils';
 export type {
@@ -24,6 +30,9 @@ export type {
   Context,
   ResolutionDetails,
   Logger,
+  OverrideFile,
+  OverrideValue,
+  OverrideState,
 } from './types';
 export {
   RuleType,
