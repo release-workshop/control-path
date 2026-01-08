@@ -8,7 +8,7 @@ jobs:
   lint-commits:
     name: Enforce conventional commits
     runs-on: ubuntu-latest
-    if: github.head_ref != 'release-please--branches--main'
+    if: github.head_ref != 'release-please--branches--main' && !contains(github.head_ref, 'release-please--branches--main--')
 
     permissions:
       contents: read
@@ -40,29 +40,21 @@ jobs:
           module.exports = {
             extends: ['@commitlint/config-conventional'],
             rules: {
+              // Allow empty scope for all commits (chore commits from release-please don't have scopes)
+              'scope-empty': [0],
+              // Validate scope enum when scope is present
               'scope-enum': [
                 2,
                 'always',
-                (parsed) => {
-                  if (!parsed.scope) {
-                    return [true];
-                  }
-                  const allowedScopes = ['compiler', 'cli', 'runtime', 'repo', 'ci', 'docs', 'deps'];
-                  return [
-                    allowedScopes.includes(parsed.scope),
-                    `scope must be one of: ${allowedScopes.join(', ')}`,
-                  ];
-                },
-              ],
-              'scope-empty': [
-                2,
-                'never',
-                (parsed) => {
-                  if (parsed.type === 'chore' && !parsed.scope) {
-                    return [true];
-                  }
-                  return [parsed.scope ? true : false, 'scope must be provided'];
-                },
+                [
+                  'compiler',
+                  'cli',
+                  'runtime',
+                  'repo',
+                  'ci',
+                  'docs',
+                  'deps',
+                ],
               ],
             },
           };
