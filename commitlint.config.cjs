@@ -12,6 +12,7 @@ module.exports = {
         'cli', // Rust CLI crate
         'runtime', // TypeScript runtime SDK
         'repo', // Root-level config, workflows, docs
+        'actions', // Actions changes
         'ci', // CI/CD changes
         'docs', // Documentation changes
         'deps', // Dependency updates
