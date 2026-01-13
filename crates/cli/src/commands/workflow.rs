@@ -688,6 +688,7 @@ fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
                 env: Some(String::from(env)),
                 output: None,
                 definitions: None,
+                service_context: None,
             };
             let exit_code = compile::run(&compile_opts);
             if exit_code != 0 {

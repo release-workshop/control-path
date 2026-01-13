@@ -7,6 +7,7 @@
 mod commands;
 mod error;
 mod generator;
+mod monorepo;
 mod utils;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -26,6 +27,20 @@ const VERSION: &str = env!("CONTROLPATH_VERSION");
 #[command(about = "Control Path CLI - Compile and validate flag definitions", long_about = None)]
 #[command(version = VERSION)]
 struct Cli {
+    /// Operate on a specific service (monorepo mode)
+    ///
+    /// When in a monorepo, specifies which service to operate on.
+    /// Can be a service name or a path relative to workspace root.
+    #[arg(long, global = true)]
+    service: Option<String>,
+
+    /// Explicitly set workspace root (monorepo mode)
+    ///
+    /// When in a monorepo, explicitly sets the workspace root.
+    /// If not provided, the CLI will auto-detect the workspace root.
+    #[arg(long, global = true)]
+    workspace_root: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -730,6 +745,14 @@ pub fn get_cli_command() -> clap::Command {
 fn main() {
     let cli = Cli::parse();
 
+    // Resolve service context for monorepo support
+    let service_context =
+        monorepo::resolve_service_context(cli.service.as_deref(), cli.workspace_root.as_deref())
+            .unwrap_or_else(|e| {
+                eprintln!("Error resolving service context: {e}");
+                std::process::exit(1);
+            });
+
     let exit_code = match cli.command {
         Commands::Validate {
             definitions,
@@ -756,6 +779,7 @@ fn main() {
                 env,
                 output,
                 definitions,
+                service_context: Some(service_context.clone()),
             };
             compile::run(&opts)
         }

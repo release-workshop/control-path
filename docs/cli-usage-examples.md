@@ -418,6 +418,81 @@ Next steps:
   5. Get help:               controlpath help
 ```
 
+## Monorepo Support
+
+Control Path CLI supports monorepo environments where multiple services each need their own Control Path setup.
+
+### Working in a Monorepo
+
+#### From Service Directory
+
+```bash
+# Navigate to service
+cd services/service-a
+
+# Commands work as normal (backward compatible)
+controlpath compile --env production
+controlpath generate-sdk --lang typescript
+```
+
+#### From Workspace Root
+
+```bash
+# Stay at workspace root
+cd /path/to/monorepo
+
+# Target specific service
+controlpath compile --service service-a --env production
+controlpath validate --service service-a
+
+# Explicit workspace root
+controlpath compile --service service-a --workspace-root . --env production
+```
+
+### Monorepo Configuration
+
+Create `.controlpath/config.yaml` at workspace root:
+
+```yaml
+language: typescript
+defaultEnv: production
+
+monorepo:
+  serviceDirectories:
+    - services
+    - packages
+  discovery: auto
+```
+
+### Monorepo Examples
+
+#### Standard Services Layout
+
+```
+monorepo/
+├── .controlpath/config.yaml
+├── services/
+│   ├── api-service/
+│   │   ├── flags.definitions.yaml
+│   │   └── .controlpath/
+│   └── web-service/
+│       ├── flags.definitions.yaml
+│       └── .controlpath/
+```
+
+#### Working with Multiple Services
+
+```bash
+# Compile all services (when --all-services is implemented)
+controlpath compile --all-services --env production
+
+# Validate specific service
+controlpath validate --service api-service --all
+
+# Generate SDK for specific service
+controlpath generate-sdk --service web-service --lang typescript
+```
+
 ## Complete Workflows
 
 ### Workflow 1: Adding a New Feature Flag

@@ -244,6 +244,33 @@ controlpath compile --env production
 
 This creates `.controlpath/production.ast` - a compact binary artifact.
 
+### Monorepo Support
+
+Control Path CLI supports monorepo environments. Each service can have its own `flags.definitions.yaml` and `.controlpath/` directory.
+
+**Working from service directory:**
+```bash
+cd services/service-a
+controlpath compile --env production
+```
+
+**Working from workspace root:**
+```bash
+# Target specific service
+controlpath compile --service service-a --env production
+```
+
+**Configure workspace** (`.controlpath/config.yaml` at workspace root):
+```yaml
+monorepo:
+  serviceDirectories:
+    - services
+    - packages
+  discovery: auto
+```
+
+See [CLI Documentation](docs/rust-cli.md#monorepo-support) for more details.
+
 **7. Use in Your Application**
 
 ```typescript

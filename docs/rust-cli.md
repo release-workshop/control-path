@@ -646,9 +646,151 @@ Force removal without confirmation:
 controlpath env remove --name staging --force
 ```
 
+## Monorepo Support
+
+Control Path CLI supports monorepo environments where multiple services each need their own Control Path setup.
+
+### Global Flags
+
+All commands support these global flags for monorepo usage:
+
+- `--service <name|path>`: Operate on a specific service
+- `--workspace-root <path>`: Explicitly set workspace root (auto-detected if not provided)
+
+### Monorepo Detection
+
+The CLI automatically detects monorepo structures by looking for:
+
+1. **Common directory patterns**: `services/`, `packages/`, `apps/`, `microservices/`
+2. **Service identification**: A directory is considered a service if it contains:
+   - `flags.definitions.yaml` OR
+   - `.controlpath/` directory
+3. **Workspace root**: The monorepo root is detected by walking up the directory tree
+
+### Service Context Resolution
+
+When a command is run, the CLI determines the service context:
+
+1. **If `--service` flag is provided**: Use that service directory
+2. **If CWD is inside a service**: Use the current service (auto-detect)
+3. **If CWD is at workspace root**: No service specified (workspace-level operation)
+4. **If no monorepo detected**: Use current directory (backward compatible, single-project mode)
+
+### Workspace Configuration
+
+Configure monorepo behavior via `.controlpath/config.yaml` at the workspace root:
+
+```yaml
+# Workspace-level config
+language: typescript
+defaultEnv: production
+
+monorepo:
+  # Service directory patterns (searched in order)
+  serviceDirectories:
+    - services
+    - packages
+    - apps
+    - microservices
+  
+  # Service discovery mode
+  # "auto" - Auto-detect services with flags.definitions.yaml or .controlpath/
+  # "explicit" - Only use services listed in services list
+  discovery: auto  # auto | explicit
+  
+  # Explicit service list (optional, used when discovery: explicit)
+  services:
+    - service-a
+    - service-b
+    - service-c
+```
+
+### Examples
+
+#### Working from Service Directory
+
+```bash
+# Navigate to service
+cd services/service-a
+
+# Run commands as before (backward compatible)
+controlpath compile --env production
+controlpath generate-sdk --lang typescript
+```
+
+#### Working from Workspace Root
+
+```bash
+# Stay at workspace root
+cd /path/to/monorepo
+
+# Compile specific service
+controlpath compile --service service-a --env production
+
+# Compile all services (when --all-services is implemented)
+controlpath compile --all-services --env production
+```
+
+#### Explicit Service Targeting
+
+```bash
+# From any directory, target a specific service
+controlpath compile --service service-a --env production
+
+# Use service path
+controlpath compile --service ./services/service-a --env production
+```
+
+### Service-Scoped File Paths
+
+When operating in a service context, file paths are resolved relative to the service directory:
+
+- `flags.definitions.yaml` → `<service-dir>/flags.definitions.yaml`
+- `.controlpath/<env>.deployment.yaml` → `<service-dir>/.controlpath/<env>.deployment.yaml`
+- `.controlpath/<env>.ast` → `<service-dir>/.controlpath/<env>.ast`
+- `./flags/` (SDK output) → `<service-dir>/flags/`
+
+### Monorepo Layout Examples
+
+#### Standard Services Layout
+
+```
+monorepo/
+├── .controlpath/
+│   └── config.yaml  # Workspace config
+├── services/
+│   ├── service-a/
+│   │   ├── flags.definitions.yaml
+│   │   └── .controlpath/
+│   ├── service-b/
+│   │   ├── flags.definitions.yaml
+│   │   └── .controlpath/
+│   └── service-c/
+│       ├── flags.definitions.yaml
+│       └── .controlpath/
+```
+
+#### Packages Layout (Nx, Turborepo style)
+
+```
+monorepo/
+├── .controlpath/
+│   └── config.yaml
+├── packages/
+│   ├── api-service/
+│   │   ├── flags.definitions.yaml
+│   │   └── .controlpath/
+│   ├── web-app/
+│   │   ├── flags.definitions.yaml
+│   │   └── .controlpath/
+│   └── mobile-app/
+│       ├── flags.definitions.yaml
+│       └── .controlpath/
+```
+
 ## File Organization
 
-### Standard Structure
+### Standard Structure (Single Project)
 
 ```
 project-root/
@@ -658,6 +800,26 @@ project-root/
 │   ├── staging.deployment.yaml     # Staging deployment rules
 │   ├── production.ast              # Compiled AST artifacts
 │   └── staging.ast
+└── ...
+```
+
+### Monorepo Structure
+
+```
+monorepo-root/
+├── .controlpath/
+│   └── config.yaml                 # Workspace-level config
+├── services/                        # Service directory
+│   ├── service-a/
+│   │   ├── flags.definitions.yaml
+│   │   └── .controlpath/
+│   │       ├── production.deployment.yaml
+│   │       └── production.ast
+│   └── service-b/
+│       ├── flags.definitions.yaml
+│       └── .controlpath/
+│           ├── production.deployment.yaml
+│           └── production.ast
 └── ...
 ```
 

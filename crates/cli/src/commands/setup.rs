@@ -186,6 +186,7 @@ fn run_inner(options: &Options) -> CliResult<String> {
         env: Some("production".to_string()),
         output: None,
         definitions: None,
+        service_context: None,
     };
     let compile_result = compile::run(&compile_options);
     if compile_result != 0 {
