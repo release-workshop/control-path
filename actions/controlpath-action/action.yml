@@ -1,0 +1,35 @@
+name: 'Control Path'
+description: 'Validate and compile Control Path flag definitions in CI (Linux only)'
+branding:
+  icon: 'layers'
+  color: 'blue'
+inputs:
+  definitions-file:
+    description: 'Path to flag definitions file (default: flags.definitions.yaml)'
+    required: false
+    default: 'flags.definitions.yaml'
+  deployment-file:
+    description: 'Path to deployment file (optional if environment is provided)'
+    required: false
+  environment:
+    description: 'Environment name (uses .controlpath/<env>.deployment.yaml)'
+    required: false
+  version:
+    description: 'Control Path CLI version to use (default: latest)'
+    required: false
+    default: 'latest'
+  skip-validation:
+    description: 'Skip validation step (default: false)'
+    required: false
+    default: 'false'
+  skip-compilation:
+    description: 'Skip compilation step (default: false)'
+    required: false
+    default: 'false'
+outputs:
+  compiled-artifact-path:
+    description: 'Path to the compiled AST artifact file'
+    value: ${{ steps.compile.outputs.artifact-path }}
+runs:
+  using: 'node20'
+  main: 'index.js'

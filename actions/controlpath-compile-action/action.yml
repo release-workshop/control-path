@@ -1,0 +1,37 @@
+name: 'Control Path Compile'
+description: 'Compile Control Path flag definitions to AST artifacts for runtime use. Optionally validates before compilation (Linux only)'
+branding:
+  icon: 'layers'
+  color: 'blue'
+inputs:
+  definitions-file:
+    description: 'Path to flag definitions file (default: flags.definitions.yaml)'
+    required: false
+    default: 'flags.definitions.yaml'
+  deployment-file:
+    description: 'Path to deployment file (optional if environment is provided)'
+    required: false
+  environment:
+    description: 'Environment name (uses .controlpath/<env>.deployment.yaml)'
+    required: false
+  version:
+    description: 'Control Path CLI version to use (default: latest)'
+    required: false
+    default: 'latest'
+  skip-validation:
+    description: 'Skip validation step (default: false)'
+    required: false
+    default: 'false'
+  skip-compilation:
+    description: 'Skip compilation step (default: false)'
+    required: false
+    default: 'false'
+  working-directory:
+    description: 'Working directory for the action. Use this for monorepos where Control Path files are in subdirectories (e.g., packages/service-a)'
+    required: false
+outputs:
+  compiled-artifact-path:
+    description: 'Path to the compiled AST artifact file'
+runs:
+  using: 'node20'
+  main: 'index.js'
