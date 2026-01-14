@@ -187,6 +187,7 @@ fn run_inner(options: &Options) -> CliResult<String> {
         output: None,
         definitions: None,
         service_context: None,
+        all_services: false,
     };
     let compile_result = compile::run(&compile_options);
     if compile_result != 0 {
@@ -211,6 +212,8 @@ fn run_inner(options: &Options) -> CliResult<String> {
         lang: Some(lang.clone()),
         output: Some("./flags".to_string()),
         definitions: None,
+        all_services: false,
+        service_context: None,
     };
     let generate_result = generate_sdk::run(&generate_options);
     if generate_result != 0 {

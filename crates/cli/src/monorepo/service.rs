@@ -7,20 +7,22 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone)]
 pub struct Service {
     /// Service name (directory name)
-    #[allow(dead_code)] // Will be used in services list/status commands
     pub name: String,
     /// Full path to service directory
     pub path: PathBuf,
     /// Path relative to workspace root
-    #[allow(dead_code)] // Will be used in services list/status commands
     pub relative_path: PathBuf,
     /// Workspace root path
-    #[allow(dead_code)] // Will be used in services list/status commands
+    // Used in tests and services commands (compiler doesn't always detect cross-module usage)
+    #[allow(dead_code)]
     pub workspace_root: PathBuf,
 }
 
 impl Service {
     /// Create a Service from a name (searches in service directories)
+    ///
+    /// Note: This method does not validate that the service exists or is valid.
+    /// Use `from_name_validated` if you need validation.
     pub fn from_name(name: &str, workspace_root: &Path) -> Self {
         use crate::monorepo::detection::SERVICE_DIRECTORY_PATTERNS;
 
@@ -62,6 +64,30 @@ impl Service {
         }
     }
 
+    /// Create a Service from a name with validation
+    ///
+    /// Returns an error if the service doesn't exist or isn't valid.
+    pub fn from_name_validated(name: &str, workspace_root: &Path) -> CliResult<Self> {
+        let service = Self::from_name(name, workspace_root);
+
+        if !service.path.exists() {
+            return Err(CliError::Message(format!(
+                "Service '{}' not found at path: {}",
+                name,
+                service.path.display()
+            )));
+        }
+
+        if !super::detection::is_service(&service.path) {
+            return Err(CliError::Message(format!(
+                "Path '{}' is not a valid service (missing flags.definitions.yaml or .controlpath/)",
+                service.path.display()
+            )));
+        }
+
+        Ok(service)
+    }
+
     /// Create a Service from a path
     pub fn from_path(path: &Path, workspace_root: &Path) -> Self {
         let name = path
@@ -90,10 +116,12 @@ pub struct ServiceContext {
     /// The service (None if not in monorepo or single-project mode)
     pub service: Option<Service>,
     /// Workspace root (None if not in monorepo)
-    #[allow(dead_code)] // Will be used in bulk operations and services commands
+    // Used in tests, main.rs, and bulk operations (compiler doesn't always detect cross-module usage)
+    #[allow(dead_code)]
     pub workspace_root: Option<PathBuf>,
     /// Whether we're in monorepo mode
-    #[allow(dead_code)] // Will be used in bulk operations and services commands
+    // Used in tests, main.rs, and bulk operations (compiler doesn't always detect cross-module usage)
+    #[allow(dead_code)]
     pub is_monorepo: bool,
 }
 

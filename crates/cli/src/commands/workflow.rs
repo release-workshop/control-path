@@ -344,6 +344,8 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
                 lang: Some(lang),
                 output: None,
                 definitions: None,
+                all_services: false,
+                service_context: None,
             };
             let exit_code = generate_sdk::run(&generate_opts);
             if exit_code != 0 {
@@ -612,6 +614,8 @@ pub struct DeployOptions {
     pub env: Option<String>, // Comma-separated environments
     pub dry_run: bool,
     pub skip_validation: bool,
+    pub all_services: bool,
+    pub service_context: Option<crate::monorepo::ServiceContext>,
 }
 
 pub fn run_deploy(options: &DeployOptions) -> i32 {
@@ -643,6 +647,11 @@ pub fn run_deploy(options: &DeployOptions) -> i32 {
 }
 
 fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
+    // Handle bulk operations for monorepo
+    if options.all_services {
+        return run_bulk_deploy(options);
+    }
+
     // Get environments
     let envs = if let Some(ref env_str) = options.env {
         env_str.split(',').map(|s| s.trim().to_string()).collect()
@@ -670,6 +679,8 @@ fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
             deployment: None,
             env: None,
             all: true,
+            all_services: false,
+            service_context: options.service_context.clone(),
         };
         let exit_code = validate::run(&validate_opts);
         if exit_code != 0 {
@@ -688,7 +699,8 @@ fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
                 env: Some(String::from(env)),
                 output: None,
                 definitions: None,
-                service_context: None,
+                service_context: options.service_context.clone(),
+                all_services: false,
             };
             let exit_code = compile::run(&compile_opts);
             if exit_code != 0 {
@@ -700,6 +712,140 @@ fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
     }
 
     Ok(envs)
+}
+
+fn run_bulk_deploy(options: &DeployOptions) -> CliResult<Vec<String>> {
+    use crate::monorepo::{
+        detect_workspace_root, discover_services, ServiceContext, ServicePathResolver,
+    };
+
+    // Detect workspace root
+    let workspace_root = detect_workspace_root(None)?.ok_or_else(|| {
+        CliError::Message(
+            "Not in a monorepo. --all-services flag only works in monorepo environments"
+                .to_string(),
+        )
+    })?;
+
+    // Discover all services
+    let services = discover_services(&workspace_root)?;
+
+    if services.is_empty() {
+        return Err(CliError::Message(
+            "No services found in monorepo".to_string(),
+        ));
+    }
+
+    println!("Deploying {} service(s)...", services.len());
+
+    // If specific environments requested, validate they exist across services
+    if let Some(ref env_str) = options.env {
+        let requested_envs: Vec<&str> = env_str.split(',').map(|s| s.trim()).collect();
+        let mut missing_envs = Vec::new();
+
+        for service in &services {
+            let resolver = ServicePathResolver::new(ServiceContext {
+                service: Some(service.clone()),
+                workspace_root: Some(workspace_root.clone()),
+                is_monorepo: true,
+            });
+            let controlpath_dir = resolver.base_path().join(".controlpath");
+
+            if controlpath_dir.exists() {
+                let mut service_envs = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(&controlpath_dir) {
+                    for entry in entries.flatten() {
+                        let file_name = entry.file_name();
+                        if let Some(name) = file_name.to_str() {
+                            if name.ends_with(".deployment.yaml") {
+                                let env_name =
+                                    name.strip_suffix(".deployment.yaml").unwrap_or(name);
+                                service_envs.push(env_name.to_string());
+                            }
+                        }
+                    }
+                }
+
+                for requested_env in &requested_envs {
+                    if !service_envs.iter().any(|e| e == requested_env) {
+                        missing_envs.push(format!("{}:{}", service.name, requested_env));
+                    }
+                }
+            } else {
+                // Service has no deployments, all requested envs are missing
+                for requested_env in &requested_envs {
+                    missing_envs.push(format!("{}:{}", service.name, requested_env));
+                }
+            }
+        }
+
+        if !missing_envs.is_empty() {
+            return Err(CliError::Message(format!(
+                "Requested environment(s) not found in all services: {}",
+                missing_envs.join(", ")
+            )));
+        }
+    }
+
+    // Validate all services (unless skipped)
+    if !options.skip_validation {
+        println!("Validating all services...");
+        let validate_opts = validate::Options {
+            definitions: None,
+            deployment: None,
+            env: None,
+            all: false,
+            all_services: true,
+            service_context: None,
+        };
+        let exit_code = validate::run(&validate_opts);
+        if exit_code != 0 {
+            return Err(CliError::Message("Validation failed".to_string()));
+        }
+        println!("✓ Validation passed");
+    }
+
+    // Compile all services
+    let compile_opts = compile::Options {
+        deployment: None,
+        env: options.env.clone(),
+        output: None,
+        definitions: None,
+        service_context: None,
+        all_services: true,
+    };
+    let exit_code = compile::run(&compile_opts);
+    if exit_code != 0 {
+        return Err(CliError::Message("Compilation failed".to_string()));
+    }
+
+    // Collect all environments that were compiled
+    let mut all_envs = Vec::new();
+    for service in &services {
+        use crate::monorepo::{ServiceContext, ServicePathResolver};
+        let resolver = ServicePathResolver::new(ServiceContext {
+            service: Some(service.clone()),
+            workspace_root: Some(workspace_root.clone()),
+            is_monorepo: true,
+        });
+        let controlpath_dir = resolver.base_path().join(".controlpath");
+        if controlpath_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&controlpath_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.ends_with(".deployment.yaml") {
+                            let env_name = name.strip_suffix(".deployment.yaml").unwrap_or(name);
+                            if !all_envs.contains(&env_name.to_string()) {
+                                all_envs.push(env_name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(all_envs)
 }
 
 #[cfg(test)]
@@ -852,6 +998,8 @@ rules:
             env: Some("production".to_string()),
             dry_run: true,
             skip_validation: false,
+            all_services: false,
+            service_context: None,
         };
 
         let result = run_deploy_inner(&options);
@@ -1044,6 +1192,8 @@ rules:
             env: None,
             dry_run: true,
             skip_validation: false,
+            all_services: false,
+            service_context: None,
         };
 
         let result = run_deploy_inner(&options);
@@ -1061,6 +1211,8 @@ rules:
             env: None,
             dry_run: false,
             skip_validation: true,
+            all_services: false,
+            service_context: None,
         };
 
         let result = run_deploy_inner(&options);
@@ -1078,6 +1230,8 @@ rules:
             env: Some("production".to_string()),
             dry_run: false,
             skip_validation: false,
+            all_services: false,
+            service_context: None,
         };
 
         let result = run_deploy_inner(&options);
@@ -1109,6 +1263,8 @@ rules:
             env: None,
             dry_run: false,
             skip_validation: false,
+            all_services: false,
+            service_context: None,
         };
 
         let result = run_deploy_inner(&options);

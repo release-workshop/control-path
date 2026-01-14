@@ -1,6 +1,9 @@
 //! Validate command implementation
 
 use crate::error::{CliError, CliResult};
+use crate::monorepo::{
+    detect_workspace_root, discover_services, ServiceContext, ServicePathResolver,
+};
 use controlpath_compiler::{
     parse_definitions, parse_deployment, validate_definitions, validate_deployment,
 };
@@ -12,6 +15,9 @@ pub struct Options {
     pub deployment: Option<String>,
     pub env: Option<String>,
     pub all: bool,
+    pub all_services: bool,
+    #[allow(dead_code)]
+    pub service_context: Option<ServiceContext>,
 }
 
 #[derive(Debug, Clone)]
@@ -116,6 +122,11 @@ pub fn run(options: &Options) -> i32 {
 }
 
 fn run_inner(options: &Options) -> CliResult<usize> {
+    // Handle bulk operations for monorepo
+    if options.all_services {
+        return run_bulk_validation(options);
+    }
+
     // Collect files to validate
     let mut files_to_validate = collect_files_from_options(options);
 
@@ -157,6 +168,98 @@ fn run_inner(options: &Options) -> CliResult<usize> {
     Ok(valid_count)
 }
 
+fn run_bulk_validation(_options: &Options) -> CliResult<usize> {
+    // Detect workspace root
+    let workspace_root = detect_workspace_root(None)?.ok_or_else(|| {
+        CliError::Message(
+            "Not in a monorepo. --all-services flag only works in monorepo environments"
+                .to_string(),
+        )
+    })?;
+
+    // Discover all services
+    let services = discover_services(&workspace_root)?;
+
+    if services.is_empty() {
+        return Err(CliError::Message(
+            "No services found in monorepo".to_string(),
+        ));
+    }
+
+    println!("Validating {} service(s)...", services.len());
+
+    let mut total_valid = 0;
+    let mut total_errors = 0;
+
+    for service in &services {
+        println!("\nService: {}", service.name);
+        println!("  Path: {}", service.relative_path.display());
+
+        let resolver = ServicePathResolver::new(ServiceContext {
+            service: Some(service.clone()),
+            workspace_root: Some(workspace_root.clone()),
+            is_monorepo: true,
+        });
+
+        // Validate definitions
+        let definitions_path = resolver.definitions_file();
+        if definitions_path.exists() {
+            match validate_file(&FileToValidate::Definitions(definitions_path.clone())) {
+                Ok(()) => {
+                    println!("  ✓ Definitions: valid");
+                    total_valid += 1;
+                }
+                Err(e) => {
+                    println!("  ✗ Definitions: failed");
+                    eprintln!("    Error: {e}");
+                    total_errors += 1;
+                }
+            }
+        } else {
+            println!("  - Definitions: not found");
+        }
+
+        // Validate deployments
+        let controlpath_dir = resolver.base_path().join(".controlpath");
+        if controlpath_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&controlpath_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if name.ends_with(".deployment.yaml") {
+                            let deployment_path = entry.path();
+                            match validate_file(&FileToValidate::Deployment(
+                                deployment_path.clone(),
+                            )) {
+                                Ok(()) => {
+                                    println!("  ✓ Deployment {}: valid", name);
+                                    total_valid += 1;
+                                }
+                                Err(e) => {
+                                    println!("  ✗ Deployment {}: failed", name);
+                                    eprintln!("    Error: {e}");
+                                    total_errors += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    println!("\nSummary:");
+    println!("  Valid: {}", total_valid);
+    if total_errors > 0 {
+        println!("  Errors: {}", total_errors);
+        return Err(CliError::Message(format!(
+            "Validation failed for {} file(s)",
+            total_errors
+        )));
+    }
+
+    Ok(total_valid)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +273,8 @@ mod tests {
             deployment: Some("test.deployment.yaml".to_string()),
             env: None,
             all: false,
+            all_services: false,
+            service_context: None,
         };
         let files = collect_files_from_options(&options);
         assert_eq!(files.len(), 2);
@@ -182,6 +287,8 @@ mod tests {
             deployment: None,
             env: Some("production".to_string()),
             all: false,
+            all_services: false,
+            service_context: None,
         };
         let files = collect_files_from_options(&options);
         assert_eq!(files.len(), 1);
@@ -227,6 +334,8 @@ rules:
             deployment: Some(deployment_path.to_str().unwrap().to_string()),
             env: None,
             all: false,
+            all_services: false,
+            service_context: None,
         };
 
         let exit_code = run(&options);

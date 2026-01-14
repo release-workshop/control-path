@@ -1,7 +1,9 @@
 //! Compile command implementation
 
 use crate::error::{CliError, CliResult};
-use crate::monorepo::{ServiceContext, ServicePathResolver};
+use crate::monorepo::{
+    detect_workspace_root, discover_services, ServiceContext, ServicePathResolver,
+};
 use controlpath_compiler::{
     compile, parse_definitions, parse_deployment, serialize, validate_definitions,
     validate_deployment,
@@ -15,6 +17,7 @@ pub struct Options {
     pub output: Option<String>,
     pub definitions: Option<String>,
     pub service_context: Option<ServiceContext>,
+    pub all_services: bool,
 }
 
 fn determine_deployment_path(options: &Options) -> Result<PathBuf, CliError> {
@@ -124,6 +127,11 @@ pub fn run(options: &Options) -> i32 {
 }
 
 fn run_inner(options: &Options) -> CliResult<()> {
+    // Handle bulk operations for monorepo
+    if options.all_services {
+        return run_bulk_compile(options);
+    }
+
     // Determine file paths
     let deployment_path = determine_deployment_path(options)?;
     let output_path = determine_output_path(options, &deployment_path);
@@ -167,6 +175,146 @@ fn run_inner(options: &Options) -> CliResult<()> {
     Ok(())
 }
 
+fn run_bulk_compile(_options: &Options) -> CliResult<()> {
+    // Detect workspace root
+    let workspace_root = detect_workspace_root(None)?.ok_or_else(|| {
+        CliError::Message(
+            "Not in a monorepo. --all-services flag only works in monorepo environments"
+                .to_string(),
+        )
+    })?;
+
+    // Discover all services
+    let services = discover_services(&workspace_root)?;
+
+    if services.is_empty() {
+        return Err(CliError::Message(
+            "No services found in monorepo".to_string(),
+        ));
+    }
+
+    println!("Compiling {} service(s)...", services.len());
+
+    let mut total_compiled = 0;
+    let mut total_errors = 0;
+
+    for service in &services {
+        println!("\nService: {}", service.name);
+        println!("  Path: {}", service.relative_path.display());
+
+        let resolver = ServicePathResolver::new(ServiceContext {
+            service: Some(service.clone()),
+            workspace_root: Some(workspace_root.clone()),
+            is_monorepo: true,
+        });
+
+        // Read definitions
+        let definitions_path = resolver.definitions_file();
+        if !definitions_path.exists() {
+            println!("  - Definitions: not found, skipping");
+            continue;
+        }
+
+        let definitions_content = fs::read_to_string(&definitions_path)
+            .map_err(|e| CliError::Message(format!("Failed to read definitions: {e}")))?;
+        let definitions = parse_definitions(&definitions_content)?;
+        validate_definitions(&definitions)
+            .map_err(|e| CliError::Message(format!("Definitions invalid: {e}")))?;
+
+        // Find all deployment files
+        let controlpath_dir = resolver.base_path().join(".controlpath");
+        if !controlpath_dir.exists() {
+            println!("  - Deployments: not found, skipping");
+            continue;
+        }
+
+        let mut service_compiled = 0;
+        let mut service_errors = 0;
+
+        if let Ok(entries) = fs::read_dir(&controlpath_dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.ends_with(".deployment.yaml") {
+                        let env_name = name.strip_suffix(".deployment.yaml").unwrap_or(name);
+                        let deployment_path = entry.path();
+                        let output_path = resolver.ast_file(env_name);
+
+                        match compile_service_deployment(
+                            &deployment_path,
+                            &output_path,
+                            &definitions,
+                        ) {
+                            Ok(()) => {
+                                println!("  ✓ {}: compiled", env_name);
+                                service_compiled += 1;
+                                total_compiled += 1;
+                            }
+                            Err(e) => {
+                                println!("  ✗ {}: failed", env_name);
+                                eprintln!("    Error: {e}");
+                                service_errors += 1;
+                                total_errors += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if service_errors > 0 {
+            println!(
+                "  Service summary: {} compiled, {} errors",
+                service_compiled, service_errors
+            );
+        }
+    }
+
+    println!("\nSummary:");
+    println!("  Compiled: {}", total_compiled);
+    if total_errors > 0 {
+        println!("  Errors: {}", total_errors);
+        return Err(CliError::Message(format!(
+            "Compilation failed for {} deployment(s)",
+            total_errors
+        )));
+    }
+
+    Ok(())
+}
+
+fn compile_service_deployment(
+    deployment_path: &Path,
+    output_path: &Path,
+    definitions: &serde_json::Value,
+) -> CliResult<()> {
+    // Read and parse deployment
+    let deployment_content = fs::read_to_string(deployment_path)
+        .map_err(|e| CliError::Message(format!("Failed to read deployment: {e}")))?;
+    let deployment = parse_deployment(&deployment_content)?;
+
+    // Validate deployment
+    validate_deployment(&deployment)
+        .map_err(|e| CliError::Message(format!("Deployment invalid: {e}")))?;
+
+    // Compile to AST
+    let artifact = compile(&deployment, definitions)?;
+
+    // Serialize to MessagePack
+    let ast_bytes = serialize(&artifact)?;
+
+    // Create output directory if needed
+    if let Some(parent) = output_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    // Write AST file
+    fs::write(output_path, ast_bytes)?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +329,7 @@ mod tests {
             output: None,
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         let path = determine_deployment_path(&options).unwrap();
         assert_eq!(path, PathBuf::from("test.deployment.yaml"));
@@ -194,6 +343,7 @@ mod tests {
             output: None,
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         let path = determine_deployment_path(&options).unwrap();
         assert_eq!(
@@ -210,6 +360,7 @@ mod tests {
             output: None,
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         assert!(determine_deployment_path(&options).is_err());
     }
@@ -222,6 +373,7 @@ mod tests {
             output: Some("output.ast".to_string()),
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         let deployment_path = PathBuf::from("test.deployment.yaml");
         let path = determine_output_path(&options, &deployment_path);
@@ -236,6 +388,7 @@ mod tests {
             output: None,
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         let deployment_path = PathBuf::from("test.deployment.yaml");
         let path = determine_output_path(&options, &deployment_path);
@@ -250,6 +403,7 @@ mod tests {
             output: None,
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         let deployment_path = PathBuf::from("test.deployment.yaml");
         let path = determine_output_path(&options, &deployment_path);
@@ -264,6 +418,7 @@ mod tests {
             output: None,
             definitions: Some("custom.definitions.yaml".to_string()),
             service_context: None,
+            all_services: false,
         };
         let path = determine_definitions_path(&options);
         assert_eq!(path, PathBuf::from("custom.definitions.yaml"));
@@ -277,6 +432,7 @@ mod tests {
             output: None,
             definitions: None,
             service_context: None,
+            all_services: false,
         };
         let path = determine_definitions_path(&options);
         assert_eq!(path, PathBuf::from("flags.definitions.yaml"));
@@ -319,6 +475,7 @@ rules:
             output: Some(output_path.to_str().unwrap().to_string()),
             definitions: Some(definitions_path.to_str().unwrap().to_string()),
             service_context: None,
+            all_services: false,
         };
 
         let exit_code = run(&options);

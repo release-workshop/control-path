@@ -13,7 +13,7 @@ mod utils;
 use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
     compile, completion, debug, env, explain, flag, generate_sdk, init, r#override as override_cmd,
-    setup, validate, watch, workflow,
+    services, setup, validate, watch, workflow,
 };
 use std::path::PathBuf;
 
@@ -61,6 +61,9 @@ enum Commands {
         /// Validate all files (auto-detect)
         #[arg(long)]
         all: bool,
+        /// Validate all services in monorepo
+        #[arg(long)]
+        all_services: bool,
     },
     /// Compile deployment files to AST artifacts
     Compile {
@@ -76,6 +79,9 @@ enum Commands {
         /// Path to flag definitions file
         #[arg(long)]
         definitions: Option<String>,
+        /// Compile all services in monorepo
+        #[arg(long)]
+        all_services: bool,
     },
     /// Initialize a new Control Path project
     Init {
@@ -129,6 +135,9 @@ enum Commands {
         /// Path to flag definitions file
         #[arg(long)]
         definitions: Option<String>,
+        /// Generate SDKs for all services in monorepo
+        #[arg(long)]
+        all_services: bool,
     },
     /// Watch for file changes and auto-compile/regenerate
     ///
@@ -347,6 +356,9 @@ enum Commands {
         /// Skip validation step
         #[arg(long)]
         skip_validation: bool,
+        /// Deploy all services in monorepo
+        #[arg(long)]
+        all_services: bool,
     },
     /// Manage override files (kill switches)
     ///
@@ -368,6 +380,32 @@ enum Commands {
     Override {
         #[command(subcommand)]
         subcommand: OverrideSubcommand,
+    },
+    /// Manage services in a monorepo
+    ///
+    /// Commands for listing and checking status of services in a monorepo.
+    ///
+    /// Examples:
+    ///   # List all services
+    ///   controlpath services list
+    ///
+    ///   # List with detailed information
+    ///   controlpath services list --detailed
+    ///
+    ///   # List as JSON
+    ///   controlpath services list --format json
+    ///
+    ///   # Check status of all services
+    ///   controlpath services status
+    ///
+    ///   # Check status of specific service
+    ///   controlpath services status --service service-a
+    ///
+    ///   # Check sync status
+    ///   controlpath services status --check-sync
+    Services {
+        #[command(subcommand)]
+        subcommand: ServicesSubcommand,
     },
     /// Generate shell completion scripts
     Completion {
@@ -737,6 +775,53 @@ enum EnvSubcommand {
     },
 }
 
+#[derive(Subcommand)]
+enum ServicesSubcommand {
+    /// List all services in monorepo
+    ///
+    /// Lists all services found in the monorepo. Can show simple or detailed information.
+    ///
+    /// Examples:
+    ///   # List all services
+    ///   controlpath services list
+    ///
+    ///   # List with detailed information
+    ///   controlpath services list --detailed
+    ///
+    ///   # List as JSON
+    ///   controlpath services list --format json
+    List {
+        /// Show detailed information (flag counts, environments, etc.)
+        #[arg(long)]
+        detailed: bool,
+        /// Output format (table, json)
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+    /// Show status of services
+    ///
+    /// Shows status information for services, including flag definitions, deployments,
+    /// environments, and SDK generation status. Can optionally check sync status.
+    ///
+    /// Examples:
+    ///   # Check status of all services
+    ///   controlpath services status
+    ///
+    ///   # Check status of specific service
+    ///   controlpath services status --service service-a
+    ///
+    ///   # Check sync status
+    ///   controlpath services status --check-sync
+    Status {
+        /// Specific service to check (shows all if not provided)
+        #[arg(long)]
+        service: Option<String>,
+        /// Check sync status between definitions and deployments
+        #[arg(long)]
+        check_sync: bool,
+    },
+}
+
 /// Get the CLI command structure for completion generation
 pub fn get_cli_command() -> clap::Command {
     Cli::command()
@@ -759,12 +844,15 @@ fn main() {
             deployment,
             env,
             all,
+            all_services,
         } => {
             let opts = validate::Options {
                 definitions,
                 deployment,
                 env,
                 all,
+                all_services,
+                service_context: Some(service_context.clone()),
             };
             validate::run(&opts)
         }
@@ -773,6 +861,7 @@ fn main() {
             env,
             output,
             definitions,
+            all_services,
         } => {
             let opts = compile::Options {
                 deployment,
@@ -780,6 +869,7 @@ fn main() {
                 output,
                 definitions,
                 service_context: Some(service_context.clone()),
+                all_services,
             };
             compile::run(&opts)
         }
@@ -806,11 +896,14 @@ fn main() {
             lang,
             output,
             definitions,
+            all_services,
         } => {
             let opts = generate_sdk::Options {
                 lang,
                 output,
                 definitions,
+                all_services,
+                service_context: Some(service_context.clone()),
             };
             generate_sdk::run(&opts)
         }
@@ -1016,11 +1109,14 @@ fn main() {
             env,
             dry_run,
             skip_validation,
+            all_services,
         } => {
             let opts = workflow::DeployOptions {
                 env,
                 dry_run,
                 skip_validation,
+                all_services,
+                service_context: Some(service_context.clone()),
             };
             workflow::run_deploy(&opts)
         }
@@ -1062,6 +1158,36 @@ fn main() {
                 subcommand: override_subcommand,
             };
             override_cmd::run(&opts)
+        }
+        Commands::Services { subcommand } => {
+            let services_subcommand = match subcommand {
+                ServicesSubcommand::List { detailed, format } => {
+                    // Detect TTY for format selection
+                    let format_str = if format == "table" && !atty::is(atty::Stream::Stdout) {
+                        "json".to_string()
+                    } else {
+                        format
+                    };
+                    let output_format = services::OutputFormat::from_str(&format_str)
+                        .unwrap_or(services::OutputFormat::Table);
+                    services::ServicesSubcommand::List {
+                        detailed,
+                        format: output_format,
+                    }
+                }
+                ServicesSubcommand::Status {
+                    service,
+                    check_sync,
+                } => services::ServicesSubcommand::Status {
+                    service,
+                    check_sync,
+                },
+            };
+
+            let opts = services::Options {
+                subcommand: services_subcommand,
+            };
+            services::run(&opts)
         }
         Commands::Completion { shell } => {
             let opts = completion::Options { shell };

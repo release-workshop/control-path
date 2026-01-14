@@ -9,6 +9,7 @@ pub mod flag;
 pub mod generate_sdk;
 pub mod init;
 pub mod r#override;
+pub mod services;
 pub mod setup;
 pub mod validate;
 pub mod watch;
