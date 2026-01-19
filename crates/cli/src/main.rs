@@ -13,8 +13,8 @@ mod utils;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
-    compile, completion, debug, env, explain, flag, generate_sdk, init, r#override as override_cmd,
-    services, setup, validate, watch, workflow,
+    compile, completion, debug, dev, env, explain, flag, generate_sdk, init,
+    r#override as override_cmd, services, setup, validate, watch, workflow,
 };
 use std::path::PathBuf;
 
@@ -225,6 +225,23 @@ enum Commands {
         /// recompiles ASTs when they change.
         #[arg(long)]
         deployments: bool,
+    },
+    /// Development workflow with smart defaults
+    ///
+    /// Watches flag definitions and deployment files for changes and automatically
+    /// regenerates SDKs or recompiles ASTs. Uses config/cached language and smart
+    /// defaults for environments (git branch mapping, defaultEnv).
+    ///
+    /// Examples:
+    ///   # Start dev mode (uses config/cached language)
+    ///   controlpath dev
+    ///
+    ///   # Override language
+    ///   controlpath dev --lang python
+    Dev {
+        /// Language override (if not provided, uses config/cached language)
+        #[arg(long)]
+        lang: Option<String>,
     },
     /// Explain flag evaluation with user/context
     ///
@@ -988,6 +1005,10 @@ fn main() {
                 deployments,
             };
             watch::run(&opts)
+        }
+        Commands::Dev { lang } => {
+            let opts = dev::Options { lang };
+            dev::run(&opts)
         }
         Commands::Explain {
             flag,

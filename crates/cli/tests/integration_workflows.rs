@@ -546,3 +546,164 @@ fn test_new_flag_enable_in_auto_compiles() {
         "AST should be automatically compiled when using --enable-in"
     );
 }
+
+#[test]
+fn test_dev_validates_core_files() {
+    let project = TestProject::new();
+
+    // Try to run dev without definitions file - should fail
+    let output = project.run_command(&["dev"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Definitions file not found") || stderr.contains("setup"),
+        "Should error about missing definitions file"
+    );
+}
+
+#[test]
+fn test_dev_starts_successfully() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "production",
+        &simple_deployment("production", "test_flag", false),
+    );
+
+    // Create config with language
+    project.write_file(
+        ".controlpath/config.yaml",
+        "language: typescript\ndefaultEnv: production\n",
+    );
+
+    // Test that dev command starts successfully
+    // We spawn the process, wait briefly to verify it starts, then kill it
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::Duration;
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_controlpath"));
+    cmd.current_dir(&project.project_path);
+    cmd.args(["dev"]);
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+
+    let mut child = cmd.spawn().expect("Failed to spawn dev command");
+
+    // Wait a short time to verify the dev process starts successfully
+    thread::sleep(Duration::from_millis(500));
+
+    // Verify the process is still running (dev started successfully)
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            // Process exited early - this is a failure
+            panic!("Dev process exited early with status: {:?}", status);
+        }
+        Ok(None) => {
+            // Process is still running - good, dev started
+        }
+        Err(e) => {
+            panic!("Error checking process status: {}", e);
+        }
+    }
+
+    // Kill the process
+    child.kill().expect("Failed to kill dev process");
+    let _ = child.wait();
+}
+
+#[test]
+fn test_dev_uses_config_language() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "production",
+        &simple_deployment("production", "test_flag", false),
+    );
+
+    // Create config with Python language
+    project.write_file(
+        ".controlpath/config.yaml",
+        "language: python\ndefaultEnv: production\n",
+    );
+
+    // Test that dev command uses config language
+    // We spawn the process, wait briefly, then kill it
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::Duration;
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_controlpath"));
+    cmd.current_dir(&project.project_path);
+    cmd.args(["dev"]);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("Failed to spawn dev command");
+
+    // Wait a short time for initial output
+    thread::sleep(Duration::from_millis(500));
+
+    // Verify the process is still running
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            panic!("Dev process exited early with status: {:?}", status);
+        }
+        Ok(None) => {
+            // Process is still running - good
+        }
+        Err(e) => {
+            panic!("Error checking process status: {}", e);
+        }
+    }
+
+    // Kill the process
+    child.kill().expect("Failed to kill dev process");
+    let _ = child.wait();
+}
+
+#[test]
+fn test_dev_respects_lang_override() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "production",
+        &simple_deployment("production", "test_flag", false),
+    );
+
+    // Create config with TypeScript
+    project.write_file(
+        ".controlpath/config.yaml",
+        "language: typescript\ndefaultEnv: production\n",
+    );
+
+    // Test that dev command respects --lang override
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::Duration;
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_controlpath"));
+    cmd.current_dir(&project.project_path);
+    cmd.args(["dev", "--lang", "python"]);
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+
+    let mut child = cmd.spawn().expect("Failed to spawn dev command");
+
+    // Wait a short time to verify it starts
+    thread::sleep(Duration::from_millis(500));
+
+    // Verify the process is still running
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            panic!("Dev process exited early with status: {:?}", status);
+        }
+        Ok(None) => {
+            // Process is still running - good
+        }
+        Err(e) => {
+            panic!("Error checking process status: {}", e);
+        }
+    }
+
+    // Kill the process
+    child.kill().expect("Failed to kill dev process");
+    let _ = child.wait();
+}

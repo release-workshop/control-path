@@ -55,6 +55,7 @@ pub fn write_config_language(language: &str) -> CliResult<()> {
             sdk_output: None,
             sign_key: None,
             monorepo: None,
+            branch_environments: None,
         })
     } else {
         ConfigFile {
@@ -64,6 +65,7 @@ pub fn write_config_language(language: &str) -> CliResult<()> {
             sdk_output: None,
             sign_key: None,
             monorepo: None,
+            branch_environments: None,
         }
     };
 
@@ -107,6 +109,7 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
             sdk_output: None,
             sign_key: None,
             monorepo: None,
+            branch_environments: None,
         })
     } else {
         ConfigFile {
@@ -116,6 +119,7 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
             sdk_output: None,
             sign_key: None,
             monorepo: None,
+            branch_environments: None,
         }
     };
 
@@ -169,6 +173,8 @@ pub struct ConfigFile {
     pub sdk_output: Option<String>,
     pub sign_key: Option<String>,
     pub monorepo: Option<MonorepoConfig>,
+    #[serde(rename = "branchEnvironments")]
+    pub branch_environments: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Read monorepo configuration from config file
@@ -184,6 +190,25 @@ pub fn read_monorepo_config(config_path: &Path) -> CliResult<Option<MonorepoConf
         .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
 
     Ok(config.monorepo)
+}
+
+/// Read branch environments mapping from config file
+///
+/// Returns a HashMap mapping git branch names to environment names.
+/// Returns None if the config file doesn't exist or doesn't contain branchEnvironments.
+pub fn read_branch_environments() -> CliResult<Option<std::collections::HashMap<String, String>>> {
+    let config_path = Path::new(".controlpath/config.yaml");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let config_content = fs::read_to_string(config_path)
+        .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
+
+    let config: ConfigFile = serde_yaml::from_str(&config_content)
+        .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
+
+    Ok(config.branch_environments)
 }
 
 #[cfg(test)]
