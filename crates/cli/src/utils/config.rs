@@ -438,6 +438,13 @@ mod tests {
         file.write_all(b" invalid utf8").unwrap();
         drop(file);
 
+        // Ensure the file was created and exists
+        assert!(
+            config_path.exists(),
+            "Config file should exist at: {}",
+            config_path.display()
+        );
+
         // Test that reading invalid YAML causes an error
         // fs::read_to_string will fail when trying to convert invalid UTF-8 to String
         let result = read_monorepo_config(&config_path);

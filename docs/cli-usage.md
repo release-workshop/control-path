@@ -122,12 +122,49 @@ controlpath test my_feature --user user.json --env staging
 
 ### CI/CD Integration
 
+The `ci` command is designed for CI/CD pipelines. It validates, compiles, and regenerates SDKs as needed.
+
 ```bash
-# One command for CI pipelines
+# Basic usage - validates, compiles, and regenerates SDK
 controlpath ci
+
+# Validate and compile specific environments only
+controlpath ci --env production --env staging
+
+# Skip SDK regeneration (faster, if SDK is already up to date)
+controlpath ci --no-sdk
+
+# Skip validation (faster, but less safe - use with caution)
+controlpath ci --no-validate
 ```
 
-This validates, compiles, and regenerates SDKs as needed.
+#### GitHub Actions Example
+
+```yaml
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  control-path-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Control Path CLI
+        run: |
+          # Install controlpath CLI (adjust for your installation method)
+          # Example: cargo install --path . or download from releases
+      
+      - name: Control Path checks
+        run: controlpath ci
+```
+
+The `ci` command will:
+- ✅ Validate `flags.definitions.yaml` and all deployment files
+- ✅ Compile ASTs for all environments (or specified with `--env`)
+- ✅ Regenerate the SDK (unless `--no-sdk` is used)
+- ❌ Exit with non-zero status if validation or compilation fails
 
 ## Command Reference
 

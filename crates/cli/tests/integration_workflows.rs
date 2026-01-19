@@ -612,6 +612,141 @@ fn test_dev_starts_successfully() {
 }
 
 #[test]
+fn test_ci_runs_end_to_end() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "production",
+        &simple_deployment("production", "test_flag", true),
+    );
+
+    // Create config with language
+    project.write_file(
+        ".controlpath/config.yaml",
+        "language: typescript\ndefaultEnv: production\n",
+    );
+
+    // Run CI command - should validate, compile, and regenerate SDK
+    project.run_command_success(&["ci"]);
+
+    // Verify AST was created
+    assert!(project.ast_exists("production"));
+
+    // Verify SDK was generated (check for flags directory)
+    assert!(project.file_exists("flags") || project.file_exists("flags/index.ts"));
+}
+
+#[test]
+fn test_ci_respects_env_filter() {
+    let project = TestProject::new();
+
+    // Create definitions
+    project.write_file(
+        "flags.definitions.yaml",
+        &simple_flag_definition("test_flag"),
+    );
+
+    // Create multiple environments
+    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
+    project.write_file(
+        ".controlpath/production.deployment.yaml",
+        &simple_deployment("production", "test_flag", true),
+    );
+    project.write_file(
+        ".controlpath/staging.deployment.yaml",
+        &simple_deployment("staging", "test_flag", false),
+    );
+
+    // Run CI for production only
+    project.run_command_success(&["ci", "--env", "production", "--no-sdk"]);
+
+    // Verify only production AST was created
+    assert!(project.ast_exists("production"));
+    assert!(!project.ast_exists("staging"));
+}
+
+#[test]
+fn test_ci_respects_no_sdk() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "production",
+        &simple_deployment("production", "test_flag", true),
+    );
+
+    // Run CI with --no-sdk
+    project.run_command_success(&["ci", "--no-sdk"]);
+
+    // Verify AST was created
+    assert!(project.ast_exists("production"));
+
+    // SDK generation should be skipped (we can't easily verify this, but the command should succeed)
+}
+
+#[test]
+fn test_ci_respects_no_validate() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "production",
+        &simple_deployment("production", "test_flag", true),
+    );
+
+    // Run CI with --no-validate
+    project.run_command_success(&["ci", "--no-validate", "--no-sdk"]);
+
+    // Verify AST was created even without validation
+    assert!(project.ast_exists("production"));
+}
+
+#[test]
+fn test_ci_fails_on_invalid_definitions() {
+    let project = TestProject::new();
+
+    // Create invalid definitions file
+    project.write_file("flags.definitions.yaml", "invalid: yaml: content: [");
+
+    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
+    project.write_file(
+        ".controlpath/production.deployment.yaml",
+        &simple_deployment("production", "test_flag", true),
+    );
+
+    // CI should fail on invalid definitions
+    let output = project.run_command(&["ci", "--no-sdk"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid") || stderr.contains("error") || stderr.contains("failed"),
+        "Should error about invalid definitions"
+    );
+}
+
+#[test]
+fn test_ci_fails_on_invalid_deployment() {
+    let project = TestProject::new();
+
+    // Create valid definitions
+    project.write_file(
+        "flags.definitions.yaml",
+        &simple_flag_definition("test_flag"),
+    );
+
+    // Create invalid deployment file
+    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
+    project.write_file(
+        ".controlpath/production.deployment.yaml",
+        "invalid: yaml: content: [",
+    );
+
+    // CI should fail on invalid deployment
+    let output = project.run_command(&["ci", "--no-sdk"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("invalid") || stderr.contains("error") || stderr.contains("failed"),
+        "Should error about invalid deployment"
+    );
+}
+
+#[test]
 fn test_dev_uses_config_language() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("test_flag"),

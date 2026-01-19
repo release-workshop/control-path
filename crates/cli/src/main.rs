@@ -13,7 +13,7 @@ mod utils;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
-    compile, completion, debug, dev, env, explain, flag, generate_sdk, init,
+    ci, compile, completion, debug, dev, env, explain, flag, generate_sdk, init,
     r#override as override_cmd, services, setup, validate, watch, workflow,
 };
 use std::path::PathBuf;
@@ -242,6 +242,34 @@ enum Commands {
         /// Language override (if not provided, uses config/cached language)
         #[arg(long)]
         lang: Option<String>,
+    },
+    /// CI pipeline workflow
+    ///
+    /// Validates flag definitions and deployment files, compiles ASTs, and optionally
+    /// regenerates the SDK. Designed to be used in CI/CD pipelines.
+    ///
+    /// Examples:
+    ///   # Run all CI checks (validate, compile, regenerate SDK)
+    ///   controlpath ci
+    ///
+    ///   # Run CI checks for specific environments
+    ///   controlpath ci --env production --env staging
+    ///
+    ///   # Skip SDK regeneration
+    ///   controlpath ci --no-sdk
+    ///
+    ///   # Skip validation (faster, but less safe)
+    ///   controlpath ci --no-validate
+    Ci {
+        /// Environment names to validate/compile (if not provided, processes all)
+        #[arg(long)]
+        env: Vec<String>,
+        /// Skip SDK regeneration
+        #[arg(long)]
+        no_sdk: bool,
+        /// Skip validation
+        #[arg(long)]
+        no_validate: bool,
     },
     /// Explain flag evaluation with user/context
     ///
@@ -1009,6 +1037,20 @@ fn main() {
         Commands::Dev { lang } => {
             let opts = dev::Options { lang };
             dev::run(&opts)
+        }
+        Commands::Ci {
+            env,
+            no_sdk,
+            no_validate,
+        } => {
+            let envs = if env.is_empty() { None } else { Some(env) };
+            let opts = ci::Options {
+                envs,
+                no_sdk,
+                no_validate,
+                service_context: Some(service_context.clone()),
+            };
+            ci::run(&opts)
         }
         Commands::Explain {
             flag,

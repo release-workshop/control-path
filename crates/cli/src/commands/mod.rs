@@ -1,5 +1,6 @@
 //! CLI commands
 
+pub mod ci;
 pub mod compile;
 pub mod completion;
 pub mod debug;
