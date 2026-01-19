@@ -5,68 +5,18 @@ use crate::ops::compile as ops_compile;
 use crate::ops::compile::CompileOptions;
 use crate::ops::generate_sdk as ops_generate_sdk;
 use crate::ops::generate_sdk::GenerateOptions;
-use crate::utils::config;
+use crate::utils::environment;
 use crate::utils::language;
 use notify::{Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 pub struct Options {
     /// Language override (if None, uses config/cached language)
     pub lang: Option<String>,
-}
-
-/// Get current git branch name
-fn get_git_branch() -> Option<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        String::from_utf8(output.stdout)
-            .ok()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-    } else {
-        None
-    }
-}
-
-/// Read branchEnvironments mapping from config
-fn read_branch_environments() -> CliResult<Option<std::collections::HashMap<String, String>>> {
-    config::read_branch_environments()
-}
-
-/// Determine environment from git branch or default
-fn determine_environment() -> CliResult<Option<String>> {
-    // Try to get git branch
-    if let Some(branch) = get_git_branch() {
-        // Check branchEnvironments mapping
-        if let Ok(Some(branch_envs)) = read_branch_environments() {
-            if let Some(env) = branch_envs.get(&branch) {
-                return Ok(Some(env.clone()));
-            }
-        }
-    }
-
-    // Fallback to defaultEnv from config
-    let config_path = Path::new(".controlpath/config.yaml");
-    if config_path.exists() {
-        let config_content = fs::read_to_string(config_path)
-            .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
-        let config: config::ConfigFile = serde_yaml::from_str(&config_content)
-            .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
-        if let Some(default_env) = config.default_env.or(config.default_env_alt) {
-            return Ok(Some(default_env));
-        }
-    }
-
-    Ok(None)
 }
 
 /// Validates core files exist, offers to create if missing
@@ -193,7 +143,7 @@ fn run_inner(options: &Options) -> CliResult<()> {
     let language = language::determine_language(options.lang.clone())?;
 
     // Determine environment for messaging
-    let env_info = if let Ok(Some(env)) = determine_environment() {
+    let env_info = if let Ok(Some(env)) = environment::determine_environment() {
         format!(" (env: {env})")
     } else {
         String::new()
@@ -451,37 +401,5 @@ rules: {}
 
         let result = validate_core_files();
         assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_get_git_branch_no_git() {
-        // This test may or may not have git available
-        // Just verify the function doesn't panic
-        let _ = get_git_branch();
-    }
-
-    #[test]
-    #[serial]
-    fn test_determine_environment_from_config() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(".controlpath/config.yaml", "defaultEnv: staging\n").unwrap();
-
-        let result = determine_environment().unwrap();
-        assert_eq!(result, Some("staging".to_string()));
-    }
-
-    #[test]
-    #[serial]
-    fn test_determine_environment_no_config() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        let result = determine_environment().unwrap();
-        assert_eq!(result, None);
     }
 }

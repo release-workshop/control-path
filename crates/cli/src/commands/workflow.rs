@@ -8,6 +8,7 @@
 use crate::commands::{compile, validate};
 use crate::error::{CliError, CliResult};
 use crate::ops::{compile as ops_compile, generate_sdk as ops_generate_sdk};
+use crate::utils::environment;
 use controlpath_compiler::compiler::expressions::parse_expression;
 use controlpath_compiler::{parse_definitions, parse_deployment, validate_deployment};
 use dialoguer::{Input, MultiSelect};
@@ -441,38 +442,20 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
     let envs = if let Some(ref env_str) = options.env {
         env_str.split(',').map(|s| s.trim().to_string()).collect()
     } else {
-        // Find available environments
-        let deployment_files = find_deployment_files();
-        if deployment_files.is_empty() {
-            return Err(CliError::Message(
-                "No environments found. Run 'controlpath env add --name <env>' to create one."
-                    .to_string(),
-            ));
-        }
-
-        let env_names: Vec<String> = deployment_files
-            .iter()
-            .filter_map(|p| get_environment_name(p))
-            .collect();
-
-        if options.interactive {
-            let selected = MultiSelect::new()
-                .with_prompt("Select environments to enable flag in")
-                .items(&env_names)
-                .interact()
-                .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
-
-            selected.iter().map(|i| env_names[*i].clone()).collect()
-        } else {
-            // Default to first environment if only one
-            if env_names.len() == 1 {
-                vec![env_names[0].clone()]
+        // Try smart defaults: git branch mapping or defaultEnv
+        if let Ok(Some(default_env)) = environment::determine_environment() {
+            // Verify the default environment exists
+            let deployment_path =
+                PathBuf::from(format!(".controlpath/{default_env}.deployment.yaml"));
+            if deployment_path.exists() {
+                vec![default_env]
             } else {
-                return Err(CliError::Message(format!(
-                    "Multiple environments found: {}. Please specify --env <env> or use --interactive",
-                    env_names.join(", ")
-                )));
+                // Default env doesn't exist, fall through to finding available environments
+                find_envs_for_enable(options)?
             }
+        } else {
+            // No smart default found, find available environments
+            find_envs_for_enable(options)?
         }
     };
 
@@ -658,6 +641,43 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
     Ok(updated_envs)
 }
 
+/// Helper function to find environments for enable command when no env specified
+fn find_envs_for_enable(options: &EnableOptions) -> CliResult<Vec<String>> {
+    // Find available environments
+    let deployment_files = find_deployment_files();
+    if deployment_files.is_empty() {
+        return Err(CliError::Message(
+            "No environments found. Run 'controlpath env add --name <env>' to create one."
+                .to_string(),
+        ));
+    }
+
+    let env_names: Vec<String> = deployment_files
+        .iter()
+        .filter_map(|p| get_environment_name(p))
+        .collect();
+
+    if options.interactive {
+        let selected = MultiSelect::new()
+            .with_prompt("Select environments to enable flag in")
+            .items(&env_names)
+            .interact()
+            .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
+
+        Ok(selected.iter().map(|i| env_names[*i].clone()).collect())
+    } else {
+        // Default to first environment if only one
+        if env_names.len() == 1 {
+            Ok(vec![env_names[0].clone()])
+        } else {
+            Err(CliError::Message(format!(
+                "Multiple environments found: {}. Please specify --env <env> or use --interactive",
+                env_names.join(", ")
+            )))
+        }
+    }
+}
+
 // ============================================================================
 // deploy command
 // ============================================================================
@@ -708,19 +728,43 @@ fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
     let envs = if let Some(ref env_str) = options.env {
         env_str.split(',').map(|s| s.trim().to_string()).collect()
     } else {
-        // Find all environments
-        let deployment_files = find_deployment_files();
-        if deployment_files.is_empty() {
-            return Err(CliError::Message(
-                "No environments found. Run 'controlpath env add --name <env>' to create one."
-                    .to_string(),
-            ));
-        }
+        // Try smart defaults: git branch mapping or defaultEnv
+        if let Ok(Some(default_env)) = environment::determine_environment() {
+            // Verify the default environment exists
+            let deployment_path =
+                PathBuf::from(format!(".controlpath/{default_env}.deployment.yaml"));
+            if deployment_path.exists() {
+                vec![default_env]
+            } else {
+                // Default env doesn't exist, fall back to all environments
+                let deployment_files = find_deployment_files();
+                if deployment_files.is_empty() {
+                    return Err(CliError::Message(
+                        "No environments found. Run 'controlpath env add --name <env>' to create one."
+                            .to_string(),
+                    ));
+                }
 
-        deployment_files
-            .iter()
-            .filter_map(|p| get_environment_name(p))
-            .collect()
+                deployment_files
+                    .iter()
+                    .filter_map(|p| get_environment_name(p))
+                    .collect()
+            }
+        } else {
+            // No smart default found, use all environments
+            let deployment_files = find_deployment_files();
+            if deployment_files.is_empty() {
+                return Err(CliError::Message(
+                    "No environments found. Run 'controlpath env add --name <env>' to create one."
+                        .to_string(),
+                ));
+            }
+
+            deployment_files
+                .iter()
+                .filter_map(|p| get_environment_name(p))
+                .collect()
+        }
     };
 
     // Validate (unless skipped)

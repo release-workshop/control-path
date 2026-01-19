@@ -10,20 +10,11 @@ use std::path::Path;
 /// Uses proper YAML parsing to read the language field from the config file.
 /// Returns None if the config file doesn't exist or doesn't contain a language field.
 pub fn read_config_language() -> CliResult<Option<String>> {
-    let config_path = Path::new(".controlpath/config.yaml");
-
-    if !config_path.exists() {
-        return Ok(None);
+    if let Some(config) = read_config_file()? {
+        Ok(config.language)
+    } else {
+        Ok(None)
     }
-
-    let config_content = fs::read_to_string(config_path)
-        .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
-
-    // Use proper YAML parsing with ConfigFile struct for consistency
-    let config: ConfigFile = serde_yaml::from_str(&config_content)
-        .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
-
-    Ok(config.language)
 }
 
 /// Write language preference to config file
@@ -140,7 +131,7 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonorepoConfig {
     /// Service directory patterns (searched in order)
-    #[serde(default = "default_service_directories")]
+    #[serde(rename = "serviceDirectories", default = "default_service_directories")]
     pub service_directories: Vec<String>,
     /// Service discovery mode: "auto" or "explicit"
     #[serde(default = "default_discovery")]
@@ -192,11 +183,11 @@ pub fn read_monorepo_config(config_path: &Path) -> CliResult<Option<MonorepoConf
     Ok(config.monorepo)
 }
 
-/// Read branch environments mapping from config file
+/// Read the full config file
 ///
-/// Returns a HashMap mapping git branch names to environment names.
-/// Returns None if the config file doesn't exist or doesn't contain branchEnvironments.
-pub fn read_branch_environments() -> CliResult<Option<std::collections::HashMap<String, String>>> {
+/// Returns the parsed ConfigFile if it exists, None otherwise.
+/// This is more efficient than reading the config multiple times.
+pub fn read_config_file() -> CliResult<Option<ConfigFile>> {
     let config_path = Path::new(".controlpath/config.yaml");
     if !config_path.exists() {
         return Ok(None);
@@ -208,7 +199,28 @@ pub fn read_branch_environments() -> CliResult<Option<std::collections::HashMap<
     let config: ConfigFile = serde_yaml::from_str(&config_content)
         .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
 
-    Ok(config.branch_environments)
+    Ok(Some(config))
+}
+
+/// Environment defaults from config file
+///
+/// Contains both branch environments mapping and default environment.
+pub type EnvironmentDefaults = (
+    Option<std::collections::HashMap<String, String>>,
+    Option<String>,
+);
+
+/// Read environment defaults from config file
+///
+/// Returns both branch environments mapping and default environment in a single read.
+/// This is more efficient than reading the config file multiple times.
+pub fn read_environment_defaults() -> CliResult<EnvironmentDefaults> {
+    if let Some(config) = read_config_file()? {
+        let default_env = config.default_env.or(config.default_env_alt);
+        Ok((config.branch_environments, default_env))
+    } else {
+        Ok((None, None))
+    }
 }
 
 #[cfg(test)]
@@ -349,14 +361,16 @@ mod tests {
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path);
 
-        fs::create_dir_all(".controlpath").unwrap();
+        // Use absolute paths to avoid issues with directory changes
+        let config_dir = temp_path.join(".controlpath");
+        let config_file = config_dir.join("config.yaml");
+        fs::create_dir_all(&config_dir).unwrap();
         fs::write(
-            ".controlpath/config.yaml",
+            &config_file,
             "monorepo:\n  serviceDirectories:\n    - services\n  discovery: explicit\n  services:\n    - service-a\n    - service-b\n",
         ).unwrap();
 
-        let config_path = temp_path.join(".controlpath/config.yaml");
-        let result = read_monorepo_config(&config_path).unwrap();
+        let result = read_monorepo_config(&config_file).unwrap();
         assert!(result.is_some());
         let monorepo = result.unwrap();
         assert_eq!(monorepo.discovery, "explicit");

@@ -842,3 +842,174 @@ fn test_dev_respects_lang_override() {
     child.kill().expect("Failed to kill dev process");
     let _ = child.wait();
 }
+
+#[test]
+fn test_enable_smart_defaults_from_branch_mapping() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "staging",
+        &simple_deployment("staging", "my_flag", false),
+    );
+
+    // Initialize git repo and create staging branch
+    use std::process::Command;
+    let _ = Command::new("git")
+        .args(["init"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["checkout", "-b", "staging"])
+        .current_dir(&project.project_path)
+        .output();
+
+    // Create config with branch mapping
+    project.write_file(
+        ".controlpath/config.yaml",
+        r"branchEnvironments:
+  staging: staging
+  main: production
+defaultEnv: production
+",
+    );
+
+    // Enable without --env flag - should use staging from branch mapping
+    project.run_command_success(&["enable", "my_flag", "--all"]);
+
+    // Verify flag was enabled in staging
+    let deployment = project.get_deployment("staging");
+    assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
+}
+
+#[test]
+fn test_enable_smart_defaults_from_default_env() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "production",
+        &simple_deployment("production", "my_flag", false),
+    );
+
+    // Create config with defaultEnv
+    project.write_file(".controlpath/config.yaml", "defaultEnv: production\n");
+
+    // Enable without --env flag - should use production from defaultEnv
+    project.run_command_success(&["enable", "my_flag", "--all"]);
+
+    // Verify flag was enabled in production
+    let deployment = project.get_deployment("production");
+    assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
+}
+
+#[test]
+fn test_deploy_smart_defaults_from_branch_mapping() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "staging",
+        &simple_deployment("staging", "my_flag", true),
+    );
+
+    // Initialize git repo and create staging branch
+    use std::process::Command;
+    let _ = Command::new("git")
+        .args(["init"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["checkout", "-b", "staging"])
+        .current_dir(&project.project_path)
+        .output();
+
+    // Create config with branch mapping
+    project.write_file(
+        ".controlpath/config.yaml",
+        r"branchEnvironments:
+  staging: staging
+  main: production
+defaultEnv: production
+",
+    );
+
+    // Deploy without --env flag - should use staging from branch mapping
+    project.run_command_success(&["deploy"]);
+
+    // Verify AST was created for staging
+    assert!(project.ast_exists("staging"));
+}
+
+#[test]
+fn test_deploy_smart_defaults_from_default_env() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "production",
+        &simple_deployment("production", "my_flag", true),
+    );
+
+    // Create config with defaultEnv
+    project.write_file(".controlpath/config.yaml", "defaultEnv: production\n");
+
+    // Deploy without --env flag - should use production from defaultEnv
+    project.run_command_success(&["deploy"]);
+
+    // Verify AST was created for production
+    assert!(project.ast_exists("production"));
+}
+
+#[test]
+fn test_ci_smart_defaults_from_branch_mapping() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("test_flag"),
+        "staging",
+        &simple_deployment("staging", "test_flag", true),
+    );
+
+    // Initialize git repo and create staging branch
+    use std::process::Command;
+    let _ = Command::new("git")
+        .args(["init"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["config", "user.name", "Test User"])
+        .current_dir(&project.project_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["checkout", "-b", "staging"])
+        .current_dir(&project.project_path)
+        .output();
+
+    // Create config with branch mapping
+    project.write_file(
+        ".controlpath/config.yaml",
+        r"branchEnvironments:
+  staging: staging
+  main: production
+defaultEnv: production
+language: typescript
+",
+    );
+
+    // Run CI without --env flag - should use staging from branch mapping
+    project.run_command_success(&["ci", "--no-sdk"]);
+
+    // Verify AST was created for staging
+    assert!(project.ast_exists("staging"));
+}

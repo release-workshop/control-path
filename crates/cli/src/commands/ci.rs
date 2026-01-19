@@ -6,6 +6,7 @@ use crate::ops::compile as ops_compile;
 use crate::ops::compile::CompileOptions;
 use crate::ops::generate_sdk as ops_generate_sdk;
 use crate::ops::generate_sdk::GenerateOptions;
+use crate::utils::environment;
 use crate::utils::language;
 use controlpath_compiler::{
     parse_definitions, parse_deployment, validate_definitions, validate_deployment,
@@ -138,6 +139,27 @@ pub fn run(options: &Options) -> i32 {
 }
 
 fn run_inner(options: &Options) -> CliResult<()> {
+    // Determine environments to process (use smart defaults if not specified)
+    let envs_to_process = if options.envs.is_some() {
+        options.envs.clone()
+    } else {
+        // Try smart defaults: git branch mapping or defaultEnv
+        if let Ok(Some(default_env)) = environment::determine_environment() {
+            // Verify the default environment exists
+            let deployment_path =
+                PathBuf::from(format!(".controlpath/{default_env}.deployment.yaml"));
+            if deployment_path.exists() {
+                Some(vec![default_env])
+            } else {
+                // Default env doesn't exist, process all environments
+                None
+            }
+        } else {
+            // No smart default found, process all environments
+            None
+        }
+    };
+
     // Step 1: Validate (unless --no-validate)
     if !options.no_validate {
         println!("Validating files...");
@@ -147,8 +169,10 @@ fn run_inner(options: &Options) -> CliResult<()> {
         println!("  ✓ Definitions file is valid");
 
         // Validate deployments
-        let validated_count =
-            validate_deployment_files(options.envs.as_deref(), options.service_context.as_ref())?;
+        let validated_count = validate_deployment_files(
+            envs_to_process.as_deref(),
+            options.service_context.as_ref(),
+        )?;
         println!("  ✓ Validated {} deployment file(s)", validated_count);
     } else {
         println!("Skipping validation (--no-validate)");
@@ -157,7 +181,7 @@ fn run_inner(options: &Options) -> CliResult<()> {
     // Step 2: Compile ASTs
     println!("Compiling ASTs...");
     let compile_opts = CompileOptions {
-        envs: options.envs.clone(),
+        envs: envs_to_process.clone(),
         service_context: options.service_context.clone(),
         skip_validation: options.no_validate,
     };
