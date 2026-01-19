@@ -1,11 +1,14 @@
 //! Config file reading utilities
 
 use crate::error::{CliError, CliResult};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
 /// Read language preference from config file
+///
+/// Uses proper YAML parsing to read the language field from the config file.
+/// Returns None if the config file doesn't exist or doesn't contain a language field.
 pub fn read_config_language() -> CliResult<Option<String>> {
     let config_path = Path::new(".controlpath/config.yaml");
 
@@ -16,25 +19,68 @@ pub fn read_config_language() -> CliResult<Option<String>> {
     let config_content = fs::read_to_string(config_path)
         .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
 
-    // Simple YAML parsing for language field
-    // This is a basic implementation - for production, consider using a YAML library
-    for line in config_content.lines() {
-        let line = line.trim();
-        if line.starts_with("language:") {
-            let value = line
-                .split(':')
-                .nth(1)
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty());
-            return Ok(value);
-        }
+    // Use proper YAML parsing with ConfigFile struct for consistency
+    let config: ConfigFile = serde_yaml::from_str(&config_content)
+        .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
+
+    Ok(config.language)
+}
+
+/// Write language preference to config file
+///
+/// Creates or updates the config file with the detected language.
+/// This caches the language detection result for future runs.
+/// Uses proper YAML parsing to preserve existing config structure.
+pub fn write_config_language(language: &str) -> CliResult<()> {
+    use std::path::PathBuf;
+
+    let config_dir = PathBuf::from(".controlpath");
+    let config_path = config_dir.join("config.yaml");
+
+    // Create .controlpath directory if it doesn't exist
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| {
+            CliError::Message(format!("Failed to create .controlpath directory: {e}"))
+        })?;
     }
 
-    Ok(None)
+    // Read existing config if it exists, otherwise create new one
+    let mut config: ConfigFile = if config_path.exists() {
+        let config_content = fs::read_to_string(&config_path)
+            .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
+        serde_yaml::from_str(&config_content).unwrap_or(ConfigFile {
+            language: None,
+            default_env: None,
+            default_env_alt: None,
+            sdk_output: None,
+            sign_key: None,
+            monorepo: None,
+        })
+    } else {
+        ConfigFile {
+            language: None,
+            default_env: None,
+            default_env_alt: None,
+            sdk_output: None,
+            sign_key: None,
+            monorepo: None,
+        }
+    };
+
+    // Update language field
+    config.language = Some(language.to_string());
+
+    // Write updated config using proper YAML serialization
+    let updated_content = serde_yaml::to_string(&config)
+        .map_err(|e| CliError::Message(format!("Failed to serialize config file: {e}")))?;
+    fs::write(&config_path, updated_content)
+        .map_err(|e| CliError::Message(format!("Failed to write config file: {e}")))?;
+
+    Ok(())
 }
 
 /// Monorepo configuration from config file
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MonorepoConfig {
     /// Service directory patterns (searched in order)
     #[serde(default = "default_service_directories")]
@@ -60,7 +106,7 @@ fn default_discovery() -> String {
 }
 
 /// Full config file structure
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)] // Fields will be used as config system is extended
 pub struct ConfigFile {
     pub language: Option<String>,

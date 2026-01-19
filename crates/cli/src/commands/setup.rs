@@ -166,7 +166,7 @@ fn run_inner(options: &Options) -> CliResult<String> {
     // Step 1: Initialize project structure
     println!("1. Initializing project structure...");
     let init_options = init::Options {
-        force: false,
+        force: true, // Use force to allow setup to work on existing projects
         example_flags: true,
         no_examples: false,
     };

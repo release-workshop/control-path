@@ -5,7 +5,10 @@ use crate::utils::config;
 use std::path::Path;
 
 /// Detect language from config file, project files, or default
-/// Priority: CLI flag > Config file > Auto-detection > Default
+/// Priority: Config file > Auto-detection > Default
+///
+/// Note: This function does NOT cache the result. Use `determine_language()` if you want caching.
+#[allow(dead_code)] // Used in tests
 pub fn detect_language() -> CliResult<String> {
     // 1. Check config file first
     if let Some(config_lang) = config::read_config_language()? {
@@ -31,14 +34,41 @@ pub fn detect_language() -> CliResult<String> {
 }
 
 /// Determine language with priority: CLI flag > Config > Auto-detect > Default
+/// If language is auto-detected and not in config, caches it to config.yaml
 pub fn determine_language(cli_lang: Option<String>) -> CliResult<String> {
     // CLI flag has highest priority
     if let Some(lang) = cli_lang {
+        // Cache CLI-provided language to config (log warning on failure but don't fail)
+        if let Err(e) = config::write_config_language(&lang) {
+            eprintln!("⚠ Warning: Failed to cache language to config: {e}");
+        }
         return Ok(lang);
     }
 
-    // Fall back to detection
-    detect_language()
+    // Check config first
+    if let Some(config_lang) = config::read_config_language()? {
+        return Ok(config_lang);
+    }
+
+    // Auto-detect from project files
+    let detected = if Path::new("package.json").exists() {
+        "typescript".to_string()
+    } else if Path::new("requirements.txt").exists() || Path::new("pyproject.toml").exists() {
+        "python".to_string()
+    } else if Path::new("go.mod").exists() {
+        "go".to_string()
+    } else if Path::new("Cargo.toml").exists() {
+        "rust".to_string()
+    } else {
+        "typescript".to_string() // Default
+    };
+
+    // Cache detected language to config for future runs (log warning on failure but don't fail)
+    if let Err(e) = config::write_config_language(&detected) {
+        eprintln!("⚠ Warning: Failed to cache detected language to config: {e}");
+    }
+
+    Ok(detected)
 }
 
 #[cfg(test)]

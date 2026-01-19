@@ -8,6 +8,7 @@ mod commands;
 mod error;
 mod generator;
 mod monorepo;
+mod ops;
 mod utils;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -21,10 +22,44 @@ use std::path::PathBuf;
 // build.rs always sets CONTROLPATH_VERSION, so this is safe
 const VERSION: &str = env!("CONTROLPATH_VERSION");
 
-/// Control Path CLI - Compile and validate flag definitions
+/// Control Path CLI - Manage feature flags with a Git-native workflow
+///
+/// Control Path is built around three core concepts:
+///
+/// 1. **Flags** → Flag definitions (`flags.definitions.yaml`)
+///    What flags you have and their types/defaults
+///
+/// 2. **Environments** → Deployment files (`.controlpath/<env>.deployment.yaml`)
+///    How flags behave per environment (rollout rules, targeting)
+///
+/// 3. **SDK** → Generated code (`./flags/`)
+///    Type-safe SDK that your application code imports and uses
+///
+/// Everything else (AST artifacts, compiler details) is handled automatically
+/// by the CLI as part of higher-level workflows.
+///
+/// ## Command Groups
+///
+/// **Workflow Commands** (start here):
+///   setup, new-flag, enable, disable, deploy, test
+///
+/// **Core Commands**:
+///   validate, compile, generate-sdk
+///
+/// **Management Commands**:
+///   flag, env, services
+///
+/// **Debug Commands**:
+///   explain, debug, status
+///
+/// **Development Commands**:
+///   watch, dev
+///
+/// **CI Commands**:
+///   ci
 #[derive(Parser)]
 #[command(name = "controlpath")]
-#[command(about = "Control Path CLI - Compile and validate flag definitions", long_about = None)]
+#[command(about = "Control Path CLI - Manage feature flags with a Git-native workflow")]
 #[command(version = VERSION)]
 struct Cli {
     /// Operate on a specific service (monorepo mode)
@@ -48,6 +83,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Validate flag definitions and deployment files
+    ///
+    /// Validates flags.definitions.yaml and .controlpath/*.deployment.yaml files
+    /// against JSON schemas. Usually called automatically by deploy and ci commands.
     Validate {
         /// Path to flag definitions file
         #[arg(long)]
@@ -66,6 +104,9 @@ enum Commands {
         all_services: bool,
     },
     /// Compile deployment files to AST artifacts
+    ///
+    /// Compiles .controlpath/<env>.deployment.yaml → .controlpath/<env>.ast.
+    /// Usually called automatically by enable, deploy, dev, and ci commands.
     Compile {
         /// Path to deployment file
         #[arg(long)]
@@ -95,10 +136,14 @@ enum Commands {
         #[arg(long)]
         no_examples: bool,
     },
-    /// Setup a new Control Path project (init + compile + SDK generation)
+    /// Setup a new Control Path project (primary bootstrap command)
     ///
-    /// One-command setup for new projects. Creates project structure, sample flags,
-    /// compiles ASTs, installs runtime SDK, and generates type-safe SDKs.
+    /// One-command setup for new projects. Creates:
+    /// - Flag definitions (flags.definitions.yaml) with example flags
+    /// - Environment deployments (.controlpath/<env>.deployment.yaml)
+    /// - Generated SDK (./flags/) for your application code
+    ///
+    /// Also installs runtime SDK and compiles ASTs automatically.
     ///
     /// Examples:
     ///   # Auto-detect language and setup
@@ -124,7 +169,10 @@ enum Commands {
         #[arg(long)]
         skip_install: bool,
     },
-    /// Generate type-safe SDKs from flag definitions
+    /// Generate type-safe SDK from flag definitions
+    ///
+    /// Reads flags.definitions.yaml and generates the SDK in ./flags/ for your
+    /// application code to import. Usually called automatically by setup, new-flag, dev, and ci.
     GenerateSdk {
         /// Language (typescript, python, etc.)
         #[arg(long)]
@@ -300,7 +348,10 @@ enum Commands {
         #[command(subcommand)]
         subcommand: EnvSubcommand,
     },
-    /// Complete workflow for adding a new flag (add, sync, regenerate SDK)
+    /// Complete workflow for adding a new flag
+    ///
+    /// Adds a flag to definitions (flags.definitions.yaml), syncs to environments,
+    /// and regenerates the SDK (./flags/). Optionally enables and deploys in one step.
     NewFlag {
         /// Flag name (optional, prompts if not provided)
         #[arg(value_name = "NAME")]
@@ -324,7 +375,10 @@ enum Commands {
         #[arg(long)]
         skip_sdk: bool,
     },
-    /// Enable a flag in one or more environments with a rule
+    /// Enable a flag in one or more environments
+    ///
+    /// Updates deployment files (.controlpath/<env>.deployment.yaml) with rollout rules
+    /// and automatically compiles ASTs for the affected environments.
     Enable {
         /// Flag name (required)
         #[arg(value_name = "NAME")]
@@ -344,8 +398,14 @@ enum Commands {
         /// Interactive rule builder
         #[arg(long)]
         interactive: bool,
+        /// Skip automatic compilation of ASTs after updating deployments
+        #[arg(long)]
+        no_compile: bool,
     },
     /// Validate, compile, and prepare flags for deployment
+    ///
+    /// Validates definitions and deployment files, then compiles ASTs for specified
+    /// environments. Use this in CI/CD pipelines or before deploying to production.
     Deploy {
         /// Environment(s) to deploy (comma-separated, defaults to all)
         #[arg(long)]
@@ -1094,6 +1154,7 @@ fn main() {
             all,
             value,
             interactive,
+            no_compile,
         } => {
             let opts = workflow::EnableOptions {
                 name,
@@ -1102,6 +1163,7 @@ fn main() {
                 all,
                 value,
                 interactive,
+                no_compile,
             };
             workflow::run_enable(&opts)
         }

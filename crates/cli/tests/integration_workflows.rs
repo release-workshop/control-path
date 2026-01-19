@@ -251,3 +251,172 @@ fn test_validate_compile_generate_sdk_workflow() {
     // Verify SDK was generated
     assert!(project.file_exists("./flags"));
 }
+
+#[test]
+fn test_enable_auto_compiles_env() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "production",
+        &simple_deployment("production", "my_flag", false),
+    );
+
+    // Ensure AST doesn't exist before enable
+    assert!(!project.ast_exists("production"));
+
+    // Enable the flag (should auto-compile AST)
+    project.run_command_success(&["enable", "my_flag", "--env", "production", "--all"]);
+
+    // Verify flag was enabled
+    let deployment = project.get_deployment("production");
+    assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
+
+    // Verify AST was automatically compiled
+    assert!(
+        project.ast_exists("production"),
+        "AST should be automatically compiled after enable"
+    );
+}
+
+#[test]
+fn test_enable_no_compile_flag() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "production",
+        &simple_deployment("production", "my_flag", false),
+    );
+
+    // Ensure AST doesn't exist before enable
+    assert!(!project.ast_exists("production"));
+
+    // Enable the flag with --no-compile (should NOT auto-compile AST)
+    project.run_command_success(&[
+        "enable",
+        "my_flag",
+        "--env",
+        "production",
+        "--all",
+        "--no-compile",
+    ]);
+
+    // Verify flag was enabled
+    let deployment = project.get_deployment("production");
+    assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
+
+    // Verify AST was NOT automatically compiled
+    assert!(
+        !project.ast_exists("production"),
+        "AST should NOT be compiled when --no-compile is used"
+    );
+}
+
+#[test]
+fn test_new_flag_auto_generates_sdk() {
+    let project = TestProject::new();
+
+    // Initialize project first
+    project.run_command_success(&["init", "--force"]);
+
+    // Create package.json to enable SDK generation
+    project.write_file("package.json", "{}");
+
+    // Ensure SDK directory doesn't exist before new-flag
+    assert!(!project.file_exists("./flags"));
+
+    // Run new-flag command WITHOUT --skip-sdk (should auto-generate SDK)
+    project.run_command_success(&[
+        "new-flag",
+        "test_feature",
+        "--type",
+        "boolean",
+        "--default",
+        "false",
+    ]);
+
+    // Verify flag was added to definitions
+    let definitions = project.get_definitions();
+    assert!(definitions.contains("test_feature"));
+
+    // Verify SDK was automatically generated
+    assert!(
+        project.file_exists("./flags"),
+        "SDK should be automatically generated after new-flag"
+    );
+    assert!(
+        project.file_exists("./flags/index.ts"),
+        "SDK index.ts should exist"
+    );
+}
+
+#[test]
+fn test_new_flag_skip_sdk_flag() {
+    let project = TestProject::new();
+
+    // Initialize project first
+    project.run_command_success(&["init", "--force"]);
+
+    // Create package.json to enable SDK generation
+    project.write_file("package.json", "{}");
+
+    // Ensure SDK directory doesn't exist before new-flag
+    assert!(!project.file_exists("./flags"));
+
+    // Run new-flag command WITH --skip-sdk (should NOT auto-generate SDK)
+    project.run_command_success(&[
+        "new-flag",
+        "test_feature",
+        "--type",
+        "boolean",
+        "--default",
+        "false",
+        "--skip-sdk",
+    ]);
+
+    // Verify flag was added to definitions
+    let definitions = project.get_definitions();
+    assert!(definitions.contains("test_feature"));
+
+    // Verify SDK was NOT automatically generated
+    assert!(
+        !project.file_exists("./flags"),
+        "SDK should NOT be generated when --skip-sdk is used"
+    );
+}
+
+#[test]
+fn test_new_flag_enable_in_auto_compiles() {
+    let project = TestProject::new();
+
+    // Initialize project first
+    project.run_command_success(&["init", "--force"]);
+
+    // Ensure AST doesn't exist before new-flag
+    assert!(!project.ast_exists("production"));
+
+    // Run new-flag with --enable-in (should auto-compile AST for enabled environment)
+    project.run_command_success(&[
+        "new-flag",
+        "test_feature",
+        "--type",
+        "boolean",
+        "--default",
+        "false",
+        "--enable-in",
+        "production",
+        "--skip-sdk", // Skip SDK to focus on compilation
+    ]);
+
+    // Verify flag was added to definitions
+    let definitions = project.get_definitions();
+    assert!(definitions.contains("test_feature"));
+
+    // Verify flag was enabled in production
+    let deployment = project.get_deployment("production");
+    assert!(deployment.contains("test_feature"));
+    assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
+
+    // Verify AST was automatically compiled for the enabled environment
+    assert!(
+        project.ast_exists("production"),
+        "AST should be automatically compiled when using --enable-in"
+    );
+}

@@ -5,9 +5,9 @@
 //! - enable: Enables a flag in environments with rules
 //! - deploy: Validates and compiles for deployment
 
-use crate::commands::{compile, generate_sdk, validate};
+use crate::commands::{compile, validate};
 use crate::error::{CliError, CliResult};
-use crate::utils::config;
+use crate::ops::{compile as ops_compile, generate_sdk as ops_generate_sdk};
 use controlpath_compiler::compiler::expressions::parse_expression;
 use controlpath_compiler::{parse_definitions, parse_deployment, validate_deployment};
 use dialoguer::{Input, MultiSelect};
@@ -319,6 +319,7 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
     }
 
     // Enable in specified environments
+    let mut enabled_envs = Vec::new();
     if let Some(ref enable_envs) = options.enable_in {
         let envs: Vec<&str> = enable_envs.split(',').map(|s| s.trim()).collect();
         for env in envs {
@@ -333,25 +334,51 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
             enable_flag_in_deployment(&mut deployment, &flag_name, None)?;
             write_deployment(&deployment_path, &deployment)?;
             println!("✓ Enabled flag in {env}");
+            enabled_envs.push(env.to_string());
+        }
+
+        // Auto-compile ASTs for enabled environments (unless skip_sdk implies skip compile)
+        // Note: We compile even if skip_sdk is true, because compilation is independent
+        if !enabled_envs.is_empty() {
+            println!("Compiling ASTs for enabled environments...");
+            let compile_opts = ops_compile::CompileOptions {
+                envs: Some(enabled_envs.clone()),
+                service_context: None,
+                skip_validation: false,
+            };
+            match ops_compile::compile_envs(&compile_opts) {
+                Ok(compiled) => {
+                    for env in &compiled {
+                        println!("✓ Compiled AST for {env}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("⚠ Warning: Failed to compile ASTs: {e}");
+                    eprintln!(
+                        "  You can compile manually with: controlpath compile --env {}",
+                        enabled_envs.join(",")
+                    );
+                }
+            }
         }
     }
 
     // Regenerate SDK (unless skipped)
     if !options.skip_sdk {
-        let lang = config::read_config_language()?;
-        if let Some(lang) = lang {
-            let generate_opts = generate_sdk::Options {
-                lang: Some(lang),
-                output: None,
-                definitions: None,
-                all_services: false,
-                service_context: None,
-            };
-            let exit_code = generate_sdk::run(&generate_opts);
-            if exit_code != 0 {
-                eprintln!("⚠ Warning: SDK regeneration failed");
-            } else {
+        println!("Regenerating SDK...");
+        let generate_opts = ops_generate_sdk::GenerateOptions {
+            lang: None, // Auto-detect from config or project files
+            output: None,
+            service_context: None,
+            skip_validation: false,
+        };
+        match ops_generate_sdk::generate_sdk_helper(&generate_opts) {
+            Ok(()) => {
                 println!("✓ Regenerated SDK");
+            }
+            Err(e) => {
+                eprintln!("⚠ Warning: SDK regeneration failed: {e}");
+                eprintln!("  You can regenerate manually with: controlpath generate-sdk");
             }
         }
     }
@@ -370,6 +397,7 @@ pub struct EnableOptions {
     pub all: bool,             // Enable for all users (no rule)
     pub value: Option<String>, // Value to serve
     pub interactive: bool,
+    pub no_compile: bool, // Skip automatic compilation
 }
 
 pub fn run_enable(options: &EnableOptions) -> i32 {
@@ -601,6 +629,30 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
 
         write_deployment(&deployment_path, &deployment)?;
         updated_envs.push(env.clone());
+    }
+
+    // Auto-compile ASTs for updated environments (unless --no-compile)
+    if !options.no_compile && !updated_envs.is_empty() {
+        println!("Compiling ASTs for updated environments...");
+        let compile_opts = ops_compile::CompileOptions {
+            envs: Some(updated_envs.clone()),
+            service_context: None,
+            skip_validation: false,
+        };
+        match ops_compile::compile_envs(&compile_opts) {
+            Ok(compiled) => {
+                for env in &compiled {
+                    println!("✓ Compiled AST for {env}");
+                }
+            }
+            Err(e) => {
+                eprintln!("⚠ Warning: Failed to compile ASTs: {e}");
+                eprintln!(
+                    "  You can compile manually with: controlpath compile --env {}",
+                    updated_envs.join(",")
+                );
+            }
+        }
     }
 
     Ok(updated_envs)
@@ -966,6 +1018,7 @@ rules:
             all: true,
             value: None,
             interactive: false,
+            no_compile: false,
         };
 
         let result = run_enable_inner(&enable_options);
@@ -1033,6 +1086,7 @@ rules:
             all: false,
             value: None,
             interactive: false,
+            no_compile: false,
         };
 
         let result = run_enable_inner(&enable_options);
@@ -1084,6 +1138,7 @@ rules:
             all: false,
             value: None,
             interactive: false,
+            no_compile: false,
         };
 
         let result = run_enable_inner(&enable_options);
@@ -1153,6 +1208,7 @@ rules:
             value: None,
             all: true,
             interactive: false,
+            no_compile: false,
         };
 
         let result = run_enable_inner(&options);
@@ -1175,6 +1231,7 @@ rules:
             value: Some("true".to_string()),
             all: false,
             interactive: false,
+            no_compile: false,
         };
 
         let result = run_enable_inner(&options);
@@ -1339,6 +1396,7 @@ rules:
             value: None,
             all: false,
             interactive: false,
+            no_compile: false,
         };
 
         let result = run_enable_inner(&options);
