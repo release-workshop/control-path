@@ -1,17 +1,30 @@
 //! Setup command implementation
 
-use crate::commands::compile;
-use crate::commands::generate_sdk;
 use crate::commands::init;
 use crate::error::{CliError, CliResult};
+use crate::ops::{compile as ops_compile, generate_sdk as ops_generate_sdk};
+use crate::utils::config;
 use crate::utils::language;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+// File path constants
+const DEFINITIONS_FILE: &str = "flags.definitions.yaml";
+const PRODUCTION_DEPLOYMENT: &str = ".controlpath/production.deployment.yaml";
+const STAGING_DEPLOYMENT: &str = ".controlpath/staging.deployment.yaml";
+const SDK_OUTPUT_DIR: &str = "./flags";
+
 pub struct Options {
+    /// Language for SDK generation (auto-detected if not provided)
     pub lang: Option<String>,
+    /// Skip installing runtime SDK package
     pub skip_install: bool,
+    /// Skip creating example flags and usage files
+    ///
+    /// When set, creates a minimal project without example flags or example usage files.
+    /// This is useful for projects that want to start with a clean slate.
+    pub no_examples: bool,
 }
 
 fn create_example_usage_file(lang: &str) -> CliResult<()> {
@@ -52,7 +65,13 @@ async function main() {
 
 main().catch(console.error);
 "#;
-            fs::write("example_usage.ts", example_content).map_err(CliError::from)
+            fs::write("example_usage.ts", example_content).map_err(|e| {
+                CliError::Message(format!(
+                    "Failed to write example_usage.ts: {}. \
+                    Ensure you have write permissions in the current directory.",
+                    e
+                ))
+            })
         }
         _ => {
             // For other languages, create a basic example
@@ -66,7 +85,14 @@ main().catch(console.error);
                 format!("example_usage.{}", get_file_extension(lang)),
                 example_content,
             )
-            .map_err(CliError::from)
+            .map_err(|e| {
+                CliError::Message(format!(
+                    "Failed to write example_usage.{}: {}. \
+                    Ensure you have write permissions in the current directory.",
+                    get_file_extension(lang),
+                    e
+                ))
+            })
         }
     }
 }
@@ -95,7 +121,13 @@ fn install_runtime_sdk(lang: &str) -> CliResult<()> {
   }
 }
 "#;
-                fs::write("package.json", package_json).map_err(CliError::from)?;
+                fs::write("package.json", package_json).map_err(|e| {
+                    CliError::Message(format!(
+                        "Failed to create package.json: {}. \
+                        Ensure you have write permissions in the current directory.",
+                        e
+                    ))
+                })?;
             }
 
             // Run npm install
@@ -154,6 +186,53 @@ pub fn run(options: &Options) -> i32 {
     }
 }
 
+/// Create empty project files for minimal setup (when --no-examples is used)
+///
+/// Creates empty definitions and deployment files that allow compilation to work
+/// without including example flags.
+fn create_empty_project_files() -> CliResult<()> {
+    // Create empty definitions file so compilation can work
+    if !Path::new(DEFINITIONS_FILE).exists() {
+        let empty_definitions = "flags: []\n";
+        fs::write(DEFINITIONS_FILE, empty_definitions).map_err(|e| {
+            CliError::Message(format!(
+                "Failed to create empty definitions file at {}: {}. \
+                Ensure you have write permissions in the current directory.",
+                DEFINITIONS_FILE, e
+            ))
+        })?;
+    }
+
+    // Create empty production deployment file (without example_flag)
+    let empty_deployment = "environment: production\nrules: {}\n";
+    fs::write(PRODUCTION_DEPLOYMENT, empty_deployment).map_err(|e| {
+        CliError::Message(format!(
+            "Failed to create empty deployment file at {}: {}. \
+            Ensure the .controlpath directory exists and you have write permissions.",
+            PRODUCTION_DEPLOYMENT, e
+        ))
+    })?;
+
+    Ok(())
+}
+
+/// Create staging environment deployment file with example flag
+fn create_staging_deployment() -> CliResult<()> {
+    let staging_content = r"environment: staging
+rules:
+  example_flag:
+    rules:
+      - serve: false
+";
+    fs::write(STAGING_DEPLOYMENT, staging_content).map_err(|e| {
+        CliError::Message(format!(
+            "Failed to create staging deployment file at {}: {}. \
+            Ensure the .controlpath directory exists and you have write permissions.",
+            STAGING_DEPLOYMENT, e
+        ))
+    })
+}
+
 fn run_inner(options: &Options) -> CliResult<String> {
     println!("Setting up Control Path project...");
     println!();
@@ -167,66 +246,133 @@ fn run_inner(options: &Options) -> CliResult<String> {
     println!("1. Initializing project structure...");
     let init_options = init::Options {
         force: true, // Use force to allow setup to work on existing projects
-        example_flags: true,
-        no_examples: false,
+        example_flags: !options.no_examples,
+        no_examples: options.no_examples,
     };
     let init_result = init::run(&init_options);
     if init_result != 0 {
         return Err(CliError::Message(
-            "Failed to initialize project structure".to_string(),
+            "Failed to initialize project structure. \
+            Check that you have write permissions in the current directory and that \
+            the .controlpath directory can be created."
+                .to_string(),
         ));
     }
     println!("   ✓ Project structure created");
-    println!();
 
-    // Step 2: Compile AST
-    println!("2. Compiling AST...");
-    let compile_options = compile::Options {
-        deployment: None,
-        env: Some("production".to_string()),
-        output: None,
-        definitions: None,
-        service_context: None,
-        all_services: false,
-    };
-    let compile_result = compile::run(&compile_options);
-    if compile_result != 0 {
-        return Err(CliError::Message("Failed to compile AST".to_string()));
+    // If --no-examples was used, create empty definitions and deployment files
+    if options.no_examples {
+        create_empty_project_files()?;
     }
-    println!("   ✓ AST compiled");
     println!();
 
-    // Step 3: Install runtime SDK (conditional)
+    // Step 1.5: Create staging environment (optional, but recommended)
+    // Only create staging if we created examples (i.e., not --no-examples)
+    let initial_envs = if !options.no_examples {
+        println!("1.5. Creating staging environment...");
+        create_staging_deployment()?;
+        println!("   ✓ Staging environment created");
+        println!();
+        vec!["production".to_string(), "staging".to_string()]
+    } else {
+        vec!["production".to_string()]
+    };
+
+    // Step 2: Write config.yaml with language + defaultEnv
+    println!("2. Writing configuration...");
+    config::write_config_language(&lang)?;
+    config::write_config_default_env("production")?;
+    println!("   ✓ Configuration written");
+    println!();
+
+    // Step 3: Generate SDK (before compiling, so we have definitions)
+    // Only generate SDK if definitions file exists and has flags (skip if --no-examples was used)
+    if Path::new(DEFINITIONS_FILE).exists() {
+        // Check if definitions file has any flags (not just empty)
+        let definitions_content = fs::read_to_string(DEFINITIONS_FILE).map_err(|e| {
+            CliError::Message(format!(
+                "Failed to read definitions file at {}: {}. \
+                    Ensure the file exists and is readable.",
+                DEFINITIONS_FILE, e
+            ))
+        })?;
+
+        // Only generate SDK if there are flags defined
+        if definitions_content.contains("flags:")
+            && !definitions_content.trim().ends_with("flags: []")
+        {
+            println!("3. Generating SDK...");
+            let generate_options = ops_generate_sdk::GenerateOptions {
+                lang: Some(lang.clone()),
+                output: Some(SDK_OUTPUT_DIR.to_string()),
+                service_context: None,
+                skip_validation: false,
+            };
+            ops_generate_sdk::generate_sdk_helper(&generate_options).map_err(|e| {
+                CliError::Message(format!(
+                    "Failed to generate SDK: {}. \
+                    Check that the definitions file is valid and the output directory is writable.",
+                    e
+                ))
+            })?;
+            println!("   ✓ SDK generated");
+            println!();
+        } else {
+            println!("3. Skipping SDK generation (no flags defined)");
+            println!();
+        }
+    } else {
+        println!("3. Skipping SDK generation (no definitions file)");
+        println!();
+    }
+
+    // Step 4: Compile ASTs for all initial environments
+    println!("4. Compiling ASTs for initial environments...");
+    let compile_options = ops_compile::CompileOptions {
+        envs: Some(initial_envs.clone()),
+        service_context: None,
+        skip_validation: false,
+    };
+    let compiled_envs = ops_compile::compile_envs(&compile_options).map_err(|e| {
+        CliError::Message(format!(
+            "Failed to compile ASTs for environments {}: {}. \
+            Check that deployment files exist and are valid.",
+            initial_envs.join(", "),
+            e
+        ))
+    })?;
+    println!("   ✓ Compiled ASTs for: {}", compiled_envs.join(", "));
+    println!();
+
+    // Step 5: Install runtime SDK (conditional)
     if !options.skip_install {
-        println!("3. Installing runtime SDK...");
-        install_runtime_sdk(&lang)?;
+        println!("5. Installing runtime SDK...");
+        install_runtime_sdk(&lang).map_err(|e| {
+            CliError::Message(format!(
+                "Failed to install runtime SDK: {}. \
+                You can skip this step with --skip-install and install manually later.",
+                e
+            ))
+        })?;
         println!("   ✓ Runtime SDK installed");
     } else {
-        println!("3. Skipping runtime SDK installation (--skip-install)");
+        println!("5. Skipping runtime SDK installation (--skip-install)");
     }
     println!();
 
-    // Step 4: Generate SDK
-    println!("4. Generating SDK...");
-    let generate_options = generate_sdk::Options {
-        lang: Some(lang.clone()),
-        output: Some("./flags".to_string()),
-        definitions: None,
-        all_services: false,
-        service_context: None,
-    };
-    let generate_result = generate_sdk::run(&generate_options);
-    if generate_result != 0 {
-        return Err(CliError::Message("Failed to generate SDK".to_string()));
+    // Step 6: Create example usage file (only if not --no-examples)
+    if !options.no_examples {
+        println!("6. Creating example usage file...");
+        create_example_usage_file(&lang).map_err(|e| {
+            CliError::Message(format!(
+                "Failed to create example usage file: {}. \
+                Ensure you have write permissions in the current directory.",
+                e
+            ))
+        })?;
+        println!("   ✓ Example file created");
+        println!();
     }
-    println!("   ✓ SDK generated");
-    println!();
-
-    // Step 5: Create example usage file
-    println!("5. Creating example usage file...");
-    create_example_usage_file(&lang)?;
-    println!("   ✓ Example file created");
-    println!();
 
     Ok(lang)
 }
@@ -365,16 +511,20 @@ mod tests {
         let opts = Options {
             lang: Some("typescript".to_string()),
             skip_install: false,
+            no_examples: false,
         };
         assert_eq!(opts.lang, Some("typescript".to_string()));
         assert!(!opts.skip_install);
+        assert!(!opts.no_examples);
 
         let opts2 = Options {
             lang: None,
             skip_install: true,
+            no_examples: true,
         };
         assert_eq!(opts2.lang, None);
         assert!(opts2.skip_install);
+        assert!(opts2.no_examples);
     }
 
     #[test]
@@ -390,6 +540,7 @@ mod tests {
         let options = Options {
             lang: Some("typescript".to_string()),
             skip_install: true,
+            no_examples: false,
         };
 
         // This test verifies that setup runs without trying to install npm packages
@@ -409,6 +560,7 @@ mod tests {
         let options = Options {
             lang: Some("invalid_lang".to_string()),
             skip_install: true,
+            no_examples: false,
         };
 
         // Options struct should accept any language string
@@ -429,6 +581,7 @@ mod tests {
         let options = Options {
             lang: None, // Should auto-detect
             skip_install: true,
+            no_examples: false,
         };
 
         // Test that language detection works (this is tested in utils/language.rs)

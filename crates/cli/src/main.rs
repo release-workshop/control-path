@@ -168,6 +168,11 @@ enum Commands {
         /// (e.g., npm install, pip install). Useful if you want to install it manually.
         #[arg(long)]
         skip_install: bool,
+        /// Skip creating example flags and usage files
+        ///
+        /// When set, creates a minimal project without example flags or example usage files.
+        #[arg(long)]
+        no_examples: bool,
     },
     /// Generate type-safe SDK from flag definitions
     ///
@@ -945,10 +950,15 @@ fn main() {
             };
             init::run(&opts)
         }
-        Commands::Setup { lang, skip_install } => {
+        Commands::Setup {
+            lang,
+            skip_install,
+            no_examples,
+        } => {
             let opts = setup::Options {
                 lang: lang.clone(),
                 skip_install,
+                no_examples,
             };
             setup::run(&opts)
         }

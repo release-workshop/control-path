@@ -218,14 +218,140 @@ fn test_setup_workflow() {
     assert!(project.file_exists("flags.definitions.yaml"));
     assert!(project.file_exists(".controlpath/production.deployment.yaml"));
 
-    // Verify AST was compiled
-    assert!(project.ast_exists("production"));
+    // Verify staging environment was created (setup creates it by default)
+    assert!(project.file_exists(".controlpath/staging.deployment.yaml"));
 
-    // Verify SDK was generated (if not skipped)
-    // Note: SDK generation might be skipped in tests, so we check conditionally
-    if project.file_exists("./flags") {
-        // SDK directory exists
-    }
+    // Verify AST was compiled for both environments
+    assert!(project.ast_exists("production"));
+    assert!(project.ast_exists("staging"));
+
+    // Verify config.yaml was created with language and defaultEnv
+    assert!(project.file_exists(".controlpath/config.yaml"));
+    let config = project.read_file(".controlpath/config.yaml");
+    assert!(config.contains("language:"));
+    assert!(config.contains("typescript") || config.contains("TypeScript"));
+    assert!(config.contains("defaultEnv:") || config.contains("default_env:"));
+
+    // Verify SDK was generated
+    assert!(project.file_exists("./flags"));
+    assert!(project.file_exists("./flags/index.ts"));
+
+    // Verify example usage file was created
+    assert!(project.file_exists("example_usage.ts"));
+}
+
+#[test]
+fn test_setup_respects_no_examples() {
+    let project = TestProject::new();
+
+    // Create package.json to trigger TypeScript detection
+    project.write_file("package.json", "{}");
+
+    // Remove .controlpath directory
+    fs::remove_dir_all(project.path(".controlpath")).unwrap();
+
+    // Run setup with --no-examples
+    project.run_command_success(&[
+        "setup",
+        "--lang",
+        "typescript",
+        "--skip-install",
+        "--no-examples",
+    ]);
+
+    // Verify project structure was created
+    assert!(project.file_exists(".controlpath/production.deployment.yaml"));
+
+    // Verify staging was NOT created (only created when examples are enabled)
+    assert!(!project.file_exists(".controlpath/staging.deployment.yaml"));
+
+    // Verify definitions file exists but is empty (no example flags)
+    // (Empty file is needed for compilation to work)
+    assert!(project.file_exists("flags.definitions.yaml"));
+    let definitions = project.get_definitions();
+    assert!(
+        !definitions.contains("example_flag"),
+        "Should not contain example flags"
+    );
+
+    // Verify example usage file was NOT created
+    assert!(!project.file_exists("example_usage.ts"));
+
+    // Verify AST was compiled for production only
+    assert!(project.ast_exists("production"));
+    assert!(!project.ast_exists("staging"));
+
+    // Verify config.yaml was still created
+    assert!(project.file_exists(".controlpath/config.yaml"));
+}
+
+#[test]
+fn test_setup_uses_cached_language() {
+    let project = TestProject::new();
+
+    // Create package.json to trigger TypeScript detection
+    project.write_file("package.json", "{}");
+
+    // Remove .controlpath directory
+    fs::remove_dir_all(project.path(".controlpath")).unwrap();
+
+    // Run setup with explicit language
+    project.run_command_success(&["setup", "--lang", "typescript", "--skip-install"]);
+
+    // Verify config.yaml contains the language
+    let config = project.read_file(".controlpath/config.yaml");
+    assert!(config.contains("language:"));
+    assert!(config.contains("typescript") || config.contains("TypeScript"));
+
+    // Now run setup again without --lang (should use cached language)
+    // First, remove the project files but keep config
+    fs::remove_file(project.path("flags.definitions.yaml")).ok();
+    fs::remove_file(project.path(".controlpath/production.deployment.yaml")).ok();
+    fs::remove_file(project.path(".controlpath/staging.deployment.yaml")).ok();
+    fs::remove_file(project.path(".controlpath/production.ast")).ok();
+    fs::remove_file(project.path(".controlpath/staging.ast")).ok();
+
+    // Run setup again without --lang
+    project.run_command_success(&["setup", "--skip-install", "--no-examples"]);
+
+    // Verify it still worked (using cached language from config)
+    assert!(project.file_exists(".controlpath/production.deployment.yaml"));
+}
+
+#[test]
+fn test_setup_skip_install_flag() {
+    let project = TestProject::new();
+
+    // Create package.json to trigger TypeScript detection
+    project.write_file("package.json", "{}");
+
+    // Remove .controlpath directory
+    fs::remove_dir_all(project.path(".controlpath")).unwrap();
+
+    // Run setup with --skip-install flag
+    // This should complete successfully without attempting to install npm packages
+    project.run_command_success(&["setup", "--lang", "typescript", "--skip-install"]);
+
+    // Verify project structure was created
+    assert!(project.file_exists("flags.definitions.yaml"));
+    assert!(project.file_exists(".controlpath/production.deployment.yaml"));
+    assert!(project.file_exists(".controlpath/staging.deployment.yaml"));
+
+    // Verify ASTs were compiled
+    assert!(project.ast_exists("production"));
+    assert!(project.ast_exists("staging"));
+
+    // Verify SDK was generated
+    assert!(project.file_exists("./flags"));
+    assert!(project.file_exists("./flags/index.ts"));
+
+    // Verify example usage file was created
+    assert!(project.file_exists("example_usage.ts"));
+
+    // Note: We can't easily verify that npm install was NOT called without mocking,
+    // but the fact that the command succeeded with --skip-install indicates
+    // the flag is being respected (otherwise it would fail if npm install was attempted
+    // in an environment without npm or with network issues)
 }
 
 #[test]
