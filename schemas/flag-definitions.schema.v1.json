@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://controlpath.dev/schemas/flag-definitions.schema.v1.json",
   "title": "Control Path Flag Definitions Schema",
-  "description": "Schema for flag definitions YAML file",
+  "description": "Schema for flag definitions YAML file (internal use only - deprecated in favor of unified control-path.yaml)",
   "type": "object",
   "required": ["flags"],
   "properties": {
@@ -37,7 +37,7 @@
       "description": "Array of flag definitions",
       "items": {
         "type": "object",
-        "required": ["name", "type", "defaultValue"],
+        "required": ["name", "type", "default"],
         "properties": {
           "name": {
             "type": "string",
@@ -53,9 +53,21 @@
             "enum": ["boolean", "multivariate"],
             "description": "Flag type: 'boolean' for on/off flags, 'multivariate' for flags with multiple variations"
           },
-          "defaultValue": {
+          "default": {
             "description": "Default value when no rules match. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
-            "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
+            "oneOf": [
+              { "type": "string" },
+              { "type": "boolean" },
+              { "type": "number" }
+            ]
+          },
+          "defaultValue": {
+            "description": "Default value (alternative to 'default' for backward compatibility)",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "boolean" },
+              { "type": "number" }
+            ]
           },
           "variations": {
             "type": "array",
@@ -71,7 +83,11 @@
                 },
                 "value": {
                   "description": "Variation value",
-                  "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
+                  "oneOf": [
+                    { "type": "string" },
+                    { "type": "boolean" },
+                    { "type": "number" }
+                  ]
                 },
                 "description": {
                   "type": "string",

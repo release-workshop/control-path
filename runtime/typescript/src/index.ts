@@ -8,10 +8,7 @@
  * Control Path Runtime SDK
  *
  * Low-level runtime SDK for loading AST artifacts and evaluating flags.
- * Provides OpenFeature-compliant Provider interface.
  */
-
-export { Provider, type ProviderOptions } from './provider';
 export { loadFromFile, loadFromURL, loadFromBuffer, type LoadOptions } from './ast-loader';
 export {
   loadOverrideFromFile,
@@ -26,13 +23,10 @@ export type {
   Rule,
   Expression,
   Variation,
-  User,
-  Context,
-  ResolutionDetails,
+  Attributes,
   Logger,
   OverrideFile,
   OverrideValue,
-  OverrideState,
 } from './types';
 export {
   RuleType,

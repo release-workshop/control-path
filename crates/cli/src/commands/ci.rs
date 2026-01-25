@@ -1,7 +1,6 @@
 //! CI command implementation - pipeline workflow
 
 use crate::error::{CliError, CliResult};
-use crate::monorepo::ServiceContext;
 use crate::ops::compile as ops_compile;
 use crate::ops::compile::CompileOptions;
 use crate::ops::generate_sdk as ops_generate_sdk;
@@ -21,22 +20,11 @@ pub struct Options {
     pub no_sdk: bool,
     /// Skip validation
     pub no_validate: bool,
-    /// Service context for monorepo support
-    pub service_context: Option<ServiceContext>,
 }
 
-/// Find all deployment files in the .controlpath directory
-fn find_deployment_files(
-    service_context: Option<&ServiceContext>,
-) -> CliResult<Vec<(String, PathBuf)>> {
-    use crate::monorepo::ServicePathResolver;
-
-    let controlpath_dir = if let Some(ctx) = service_context {
-        let resolver = ServicePathResolver::new(ctx.clone());
-        resolver.base_path().join(".controlpath")
-    } else {
-        PathBuf::from(".controlpath")
-    };
+/// Find all deployment files in the .controlpath directory (legacy support)
+fn find_deployment_files() -> CliResult<Vec<(String, PathBuf)>> {
+    let controlpath_dir = PathBuf::from(".controlpath");
 
     if !controlpath_dir.exists() {
         return Ok(Vec::new());
@@ -60,67 +48,100 @@ fn find_deployment_files(
     Ok(deployments)
 }
 
-/// Validate definitions file
-fn validate_definitions_file(service_context: Option<&ServiceContext>) -> CliResult<()> {
-    use crate::monorepo::ServicePathResolver;
+/// Validate definitions file (from config or legacy file)
+fn validate_definitions_file() -> CliResult<()> {
+    use crate::utils::unified_config;
 
-    let definitions_path = if let Some(ctx) = service_context {
-        let resolver = ServicePathResolver::new(ctx.clone());
-        resolver.definitions_file()
+    if unified_config::unified_config_exists() {
+        // Use config
+        let unified = unified_config::read_unified_config()?;
+        let definitions = unified_config::extract_definitions(&unified)?;
+        validate_definitions(&definitions)
+            .map_err(|e| CliError::Message(format!("Config is invalid: {e}")))?;
     } else {
-        PathBuf::from("flags.definitions.yaml")
-    };
-
-    if !definitions_path.exists() {
-        return Err(CliError::Message(format!(
-            "Definitions file not found: {}",
-            definitions_path.display()
-        )));
+        // Use legacy file-based approach
+        let definitions_path = PathBuf::from("flags.definitions.yaml");
+        if !definitions_path.exists() {
+            return Err(CliError::Message(format!(
+                "Definitions file not found: {}\n  Run 'controlpath setup' to initialize the project.",
+                definitions_path.display()
+            )));
+        }
+        let content = fs::read_to_string(&definitions_path)
+            .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
+        let definitions = parse_definitions(&content)?;
+        validate_definitions(&definitions)
+            .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
     }
-
-    let content = fs::read_to_string(&definitions_path)
-        .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
-    let definitions = parse_definitions(&content)?;
-    validate_definitions(&definitions)
-        .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
 
     Ok(())
 }
 
-/// Validate deployment files
-fn validate_deployment_files(
-    envs: Option<&[String]>,
-    service_context: Option<&ServiceContext>,
-) -> CliResult<usize> {
-    let all_deployments = find_deployment_files(service_context)?;
+/// Validate deployment files (from config or legacy files)
+fn validate_deployment_files(envs: Option<&[String]>) -> CliResult<usize> {
+    use crate::utils::unified_config;
 
-    let deployments_to_validate: Vec<_> = if let Some(envs) = envs {
-        all_deployments
-            .into_iter()
-            .filter(|(env_name, _)| envs.contains(env_name))
-            .collect()
+    if unified_config::unified_config_exists() {
+        // Use config
+        let unified = unified_config::read_unified_config()?;
+        let all_envs = unified_config::get_environments(&unified);
+
+        let envs_to_validate: Vec<_> = if let Some(envs) = envs {
+            all_envs.into_iter().filter(|e| envs.contains(e)).collect()
+        } else {
+            all_envs
+        };
+
+        if envs_to_validate.is_empty() {
+            return Err(CliError::Message(
+                "No environments found in config to validate".to_string(),
+            ));
+        }
+
+        let mut validated_count = 0;
+        for env_name in &envs_to_validate {
+            let deployment = unified_config::extract_deployment(&unified, env_name)?;
+            validate_deployment(&deployment).map_err(|e| {
+                CliError::Message(format!(
+                    "Deployment for environment '{env_name}' is invalid: {e}"
+                ))
+            })?;
+            validated_count += 1;
+        }
+
+        Ok(validated_count)
     } else {
-        all_deployments
-    };
+        // Use legacy file-based approach
+        let all_deployments = find_deployment_files()?;
 
-    if deployments_to_validate.is_empty() {
-        return Err(CliError::Message(
-            "No deployment files found to validate".to_string(),
-        ));
+        let deployments_to_validate: Vec<_> = if let Some(envs) = envs {
+            all_deployments
+                .into_iter()
+                .filter(|(env_name, _)| envs.contains(env_name))
+                .collect()
+        } else {
+            all_deployments
+        };
+
+        if deployments_to_validate.is_empty() {
+            return Err(CliError::Message(
+                "No deployment files found to validate".to_string(),
+            ));
+        }
+
+        let mut validated_count = 0;
+        for (env_name, deployment_path) in &deployments_to_validate {
+            let content = fs::read_to_string(deployment_path)
+                .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
+            let deployment = parse_deployment(&content)?;
+            validate_deployment(&deployment).map_err(|e| {
+                CliError::Message(format!("Deployment file for '{env_name}' is invalid: {e}"))
+            })?;
+            validated_count += 1;
+        }
+
+        Ok(validated_count)
     }
-
-    let mut validated_count = 0;
-    for (env_name, deployment_path) in &deployments_to_validate {
-        let content = fs::read_to_string(deployment_path)
-            .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
-        let deployment = parse_deployment(&content)?;
-        validate_deployment(&deployment).map_err(|e| {
-            CliError::Message(format!("Deployment file for '{env_name}' is invalid: {e}"))
-        })?;
-        validated_count += 1;
-    }
-
-    Ok(validated_count)
 }
 
 /// Run CI checks: validate, compile, and optionally regenerate SDK
@@ -140,19 +161,35 @@ pub fn run(options: &Options) -> i32 {
 
 fn run_inner(options: &Options) -> CliResult<()> {
     // Determine environments to process (use smart defaults if not specified)
+    use crate::utils::unified_config;
+
     let envs_to_process = if options.envs.is_some() {
         options.envs.clone()
     } else {
         // Try smart defaults: git branch mapping or defaultEnv
         if let Ok(Some(default_env)) = environment::determine_environment() {
-            // Verify the default environment exists
-            let deployment_path =
-                PathBuf::from(format!(".controlpath/{default_env}.deployment.yaml"));
-            if deployment_path.exists() {
-                Some(vec![default_env])
+            // Verify the default environment exists in config
+            if unified_config::unified_config_exists() {
+                let unified = unified_config::read_unified_config().ok();
+                if let Some(unified) = unified {
+                    let envs = unified_config::get_environments(&unified);
+                    if envs.contains(&default_env) {
+                        Some(vec![default_env])
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
-                // Default env doesn't exist, process all environments
-                None
+                // Legacy: check for deployment file
+                let deployment_path =
+                    PathBuf::from(format!(".controlpath/{default_env}.deployment.yaml"));
+                if deployment_path.exists() {
+                    Some(vec![default_env])
+                } else {
+                    None
+                }
             }
         } else {
             // No smart default found, process all environments
@@ -165,14 +202,11 @@ fn run_inner(options: &Options) -> CliResult<()> {
         println!("Validating files...");
 
         // Validate definitions
-        validate_definitions_file(options.service_context.as_ref())?;
+        validate_definitions_file()?;
         println!("  ✓ Definitions file is valid");
 
         // Validate deployments
-        let validated_count = validate_deployment_files(
-            envs_to_process.as_deref(),
-            options.service_context.as_ref(),
-        )?;
+        let validated_count = validate_deployment_files(envs_to_process.as_deref())?;
         println!("  ✓ Validated {} deployment file(s)", validated_count);
     } else {
         println!("Skipping validation (--no-validate)");
@@ -182,7 +216,6 @@ fn run_inner(options: &Options) -> CliResult<()> {
     println!("Compiling ASTs...");
     let compile_opts = CompileOptions {
         envs: envs_to_process.clone(),
-        service_context: options.service_context.clone(),
         skip_validation: options.no_validate,
     };
 
@@ -203,7 +236,6 @@ fn run_inner(options: &Options) -> CliResult<()> {
         let generate_opts = GenerateOptions {
             lang: Some(language),
             output: None,
-            service_context: options.service_context.clone(),
             skip_validation: options.no_validate,
         };
 
@@ -219,64 +251,40 @@ fn run_inner(options: &Options) -> CliResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::DirGuard;
     use serial_test::serial;
     use std::fs;
     use tempfile::TempDir;
-
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
 
     #[test]
     #[serial]
     fn test_ci_validates_and_compiles() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create test files
+        // Create .controlpath directory for AST output
+        fs::create_dir_all(".controlpath").unwrap();
+
+        // Create config file
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
+            "control-path.yaml",
+            r"mode: local
+flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
-  test_flag:
-    rules:
-      - serve: true
+    default: false
+    environments:
+      production:
+        - serve: true
 ",
         )
         .unwrap();
 
         let options = Options {
-            envs: None,
-            no_sdk: true, // Skip SDK for this test
+            envs: Some(vec!["production".to_string()]), // Explicitly specify environment
+            no_sdk: true,                               // Skip SDK for this test
             no_validate: false,
-            service_context: None,
         };
 
         let exit_code = run(&options);
@@ -291,37 +299,21 @@ rules:
     fn test_ci_respects_env_filter() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create test files
+        // Create config file
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
+            "control-path.yaml",
+            r"mode: local
+flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
-  test_flag:
-    rules:
-      - serve: true
-",
-        )
-        .unwrap();
-        fs::write(
-            ".controlpath/staging.deployment.yaml",
-            r"environment: staging
-rules:
-  test_flag:
-    rules:
-      - serve: false
+    default: false
+    environments:
+      production:
+        - serve: true
+      staging:
+        - serve: false
 ",
         )
         .unwrap();
@@ -330,7 +322,6 @@ rules:
             envs: Some(vec!["production".to_string()]),
             no_sdk: true,
             no_validate: false,
-            service_context: None,
         };
 
         let exit_code = run(&options);
@@ -346,36 +337,30 @@ rules:
     fn test_ci_respects_no_validate() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create test files
+        // Create .controlpath directory for AST output
+        fs::create_dir_all(".controlpath").unwrap();
+
+        // Create config file
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
+            "control-path.yaml",
+            r"mode: local
+flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
-  test_flag:
-    rules:
-      - serve: true
+    default: false
+    environments:
+      production:
+        - serve: true
 ",
         )
         .unwrap();
 
         let options = Options {
-            envs: None,
+            envs: Some(vec!["production".to_string()]), // Explicitly specify environment
             no_sdk: true,
             no_validate: true,
-            service_context: None,
         };
 
         let exit_code = run(&options);
@@ -390,16 +375,15 @@ rules:
     fn test_ci_fails_on_invalid_definitions() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create invalid definitions file
-        fs::write("flags.definitions.yaml", "invalid: yaml: content: [").unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
+        // Create invalid config file (missing required "default" field)
         fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules: {}
+            "control-path.yaml",
+            r"mode: local
+flags:
+  - name: test_flag
+    type: boolean
 ",
         )
         .unwrap();
@@ -408,7 +392,6 @@ rules: {}
             envs: None,
             no_sdk: true,
             no_validate: false,
-            service_context: None,
         };
 
         let exit_code = run(&options);

@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://controlpath.dev/schemas/flag-deployment.schema.v1.json",
   "title": "Control Path Flag Deployment Schema",
-  "description": "Schema for deployment YAML files",
+  "description": "Schema for deployment YAML files (internal use only - deprecated in favor of unified control-path.yaml)",
   "type": "object",
   "required": ["environment", "rules"],
   "properties": {
@@ -33,7 +33,11 @@
                   },
                   "serve": {
                     "description": "Value to serve when rule matches. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
-                    "oneOf": [{ "type": "string" }, { "type": "boolean" }, { "type": "number" }]
+                    "oneOf": [
+                      { "type": "string" },
+                      { "type": "boolean" },
+                      { "type": "number" }
+                    ]
                   },
                   "variations": {
                     "type": "array",

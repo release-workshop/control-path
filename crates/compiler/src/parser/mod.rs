@@ -10,8 +10,10 @@
 pub mod definitions;
 pub mod deployment;
 pub mod error;
+pub mod unified;
 pub mod utils;
 
 pub use definitions::parse_definitions;
 pub use deployment::parse_deployment;
 pub use error::ParseError as ParserError;
+pub use unified::parse_unified_config;

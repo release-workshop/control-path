@@ -211,6 +211,8 @@ fn add_flag_to_definitions(
     let mut flag_obj = serde_json::Map::new();
     flag_obj.insert("name".to_string(), Value::String(name.to_string()));
     flag_obj.insert("type".to_string(), Value::String(flag_type.to_string()));
+    // Add both "default" and "defaultValue" for schema compatibility
+    flag_obj.insert("default".to_string(), default.clone());
     flag_obj.insert("defaultValue".to_string(), default.clone());
 
     if let Some(desc) = description {
@@ -997,25 +999,7 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            // Ensure directory exists
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
+    use crate::test_helpers::DirGuard;
 
     #[test]
     #[serial]
@@ -1035,7 +1019,7 @@ mod tests {
     fn test_flag_add_command() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create definitions file
         fs::create_dir_all(".controlpath").unwrap();
@@ -1044,7 +1028,7 @@ mod tests {
             r"flags:
   - name: existing_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1091,7 +1075,7 @@ rules:
     fn test_flag_add_multivariate() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -1125,17 +1109,17 @@ rules:
     fn test_flag_list_command() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ",
         )
         .unwrap();
@@ -1198,14 +1182,14 @@ rules:
     fn test_flag_remove_nonexistent_flag() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: other_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1228,14 +1212,14 @@ rules:
     fn test_flag_list_json_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1257,7 +1241,7 @@ rules:
     fn test_flag_remove_command() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1265,10 +1249,10 @@ rules:
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ",
         )
         .unwrap();
@@ -1316,7 +1300,7 @@ rules:
     fn test_flag_remove_from_specific_env() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1324,7 +1308,7 @@ rules:
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1376,7 +1360,7 @@ rules:
     fn test_flag_show_command() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1384,7 +1368,7 @@ rules:
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
     description: A test flag
 ",
         )
@@ -1418,20 +1402,20 @@ rules:
     fn test_find_similar_flag_names_integration() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: my_feature_flag
     type: boolean
-    defaultValue: false
+    default: false
   - name: my_other_flag
     type: boolean
-    defaultValue: false
+    default: false
   - name: completely_different
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1447,7 +1431,7 @@ rules:
     fn test_flag_add_with_lang() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1478,7 +1462,7 @@ rules:
     fn test_flag_add_with_default_on_off() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -1521,7 +1505,7 @@ rules:
     fn test_flag_list_from_deployment() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1529,7 +1513,7 @@ rules:
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1562,7 +1546,7 @@ rules:
     fn test_flag_show_yaml_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1570,7 +1554,7 @@ rules:
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
     description: A test flag
 ",
         )
@@ -1604,7 +1588,7 @@ rules:
     fn test_flag_show_json_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1612,7 +1596,7 @@ rules:
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1634,7 +1618,7 @@ rules:
     fn test_flag_show_with_variations() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1642,7 +1626,7 @@ rules:
             r"flags:
   - name: test_flag
     type: multivariate
-    defaultValue: variant_a
+    default: variant_a
     variations:
       - name: VARIANT_A
         value: variant_a
@@ -1669,7 +1653,7 @@ rules:
     fn test_flag_remove_without_from_deployments() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1677,10 +1661,10 @@ rules:
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ",
         )
         .unwrap();
@@ -1744,14 +1728,14 @@ rules:
     fn test_flag_exists() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: existing_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1766,7 +1750,7 @@ rules:
     fn test_sync_flag_to_deployment_preserves_existing() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1813,14 +1797,14 @@ rules:
     fn test_flag_list_from_deployment_with_definitions() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1854,14 +1838,14 @@ rules:
     fn test_flag_show_nonexistent_flag() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: other_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1883,14 +1867,14 @@ rules:
     fn test_flag_show_with_deployment_env() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1924,7 +1908,7 @@ rules:
     fn test_flag_add_with_sync_error_handling() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -1964,14 +1948,14 @@ rules:
     fn test_flag_list_yaml_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1993,14 +1977,14 @@ rules:
     fn test_flag_list_from_deployment_json_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -2034,14 +2018,14 @@ rules:
     fn test_flag_list_from_deployment_yaml_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -2075,7 +2059,7 @@ rules:
     fn test_flag_list_from_deployment_without_definitions() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -2106,14 +2090,14 @@ rules:
     fn test_flag_list_default_behavior() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -2143,7 +2127,7 @@ rules:
     fn test_flag_add_with_sdk_regeneration() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -2173,14 +2157,14 @@ rules:
     fn test_flag_show_with_deployment_multiple_envs() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -2225,7 +2209,7 @@ rules:
     fn test_flag_add_with_next_steps_message() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -2265,7 +2249,7 @@ rules: {}
     fn test_flag_add_with_sync_and_next_steps() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -2305,14 +2289,14 @@ rules: {}
     fn test_show_flag_with_description() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
     description: A test flag description
 ",
         )
@@ -2335,14 +2319,14 @@ rules: {}
     fn test_list_flags_from_deployment_not_configured() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -2376,14 +2360,14 @@ rules:
     fn test_show_flag_with_variations() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: multivariate
-    defaultValue: variant_a
+    default: variant_a
     variations:
       - name: VARIANT_A
         value: variant_a
@@ -2410,14 +2394,14 @@ rules:
     fn test_show_flag_deployment_not_configured() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -2448,7 +2432,7 @@ rules: {}
     fn test_sync_flag_to_deployment_with_on_off() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let mut deployment = serde_json::json!({
             "environment": "test",

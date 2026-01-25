@@ -10,6 +10,7 @@ pub mod definitions;
 pub mod deployment;
 pub mod error;
 pub mod type_guards;
+pub mod unified;
 
 #[cfg(test)]
 #[allow(clippy::module_inception)]
@@ -21,12 +22,14 @@ use crate::schemas;
 use crate::validator::definitions::validate_definitions as validate_definitions_impl;
 use crate::validator::deployment::validate_deployment as validate_deployment_impl;
 use crate::validator::error::{ValidationError, ValidationResult};
+use crate::validator::unified::validate_unified_config as validate_unified_config_impl;
 
 /// Main validator for Control Path configuration files.
-/// Validates flag definitions and deployment files against JSON schemas.
+/// Validates flag definitions, deployment files, and config against JSON schemas.
 pub struct Validator {
     definitions_schema: Value,
     deployment_schema: Value,
+    unified_schema: Value,
 }
 
 impl Validator {
@@ -37,16 +40,22 @@ impl Validator {
         Self {
             definitions_schema: schemas::load_definitions_schema(),
             deployment_schema: schemas::load_deployment_schema(),
+            unified_schema: schemas::load_unified_schema(),
         }
     }
 
     /// Create a new Validator instance with custom schemas.
     ///
     /// This is useful for testing or when schemas need to be provided dynamically.
-    pub fn with_schemas(definitions_schema: Value, deployment_schema: Value) -> Self {
+    pub fn with_schemas(
+        definitions_schema: Value,
+        deployment_schema: Value,
+        unified_schema: Value,
+    ) -> Self {
         Self {
             definitions_schema,
             deployment_schema,
+            unified_schema,
         }
     }
 
@@ -58,6 +67,11 @@ impl Validator {
     /// Validate a deployment file.
     pub fn validate_deployment(&self, file_path: &str, data: &Value) -> ValidationResult {
         validate_deployment_impl(&self.deployment_schema, file_path, data)
+    }
+
+    /// Validate a unified control-path.yaml configuration file.
+    pub fn validate_unified_config(&self, file_path: &str, data: &Value) -> ValidationResult {
+        validate_unified_config_impl(&self.unified_schema, file_path, data)
     }
 
     /// Format validation errors for display.

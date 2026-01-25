@@ -155,23 +155,7 @@ async function setupGeneratedSdk(sdkDir: string): Promise<void> {
   await writeFile(join(sdkDir, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2));
 
   // Install dependencies (except @controlpath/runtime which is symlinked)
-  // Read package.json and install only @openfeature/server-sdk
-  try {
-    const packageJsonPath = join(sdkDir, 'package.json');
-    const packageJsonContent = await readFile(packageJsonPath, 'utf-8');
-    const packageJson = JSON.parse(packageJsonContent);
-    
-    // Install @openfeature/server-sdk if it's in dependencies
-    if (packageJson.dependencies?.['@openfeature/server-sdk']) {
-      execSync(`npm install @openfeature/server-sdk@${packageJson.dependencies['@openfeature/server-sdk']}`, {
-        cwd: sdkDir,
-        stdio: 'pipe',
-      });
-    }
-  } catch (installError: any) {
-    // If npm install fails, continue anyway - might work with skipLibCheck
-    // The runtime SDK is already symlinked, so we might be able to compile
-  }
+  // No external dependencies needed - OpenFeature support has been removed
 
   // Use TypeScript from e2e test's node_modules (already installed)
   const e2eTypescriptPath = join(__dirname, '../node_modules/.bin/tsc');
@@ -791,7 +775,8 @@ rules:
       const packageJson = JSON.parse(await readFile(packageJsonPath, 'utf-8'));
       
       expect(packageJson.dependencies).toHaveProperty('@controlpath/runtime');
-      expect(packageJson.dependencies).toHaveProperty('@openfeature/server-sdk');
+      // OpenFeature support has been removed - should not be in dependencies
+      expect(packageJson.dependencies).not.toHaveProperty('@openfeature/server-sdk');
       expect(packageJson.main).toBe('index.js');
       expect(packageJson.types).toBe('index.d.ts');
 

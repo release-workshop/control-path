@@ -17,6 +17,7 @@ mod tests {
                 {
                     "name": "new_dashboard",
                     "type": "boolean",
+                    "default": false,
                     "defaultValue": false,
                     "description": "New dashboard UI feature"
                 }
@@ -234,9 +235,20 @@ mod tests {
                 }
             }
         });
+        let custom_unified_schema = json!({
+            "type": "object",
+            "properties": {
+                "flags": {
+                    "type": "array"
+                }
+            }
+        });
 
-        let validator =
-            Validator::with_schemas(custom_definitions_schema, custom_deployment_schema);
+        let validator = Validator::with_schemas(
+            custom_definitions_schema,
+            custom_deployment_schema,
+            custom_unified_schema,
+        );
         let data = json!({"flags": []});
         let result = validator.validate_definitions("test.yaml", &data);
         assert!(result.valid);
@@ -250,6 +262,7 @@ mod tests {
                 {
                     "name": "test_flag",
                     "type": "boolean",
+                    "default": false,
                     "defaultValue": false
                 }
             ]

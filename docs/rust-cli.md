@@ -36,41 +36,34 @@ controlpath validate [OPTIONS]
 
 #### Options
 
-- `--definitions <FILE>`: Path to flag definitions file (default: `flags.definitions.yaml`)
-- `--deployment <FILE>`: Path to deployment file
-- `--env <ENV>`: Environment name (uses `.controlpath/<env>.deployment.yaml`)
-- `--all`: Validate all files (auto-detect `flags.definitions.yaml` and `.controlpath/*.deployment.yaml`)
+- `--config <FILE>`: Path to configuration file (default: `control-path.yaml`)
+- `--env <ENV>`: Validate specific environment rules
+- `--all`: Validate all environments in the configuration file
 
 #### Examples
 
-Validate a specific definitions file:
+Validate the configuration file:
 
 ```bash
-controlpath validate --definitions flags.definitions.yaml
+controlpath validate
 ```
 
-Validate a specific deployment file:
+Validate a specific configuration file:
 
 ```bash
-controlpath validate --deployment .controlpath/production.deployment.yaml
+controlpath validate --config control-path.yaml
 ```
 
-Validate using environment name:
+Validate specific environment:
 
 ```bash
 controlpath validate --env production
 ```
 
-Validate all files in the current directory:
+Validate all environments:
 
 ```bash
 controlpath validate --all
-```
-
-Auto-detect and validate (if files exist):
-
-```bash
-controlpath validate
 ```
 
 #### Exit Codes
@@ -90,10 +83,9 @@ controlpath compile [OPTIONS]
 
 #### Options
 
-- `--deployment <FILE>`: Path to deployment file
-- `--env <ENV>`: Environment name (uses `.controlpath/<env>.deployment.yaml`)
-- `--output <FILE>`: Output path for AST file (default: inferred from deployment path)
-- `--definitions <FILE>`: Path to flag definitions file (default: `flags.definitions.yaml`)
+- `--config <FILE>`: Path to configuration file (default: `control-path.yaml`)
+- `--env <ENV>`: Environment name (required)
+- `--output <FILE>`: Output path for AST file (default: `.controlpath/<env>.ast`)
 
 #### Examples
 
@@ -104,16 +96,16 @@ controlpath compile --env production
 ```
 
 This will:
-1. Read `.controlpath/production.deployment.yaml`
-2. Read `flags.definitions.yaml`
+1. Read `control-path.yaml`
+2. Extract production environment rules
 3. Compile to `.controlpath/production.ast`
 
-Compile with explicit paths:
+Compile with explicit config path:
 
 ```bash
 controlpath compile \
-  --definitions flags.definitions.yaml \
-  --deployment .controlpath/production.deployment.yaml \
+  --config control-path.yaml \
+  --env production \
   --output .controlpath/production.ast
 ```
 
@@ -127,51 +119,6 @@ controlpath compile --env production --output dist/production.ast
 
 - `0`: Compilation succeeded
 - `1`: Compilation failed
-
-### `init`
-
-Initialize a new Control Path project.
-
-#### Usage
-
-```bash
-controlpath init [OPTIONS]
-```
-
-#### Options
-
-- `--force`: Overwrite existing files
-- `--example-flags`: Create example flags (default: true if no existing files)
-- `--no-examples`: Skip creating example files
-
-#### Examples
-
-Initialize a new project:
-
-```bash
-controlpath init
-```
-
-This creates:
-- `flags.definitions.yaml` (with example flag)
-- `.controlpath/production.deployment.yaml`
-
-Initialize without examples:
-
-```bash
-controlpath init --no-examples
-```
-
-Initialize and overwrite existing files:
-
-```bash
-controlpath init --force
-```
-
-#### Exit Codes
-
-- `0`: Initialization succeeded
-- `1`: Initialization failed
 
 ### `setup`
 
@@ -253,8 +200,7 @@ controlpath watch --deployments
 
 - Validates files exist before watching
 - Shows what files are being watched on startup
-- Watches `flags.definitions.yaml` → Regenerates SDK (if `--lang` provided)
-- Watches `.controlpath/*.deployment.yaml` → Recompiles AST
+- Watches `control-path.yaml` → Regenerates SDK and recompiles ASTs (if `--lang` provided)
 - Shows output when files change
 - Handles file errors gracefully
 - Runs until interrupted (Ctrl+C)
@@ -277,30 +223,29 @@ controlpath explain [OPTIONS]
 #### Options
 
 - `--flag <NAME>`: Flag name (required)
-- `--user <FILE|JSON>`: User JSON file or JSON string (required)
-- `--context <FILE|JSON>`: Context JSON file or JSON string (optional)
+- `--attributes <FILE|JSON>`: Attributes JSON file or JSON string (required)
 - `--env <ENV>`: Environment name (uses `.controlpath/<env>.ast`)
 - `--ast <FILE>`: Path to AST file (alternative to `--env`)
 - `--trace`: Show detailed trace of evaluation
 
 #### Examples
 
-Explain with user file:
+Explain with attributes file:
 
 ```bash
-controlpath explain --flag new_dashboard --user user.json --env production
+controlpath explain --flag new_dashboard --attributes attributes.json --env production
 ```
 
 Explain with detailed trace:
 
 ```bash
-controlpath explain --flag new_dashboard --user user.json --env production --trace
+controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
 ```
 
 Explain with JSON string:
 
 ```bash
-controlpath explain --flag new_dashboard --user '{"id":"123","role":"admin"}' --env production
+controlpath explain --flag new_dashboard --attributes '{"id":"123","role":"admin","environment":"production"}' --env production
 ```
 
 #### Output
@@ -310,6 +255,8 @@ Shows:
 - Which rule matched (if any)
 - Why rule matched/didn't match
 - Expression evaluation details (if `--trace`)
+
+Note: Attributes should include all properties used in flag rules (e.g., `role`, `environment`, `id`, etc.)
 
 #### Exit Codes
 
@@ -646,206 +593,34 @@ Force removal without confirmation:
 controlpath env remove --name staging --force
 ```
 
-## Monorepo Support
-
-Control Path CLI supports monorepo environments where multiple services each need their own Control Path setup.
-
-### Global Flags
-
-All commands support these global flags for monorepo usage:
-
-- `--service <name|path>`: Operate on a specific service
-- `--workspace-root <path>`: Explicitly set workspace root (auto-detected if not provided)
-
-### Monorepo Detection
-
-The CLI automatically detects monorepo structures by looking for:
-
-1. **Common directory patterns**: `services/`, `packages/`, `apps/`, `microservices/`
-2. **Service identification**: A directory is considered a service if it contains:
-   - `flags.definitions.yaml` OR
-   - `.controlpath/` directory
-3. **Workspace root**: The monorepo root is detected by walking up the directory tree
-
-### Service Context Resolution
-
-When a command is run, the CLI determines the service context:
-
-1. **If `--service` flag is provided**: Use that service directory
-2. **If CWD is inside a service**: Use the current service (auto-detect)
-3. **If CWD is at workspace root**: No service specified (workspace-level operation)
-4. **If no monorepo detected**: Use current directory (backward compatible, single-project mode)
-
-### Workspace Configuration
-
-Configure monorepo behavior via `.controlpath/config.yaml` at the workspace root:
-
-```yaml
-# Workspace-level config
-language: typescript
-defaultEnv: production
-
-monorepo:
-  # Service directory patterns (searched in order)
-  serviceDirectories:
-    - services
-    - packages
-    - apps
-    - microservices
-  
-  # Service discovery mode
-  # "auto" - Auto-detect services with flags.definitions.yaml or .controlpath/
-  # "explicit" - Only use services listed in services list
-  discovery: auto  # auto | explicit
-  
-  # Explicit service list (optional, used when discovery: explicit)
-  services:
-    - service-a
-    - service-b
-    - service-c
-```
-
-### Examples
-
-#### Working from Service Directory
-
-```bash
-# Navigate to service
-cd services/service-a
-
-# Run commands as before (backward compatible)
-controlpath compile --env production
-controlpath generate-sdk --lang typescript
-```
-
-#### Working from Workspace Root
-
-```bash
-# Stay at workspace root
-cd /path/to/monorepo
-
-# Compile specific service
-controlpath compile --service service-a --env production
-
-# Compile all services (when --all-services is implemented)
-controlpath compile --all-services --env production
-```
-
-#### Explicit Service Targeting
-
-```bash
-# From any directory, target a specific service
-controlpath compile --service service-a --env production
-
-# Use service path
-controlpath compile --service ./services/service-a --env production
-```
-
-### Service-Scoped File Paths
-
-When operating in a service context, file paths are resolved relative to the service directory:
-
-- `flags.definitions.yaml` → `<service-dir>/flags.definitions.yaml`
-- `.controlpath/<env>.deployment.yaml` → `<service-dir>/.controlpath/<env>.deployment.yaml`
-- `.controlpath/<env>.ast` → `<service-dir>/.controlpath/<env>.ast`
-- `./flags/` (SDK output) → `<service-dir>/flags/`
-
-### Monorepo Layout Examples
-
-#### Standard Services Layout
-
-```
-monorepo/
-├── .controlpath/
-│   └── config.yaml  # Workspace config
-├── services/
-│   ├── service-a/
-│   │   ├── flags.definitions.yaml
-│   │   └── .controlpath/
-│   ├── service-b/
-│   │   ├── flags.definitions.yaml
-│   │   └── .controlpath/
-│   └── service-c/
-│       ├── flags.definitions.yaml
-│       └── .controlpath/
-```
-
-#### Packages Layout (Nx, Turborepo style)
-
-```
-monorepo/
-├── .controlpath/
-│   └── config.yaml
-├── packages/
-│   ├── api-service/
-│   │   ├── flags.definitions.yaml
-│   │   └── .controlpath/
-│   ├── web-app/
-│   │   ├── flags.definitions.yaml
-│   │   └── .controlpath/
-│   └── mobile-app/
-│       ├── flags.definitions.yaml
-│       └── .controlpath/
-```
 
 ## File Organization
 
-### Standard Structure (Single Project)
+### Standard Structure
 
 ```
 project-root/
-├── flags.definitions.yaml          # Flag definitions (owned by Engineering)
-├── .controlpath/                   # Deployment files directory
-│   ├── production.deployment.yaml  # Production deployment rules
-│   ├── staging.deployment.yaml     # Staging deployment rules
+├── control-path.yaml               # Configuration (flags + environment rules)
+├── .controlpath/                   # Compiled artifacts directory
+│   ├── config.yaml                 # Optional config (language, defaults, mode)
 │   ├── production.ast              # Compiled AST artifacts
 │   └── staging.ast
-└── ...
+└── flags/                          # Generated SDK (import this in your code)
+    ├── index.ts
+    └── ...
 ```
 
-### Monorepo Structure
+### Configuration File
 
-```
-monorepo-root/
-├── .controlpath/
-│   └── config.yaml                 # Workspace-level config
-├── services/                        # Service directory
-│   ├── service-a/
-│   │   ├── flags.definitions.yaml
-│   │   └── .controlpath/
-│   │       ├── production.deployment.yaml
-│   │       └── production.ast
-│   └── service-b/
-│       ├── flags.definitions.yaml
-│       └── .controlpath/
-│           ├── production.deployment.yaml
-│           └── production.ast
-└── ...
-```
-
-### Flag Definitions File
-
-Location: `flags.definitions.yaml` (or custom path via `--definitions`)
-
-Owned by: Engineering team
+Location: `control-path.yaml` (or custom path via `--config`)
 
 Contains:
-- Flag type definitions
-- Default values
-- Variations (for multivariate flags)
-- Lifecycle information
-
-### Deployment Files
-
-Location: `.controlpath/<env>.deployment.yaml`
-
-Owned by: Product/DevOps team
-
-Contains:
-- Environment-specific rules
-- Targeting rules (`when` clauses)
-- Rollout configurations
+- Flag definitions (types, defaults, variations)
+- Environment-specific rules per flag
 - Segment definitions
+- Mode configuration (local or saas)
+
+All flag definitions and environment rules are in a single file, simplifying the mental model and workflow.
 
 ### AST Artifacts
 
@@ -863,38 +638,31 @@ Contains:
 
 ### Basic Workflow
 
-1. **Initialize project:**
+1. **Setup project:**
    ```bash
-   controlpath init
+   controlpath setup
    ```
 
-2. **Add flags:**
-   Edit `flags.definitions.yaml` to add new flags.
+2. **Add flags and configure rules:**
+   Edit `control-path.yaml` to add new flags and environment rules.
 
-3. **Configure deployment:**
-   Edit `.controlpath/production.deployment.yaml` to add rules.
-
-4. **Validate:**
+3. **Validate:**
    ```bash
-   controlpath validate --all
+   controlpath validate
    ```
 
-5. **Compile:**
+4. **Compile:**
    ```bash
    controlpath compile --env production
    ```
 
-6. **Use AST artifact:**
+5. **Use AST artifact:**
    The compiled `.controlpath/production.ast` file can be used by the runtime SDK.
 
 ### Multi-Environment Workflow
 
-1. **Create deployment files for each environment:**
-   ```bash
-   # Create production deployment
-   cp .controlpath/production.deployment.yaml .controlpath/staging.deployment.yaml
-   # Edit staging.deployment.yaml
-   ```
+1. **Configure environments in file:**
+   Edit `control-path.yaml` to add environment rules for each flag.
 
 2. **Compile each environment:**
    ```bash
@@ -930,7 +698,7 @@ jobs:
         with:
           toolchain: stable
       - name: Validate
-        run: cargo run --bin controlpath -- validate --all
+        run: cargo run --bin controlpath -- validate
       - name: Compile Production
         run: cargo run --bin controlpath -- compile --env production
       - name: Compile Staging
@@ -960,7 +728,7 @@ Compilation errors include context:
 ```
 ✗ Compilation failed
   Error: Expression parsing error: Expected expression after AND operator
-    Expression: "user.role == 'admin' AND"
+    Expression: "role == 'admin' AND"
     Position: 28
 ```
 
@@ -989,9 +757,9 @@ The Rust CLI is optimized for performance:
 Ensure files exist and paths are correct:
 
 ```bash
-# Check if files exist
-ls -la flags.definitions.yaml
-ls -la .controlpath/*.deployment.yaml
+# Check if config exists
+ls -la control-path.yaml
+ls -la .controlpath/*.ast
 ```
 
 ### "Validation failed"
@@ -1006,9 +774,10 @@ controlpath validate --all
 ### "Compilation failed"
 
 Check for:
-- Invalid expressions in `when` clauses
+- Invalid expressions in `when` clauses (remember: no `user.` or `context.` prefixes)
 - Missing flag definitions
 - Type mismatches
+- Ensure attributes in expressions match the properties in your attributes object
 
 ## See Also
 

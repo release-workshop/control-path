@@ -39,5 +39,5 @@ Tests are organized by scenario:
 - **Context Management**: setContext/clearContext methods
 - **Method Overloads**: TypeScript overload signatures
 - **Error Handling**: Never-throws policy verification
-- **Runtime SDK Integration**: Provider and OpenFeature integration
+- **Runtime SDK Integration**: Direct evaluation API integration
 

@@ -12,10 +12,6 @@
  * Build a flag name to index map from flag definitions.
  * This helper function is primarily useful for testing or tooling purposes.
  *
- * **Note**: The Provider automatically builds the flag name map from the artifact
- * when `loadArtifact()` is called. You typically don't need this function for
- * normal usage.
- *
  * @param flags - Array of flag definitions with name property
  * @returns Record mapping flag names to their indices
  *
@@ -40,9 +36,6 @@ export function buildFlagNameMap(flags: Array<{ name: string }>): Record<string,
  * Build a flag name to index map from an AST artifact's flagNames array.
  * This extracts flag names from the artifact's flagNames array and string table.
  *
- * **Note**: The Provider automatically does this when `loadArtifact()` is called.
- * You only need this function for testing or tooling purposes.
- *
  * @param artifact - The AST artifact with flagNames array
  * @returns Record mapping flag names to their indices
  *
@@ -51,7 +44,6 @@ export function buildFlagNameMap(flags: Array<{ name: string }>): Record<string,
  * import { buildFlagNameMapFromArtifact } from '@controlpath/runtime';
  * import { loadFromFile } from '@controlpath/runtime';
  *
- * // For testing or tooling
  * const artifact = await loadFromFile('production.ast');
  * const flagNameMap = buildFlagNameMapFromArtifact(artifact);
  * ```

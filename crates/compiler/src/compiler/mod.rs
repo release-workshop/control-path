@@ -147,6 +147,97 @@ pub fn compile(deployment: &Value, definitions: &Value) -> Result<Artifact, Comp
     Ok(artifact)
 }
 
+/// Compile an environment from control-path.yaml configuration
+///
+/// This function extracts definitions and deployment for the specified environment
+/// from the config and compiles them into an AST artifact.
+///
+/// # Arguments
+///
+/// * `unified_config` - Parsed control-path.yaml configuration
+/// * `environment` - Environment name to compile (e.g., "production", "staging")
+///
+/// # Returns
+///
+/// Compiled AST artifact for the specified environment
+///
+/// # Errors
+///
+/// Returns `CompilerError` if:
+/// - The config is invalid
+/// - The environment is not found in the config
+/// - Compilation fails
+pub fn compile_from_unified(
+    unified_config: &Value,
+    environment: &str,
+) -> Result<Artifact, CompilerError> {
+    // Extract definitions from config (without environment rules)
+    let mut definitions = serde_json::json!({
+        "flags": []
+    });
+
+    if let Some(flags) = unified_config.get("flags").and_then(|f| f.as_array()) {
+        let mut def_flags = Vec::new();
+        for flag in flags {
+            // Clone flag but transform for compiler compatibility
+            let mut flag_def = flag.clone();
+            if let Some(obj) = flag_def.as_object_mut() {
+                // Remove environments field (not part of definitions)
+                obj.remove("environments");
+
+                // Transform "default" to "defaultValue" for compiler compatibility
+                if let Some(default_val) = obj.remove("default") {
+                    obj.insert("defaultValue".to_string(), default_val);
+                }
+            }
+            def_flags.push(flag_def);
+        }
+        definitions["flags"] = serde_json::json!(def_flags);
+    }
+
+    // Extract deployment structure for the specified environment
+    let mut deployment = serde_json::json!({
+        "environment": environment,
+        "rules": {}
+    });
+
+    if let Some(flags) = unified_config.get("flags").and_then(|f| f.as_array()) {
+        let mut rules = serde_json::Map::new();
+
+        for flag in flags {
+            if let Some(flag_name) = flag.get("name").and_then(|n| n.as_str()) {
+                // Get environment rules for this flag
+                if let Some(env_rules) = flag
+                    .get("environments")
+                    .and_then(|e| e.as_object())
+                    .and_then(|e| e.get(environment))
+                    .and_then(|r| r.as_array())
+                {
+                    // Only add to rules if there are rules for this environment
+                    if !env_rules.is_empty() {
+                        rules.insert(
+                            flag_name.to_string(),
+                            serde_json::json!({
+                                "rules": env_rules
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+
+        deployment["rules"] = serde_json::json!(rules);
+    }
+
+    // Extract segments if present in config
+    if let Some(segments) = unified_config.get("segments") {
+        deployment["segments"] = segments.clone();
+    }
+
+    // Compile using the extracted definitions and deployment
+    compile(&deployment, &definitions)
+}
+
 #[cfg(test)]
 mod tests;
 

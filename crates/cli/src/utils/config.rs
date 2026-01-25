@@ -45,8 +45,8 @@ pub fn write_config_language(language: &str) -> CliResult<()> {
             default_env_alt: None,
             sdk_output: None,
             sign_key: None,
-            monorepo: None,
             branch_environments: None,
+            mode: None,
         })
     } else {
         ConfigFile {
@@ -55,8 +55,8 @@ pub fn write_config_language(language: &str) -> CliResult<()> {
             default_env_alt: None,
             sdk_output: None,
             sign_key: None,
-            monorepo: None,
             branch_environments: None,
+            mode: None,
         }
     };
 
@@ -99,8 +99,8 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
             default_env_alt: None,
             sdk_output: None,
             sign_key: None,
-            monorepo: None,
             branch_environments: None,
+            mode: None,
         })
     } else {
         ConfigFile {
@@ -109,8 +109,8 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
             default_env_alt: None,
             sdk_output: None,
             sign_key: None,
-            monorepo: None,
             branch_environments: None,
+            mode: None,
         }
     };
 
@@ -127,32 +127,6 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
     Ok(())
 }
 
-/// Monorepo configuration from config file
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MonorepoConfig {
-    /// Service directory patterns (searched in order)
-    #[serde(rename = "serviceDirectories", default = "default_service_directories")]
-    pub service_directories: Vec<String>,
-    /// Service discovery mode: "auto" or "explicit"
-    #[serde(default = "default_discovery")]
-    pub discovery: String,
-    /// Explicit service list (used when discovery: explicit)
-    pub services: Option<Vec<String>>,
-}
-
-fn default_service_directories() -> Vec<String> {
-    vec![
-        "services".to_string(),
-        "packages".to_string(),
-        "apps".to_string(),
-        "microservices".to_string(),
-    ]
-}
-
-fn default_discovery() -> String {
-    "auto".to_string()
-}
-
 /// Full config file structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)] // Fields will be used as config system is extended
@@ -163,24 +137,10 @@ pub struct ConfigFile {
     pub default_env_alt: Option<String>,
     pub sdk_output: Option<String>,
     pub sign_key: Option<String>,
-    pub monorepo: Option<MonorepoConfig>,
     #[serde(rename = "branchEnvironments")]
     pub branch_environments: Option<std::collections::HashMap<String, String>>,
-}
-
-/// Read monorepo configuration from config file
-pub fn read_monorepo_config(config_path: &Path) -> CliResult<Option<MonorepoConfig>> {
-    if !config_path.exists() {
-        return Ok(None);
-    }
-
-    let config_content = fs::read_to_string(config_path)
-        .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
-
-    let config: ConfigFile = serde_yaml::from_str(&config_content)
-        .map_err(|e| CliError::Message(format!("Failed to parse config file: {e}")))?;
-
-    Ok(config.monorepo)
+    /// Operation mode: 'local' for local compilation, 'saas' for remote AST generation via SaaS API
+    pub mode: Option<String>,
 }
 
 /// Read the full config file
@@ -226,37 +186,17 @@ pub fn read_environment_defaults() -> CliResult<EnvironmentDefaults> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::DirGuard;
     use serial_test::serial;
     use std::fs;
-    use std::path::PathBuf;
     use tempfile::TempDir;
-
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            // Ensure directory exists
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
 
     #[test]
     #[serial]
     fn test_read_config_language_no_config() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = read_config_language().unwrap();
         assert_eq!(result, None);
@@ -267,7 +207,7 @@ mod tests {
     fn test_read_config_language_with_language() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(".controlpath/config.yaml", "language: python\n").unwrap();
@@ -281,7 +221,7 @@ mod tests {
     fn test_read_config_language_with_spaces() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Ensure .controlpath directory exists and is clean
         fs::create_dir_all(".controlpath").unwrap();
@@ -316,7 +256,7 @@ mod tests {
     fn test_read_config_language_no_language_field() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(".controlpath/config.yaml", "defaultEnv: production\n").unwrap();
@@ -327,172 +267,10 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_read_monorepo_config_with_monorepo_section() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/config.yaml",
-            "language: typescript\nmonorepo:\n  serviceDirectories:\n    - services\n    - packages\n  discovery: auto\n",
-        ).unwrap();
-
-        let config_path = temp_path.join(".controlpath/config.yaml");
-        let result = read_monorepo_config(&config_path).unwrap();
-        assert!(result.is_some());
-        let monorepo = result.unwrap();
-        // Check that we have the expected directories (order may vary)
-        assert!(monorepo.service_directories.len() >= 2);
-        assert!(monorepo
-            .service_directories
-            .contains(&"services".to_string()));
-        assert!(monorepo
-            .service_directories
-            .contains(&"packages".to_string()));
-        assert_eq!(monorepo.discovery, "auto");
-        assert!(monorepo.services.is_none());
-    }
-
-    #[test]
-    #[serial]
-    fn test_read_monorepo_config_with_explicit_services() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        // Use absolute paths to avoid issues with directory changes
-        let config_dir = temp_path.join(".controlpath");
-        let config_file = config_dir.join("config.yaml");
-        fs::create_dir_all(&config_dir).unwrap();
-        fs::write(
-            &config_file,
-            "monorepo:\n  serviceDirectories:\n    - services\n  discovery: explicit\n  services:\n    - service-a\n    - service-b\n",
-        ).unwrap();
-
-        let result = read_monorepo_config(&config_file).unwrap();
-        assert!(result.is_some());
-        let monorepo = result.unwrap();
-        assert_eq!(monorepo.discovery, "explicit");
-        assert!(monorepo.services.is_some());
-        assert_eq!(
-            monorepo.services.as_ref().unwrap(),
-            &vec!["service-a".to_string(), "service-b".to_string()]
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn test_read_monorepo_config_with_defaults() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(".controlpath/config.yaml", "monorepo:\n  discovery: auto\n").unwrap();
-
-        let config_path = temp_path.join(".controlpath/config.yaml");
-        let result = read_monorepo_config(&config_path).unwrap();
-        assert!(result.is_some());
-        let monorepo = result.unwrap();
-        // Should use default service directories
-        assert!(!monorepo.service_directories.is_empty());
-        assert_eq!(monorepo.discovery, "auto");
-    }
-
-    #[test]
-    #[serial]
-    fn test_read_monorepo_config_no_monorepo_section() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/config.yaml",
-            "language: typescript\ndefaultEnv: production\n",
-        )
-        .unwrap();
-
-        let config_path = temp_path.join(".controlpath/config.yaml");
-        let result = read_monorepo_config(&config_path).unwrap();
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    #[serial]
-    fn test_read_monorepo_config_no_config_file() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        let config_path = temp_path.join(".controlpath/config.yaml");
-        let result = read_monorepo_config(&config_path).unwrap();
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    #[serial]
-    fn test_read_monorepo_config_invalid_yaml() {
-        use std::io::Write;
-
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
-
-        fs::create_dir_all(".controlpath").unwrap();
-
-        // Write invalid UTF-8 bytes directly to the file
-        // This will cause fs::read_to_string to fail when trying to convert to String
-        let config_path = temp_path.join(".controlpath/config.yaml");
-        let mut file = fs::File::create(&config_path).unwrap();
-        file.write_all(b"invalid: yaml: content: ").unwrap();
-        // Write invalid UTF-8 sequence that cannot be converted to String
-        file.write_all(&[0xFF, 0xFE, 0xFD]).unwrap();
-        file.write_all(b" invalid utf8").unwrap();
-        drop(file);
-
-        // Ensure the file was created and exists
-        assert!(
-            config_path.exists(),
-            "Config file should exist at: {}",
-            config_path.display()
-        );
-
-        // Test that reading invalid YAML causes an error
-        // fs::read_to_string will fail when trying to convert invalid UTF-8 to String
-        let result = read_monorepo_config(&config_path);
-
-        // Verify that invalid YAML with invalid UTF-8 causes an error
-        assert!(
-            result.is_err(),
-            "Expected error for invalid YAML with invalid UTF-8 bytes. \
-            fs::read_to_string should fail when converting invalid UTF-8 to String. \
-            Got: {:?}",
-            result
-        );
-
-        // Verify the error message mentions reading or UTF-8
-        if let Err(e) = result {
-            let error_msg = format!("{}", e);
-            assert!(
-                error_msg.contains("read")
-                    || error_msg.contains("Failed to read")
-                    || error_msg.contains("UTF-8")
-                    || error_msg.contains("invalid")
-                    || error_msg.contains("stream did not contain valid UTF-8"),
-                "Error message should mention reading or UTF-8, but got: {}",
-                error_msg
-            );
-        }
-    }
-
-    #[test]
-    #[serial]
     fn test_write_config_default_env_preserves_language() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
 

@@ -1030,24 +1030,7 @@ mod tests {
     use serial_test::serial;
 
     // Helper for tests that need to change directory
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            std::fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
+    use crate::test_helpers::DirGuard;
 
     #[test]
     fn test_find_flag_index() {
@@ -1894,7 +1877,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(".controlpath/production.ast", b"test").unwrap();
@@ -1917,7 +1900,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(".controlpath/staging.ast", b"test").unwrap();
@@ -1940,7 +1923,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
 
@@ -1969,7 +1952,7 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let ast_path = PathBuf::from("test.ast");
         fs::write(&ast_path, b"invalid data").unwrap();

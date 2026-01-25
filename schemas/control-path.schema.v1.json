@@ -1,0 +1,211 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://controlpath.dev/schemas/control-path.schema.v1.json",
+  "title": "Control Path Configuration Schema",
+  "description": "Schema for control-path.yaml that combines flag definitions and environment deployments",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "enum": ["local", "saas"],
+      "description": "Operation mode: 'local' for local compilation, 'saas' for remote AST generation via SaaS API",
+      "default": "local"
+    },
+    "context": {
+      "type": "object",
+      "description": "Optional context schema extensions. Allows adding custom properties to context objects (user, device, application, etc.) using simple key/type syntax. Note: This may be deprecated in favor of a unified attributes model.",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": ["string", "number", "boolean", "object", "array"],
+            "description": "Type definition for top-level property (e.g., 'custom_property': 'string')"
+          },
+          {
+            "type": "object",
+            "description": "Nested object extension (e.g., user, device, application)",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "enum": ["string", "number", "boolean", "object", "array"],
+                  "description": "Type definition for property (e.g., 'age?: number' or 'department: string')"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "flags": {
+      "type": "array",
+      "description": "Array of flag definitions with nested environment rules",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "default"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Flag name (must be unique, valid identifier)",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of the flag"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["boolean", "multivariate"],
+            "description": "Flag type: 'boolean' for on/off flags, 'multivariate' for flags with multiple variations"
+          },
+          "default": {
+            "description": "Default value when no rules match. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
+            "oneOf": [
+              { "type": "string" },
+              { "type": "boolean" },
+              { "type": "number" }
+            ]
+          },
+          "variations": {
+            "type": "array",
+            "description": "Required for multivariate flags. Array of possible variation values.",
+            "items": {
+              "type": "object",
+              "required": ["name", "value"],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Variation name (must be unique within flag)",
+                  "pattern": "^[A-Z][A-Z0-9_]*$"
+                },
+                "value": {
+                  "description": "Variation value",
+                  "oneOf": [
+                    { "type": "string" },
+                    { "type": "boolean" },
+                    { "type": "number" }
+                  ]
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Human-readable description of this variation"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "kind": {
+            "type": "string",
+            "description": "Optional flag kind/category"
+          },
+          "metadata": {
+            "type": "object",
+            "description": "Extensible metadata object",
+            "additionalProperties": true
+          },
+          "lifecycle": {
+            "type": "object",
+            "description": "Lifecycle information",
+            "additionalProperties": true
+          },
+          "environments": {
+            "type": "object",
+            "description": "Environment-specific rules keyed by environment name (e.g., 'production', 'staging', 'development')",
+            "patternProperties": {
+              "^[a-z][a-z0-9_]*$": {
+                "type": "array",
+                "description": "Array of targeting rules evaluated in order for this environment",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Optional rule name for debugging"
+                    },
+                    "when": {
+                      "type": "string",
+                      "description": "Expression to evaluate. If true, this rule applies."
+                    },
+                    "serve": {
+                      "description": "Value to serve when rule matches. For boolean: true/false or 'ON'/'OFF'. For multivariate: variation name.",
+                      "oneOf": [
+                        { "type": "string" },
+                        { "type": "boolean" },
+                        { "type": "number" }
+                      ]
+                    },
+                    "variations": {
+                      "type": "array",
+                      "description": "For multivariate flags: distribution of variations",
+                      "items": {
+                        "type": "object",
+                        "required": ["variation"],
+                        "properties": {
+                          "variation": {
+                            "type": "string",
+                            "description": "Variation name"
+                          },
+                          "weight": {
+                            "type": "number",
+                            "description": "Weight percentage (0-100). Weights are normalized if they don't sum to 100.",
+                            "minimum": 0,
+                            "maximum": 100
+                          }
+                        },
+                        "additionalProperties": false
+                      }
+                    },
+                    "rollout": {
+                      "type": "object",
+                      "description": "Percentage-based rollout configuration",
+                      "required": ["variation", "percentage"],
+                      "properties": {
+                        "variation": {
+                          "type": "string",
+                          "description": "Variation name to roll out"
+                        },
+                        "percentage": {
+                          "type": "number",
+                          "description": "Percentage of users (0-100) to serve this variation",
+                          "minimum": 0,
+                          "maximum": 100
+                        }
+                      },
+                      "additionalProperties": false
+                    }
+                  },
+                  "additionalProperties": false,
+                  "anyOf": [
+                    { "required": ["serve"] },
+                    { "required": ["variations"] },
+                    { "required": ["rollout"] }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "segments": {
+      "type": "object",
+      "description": "Optional segment definitions for user targeting",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "object",
+          "required": ["when"],
+          "properties": {
+            "when": {
+              "type": "string",
+              "description": "Expression that defines this segment. Users matching this expression are in the segment."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

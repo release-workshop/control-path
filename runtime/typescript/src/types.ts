@@ -8,19 +8,8 @@
  * Type definitions for Control Path runtime SDK.
  *
  * AST types are defined here to match the AST format specification.
- * OpenFeature types are imported from @openfeature/core (dev dependency only, type-only imports).
  * Runtime constants and type guards are defined here.
  */
-
-// Import types from OpenFeature (type-only imports, no runtime dependency)
-// @openfeature/server-sdk re-exports everything from @openfeature/core
-import type {
-  EvaluationContext,
-  ResolutionDetails,
-  Logger,
-  JsonValue,
-  ErrorCode,
-} from '@openfeature/server-sdk';
 
 /**
  * Artifact structure matching AST format.
@@ -82,25 +71,6 @@ export type Expression =
  * - pct: percentage (uint8, 0-100)
  */
 export type Variation = [number, number];
-
-// Re-export OpenFeature types for convenience
-export type { EvaluationContext, ResolutionDetails, Logger, JsonValue, ErrorCode };
-
-/**
- * ErrorCode values as constants (matching OpenFeature's ErrorCode enum).
- * These are used at runtime instead of the enum to avoid runtime dependency.
- * The values match OpenFeature's ErrorCode enum exactly.
- */
-export const ErrorCodeValues = {
-  PROVIDER_NOT_READY: 'PROVIDER_NOT_READY' as ErrorCode,
-  PROVIDER_FATAL: 'PROVIDER_FATAL' as ErrorCode,
-  FLAG_NOT_FOUND: 'FLAG_NOT_FOUND' as ErrorCode,
-  PARSE_ERROR: 'PARSE_ERROR' as ErrorCode,
-  TYPE_MISMATCH: 'TYPE_MISMATCH' as ErrorCode,
-  TARGETING_KEY_MISSING: 'TARGETING_KEY_MISSING' as ErrorCode,
-  INVALID_CONTEXT: 'INVALID_CONTEXT' as ErrorCode,
-  GENERAL: 'GENERAL' as ErrorCode,
-} as const;
 
 /**
  * Keys that are rejected to prevent prototype pollution attacks.
@@ -335,30 +305,23 @@ export function isExpression(value: unknown): value is Expression {
 }
 
 /**
- * User object - represents user identity and attributes
+ * Attributes object - represents all attributes used for flag evaluation.
+ * Consolidates user identity, user attributes, and environmental context into a single object.
  */
-export interface User {
+export interface Attributes {
   /** User ID */
   id?: string;
   /** User email */
   email?: string;
   /** User role */
   role?: string;
-  /** Additional user attributes */
-  [key: string]: unknown;
-}
-
-/**
- * Context object - represents environmental data
- */
-export interface Context {
   /** Environment name */
   environment?: string;
   /** Device information */
   device?: string;
   /** Application version */
   app_version?: string;
-  /** Additional context attributes */
+  /** Additional attributes */
   [key: string]: unknown;
 }
 
@@ -389,7 +352,7 @@ export type OverrideValue =
     };
 
 /**
- * Override state - internal state for managing overrides in Provider
+ * Override state - internal state for managing overrides
  */
 export interface OverrideState {
   /** Map of flag names to override values */
@@ -400,4 +363,16 @@ export interface OverrideState {
   lastLoadTime?: number;
 }
 
-// EvaluationContext is now imported from @openfeature/server-sdk (see imports above)
+/**
+ * Logger interface for error and debug logging
+ */
+export interface Logger {
+  /** Log debug message */
+  debug(message: string, ...args: unknown[]): void;
+  /** Log info message */
+  info(message: string, ...args: unknown[]): void;
+  /** Log warning message */
+  warn(message: string, ...args: unknown[]): void;
+  /** Log error message */
+  error(message: string, error?: Error, ...args: unknown[]): void;
+}

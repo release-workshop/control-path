@@ -30,14 +30,14 @@ controlpath setup --lang typescript --skip-install
 ### Basic Project Initialization
 
 ```bash
-# Initialize project structure
-controlpath init
+# Setup project (creates control-path.yaml and generates SDK)
+controlpath setup
 
-# Initialize with example flags
-controlpath init --example-flags
+# Setup with specific language
+controlpath setup --lang typescript
 
-# Initialize without examples
-controlpath init --no-examples
+# Setup without installing runtime SDK
+controlpath setup --lang typescript --skip-install
 ```
 
 ## Watch Mode
@@ -54,9 +54,7 @@ controlpath watch --lang typescript
 Output:
 ```
 Watching for changes...
-  ✓ flags.definitions.yaml (SDK generation)
-  ✓ .controlpath/production.deployment.yaml (AST compilation)
-  ✓ .controlpath/staging.deployment.yaml (AST compilation)
+  ✓ control-path.yaml (SDK generation and AST compilation)
 
 Press Ctrl+C to stop
 ```
@@ -85,8 +83,7 @@ controlpath watch --deployments
 controlpath watch --lang typescript
 
 # Terminal 2: Edit files
-# - Edit flags.definitions.yaml → SDK regenerates automatically
-# - Edit .controlpath/production.deployment.yaml → AST recompiles automatically
+# - Edit control-path.yaml → SDK regenerates and AST recompiles automatically
 ```
 
 ## Debug Commands
@@ -95,18 +92,19 @@ controlpath watch --lang typescript
 
 #### Basic Usage
 
-Explain how a flag evaluates for a specific user:
+Explain how a flag evaluates for specific attributes:
 
 ```bash
-controlpath explain --flag new_dashboard --user user.json --env production
+controlpath explain --flag new_dashboard --attributes attributes.json --env production
 ```
 
-Example `user.json`:
+Example `attributes.json`:
 ```json
 {
   "id": "123",
   "role": "admin",
-  "email": "admin@example.com"
+  "email": "admin@example.com",
+  "environment": "production"
 }
 ```
 
@@ -116,7 +114,7 @@ Flag: new_dashboard
 Value: true
 
 Rule Matched: "Admin Users"
-  Condition: user.role == "admin"
+  Condition: role == "admin"
   Evaluation: "admin" == "admin" ✓
 
 Default: false (not used)
@@ -127,7 +125,7 @@ Default: false (not used)
 Show step-by-step evaluation:
 
 ```bash
-controlpath explain --flag new_dashboard --user user.json --env production --trace
+controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
 ```
 
 #### With JSON String
@@ -136,26 +134,28 @@ Use inline JSON instead of a file:
 
 ```bash
 controlpath explain --flag new_dashboard \
-  --user '{"id":"123","role":"admin"}' \
+  --attributes '{"id":"123","role":"admin","environment":"production"}' \
   --env production
 ```
 
-#### With Context
+#### With Full Attributes
 
-Include context object:
+Include all attributes in a single object:
 
 ```bash
 controlpath explain --flag new_dashboard \
-  --user user.json \
-  --context context.json \
+  --attributes attributes.json \
   --env production
 ```
 
-Example `context.json`:
+Example `attributes.json`:
 ```json
 {
+  "id": "123",
+  "role": "admin",
   "country": "US",
-  "timezone": "America/New_York"
+  "timezone": "America/New_York",
+  "environment": "production"
 }
 ```
 
@@ -186,10 +186,9 @@ controlpath debug --ast .controlpath/custom.ast
 
 1. Open http://localhost:8080 in your browser
 2. Select a flag from the dropdown
-3. Enter user JSON (or use the form)
-4. Optionally enter context JSON
-5. Click "Evaluate" to see results
-6. View rule matching details and evaluation trace
+3. Enter attributes JSON (or use the form)
+4. Click "Evaluate" to see results
+5. View rule matching details and evaluation trace
 
 ## Flag Management
 
@@ -245,7 +244,7 @@ controlpath flag add \
 
 ### List Flags
 
-#### List from Definitions
+#### List Flags
 
 ```bash
 # Table format (default)
@@ -256,16 +255,12 @@ controlpath flag list --format json
 
 # YAML format
 controlpath flag list --format yaml
-```
 
-#### List from Deployment
-
-```bash
 # List flags in production environment
-controlpath flag list --deployment production
+controlpath flag list --env production
 
 # List as JSON
-controlpath flag list --deployment production --format json
+controlpath flag list --env production --format json
 ```
 
 ### Show Flag Details
@@ -275,7 +270,7 @@ controlpath flag list --deployment production --format json
 controlpath flag show --name my_feature
 
 # Show flag in specific environment
-controlpath flag show --name my_feature --deployment production
+controlpath flag show --name my_feature --env production
 
 # Show as JSON
 controlpath flag show --name my_feature --format json
@@ -284,13 +279,10 @@ controlpath flag show --name my_feature --format json
 ### Remove Flags
 
 ```bash
-# Remove from definitions only
-controlpath flag remove --name my_feature --from-deployments false
-
-# Remove from all deployments (default)
+# Remove flag from configuration
 controlpath flag remove --name my_feature
 
-# Remove from specific environment
+# Remove from specific environment only
 controlpath flag remove --name my_feature --env staging
 
 # Force removal without confirmation
@@ -318,7 +310,7 @@ controlpath env add --name staging --template production
 
 #### Sync All Environments
 
-Sync flags from definitions to all deployment files:
+Sync flags across all environments in the configuration:
 
 ```bash
 controlpath env sync
@@ -391,12 +383,11 @@ controlpath setup --lang typescript
 ```
 
 What it does:
-1. Creates project structure (`init`)
-2. Creates sample flag
-3. Compiles AST for production environment
-4. Installs runtime SDK (unless `--skip-install`)
-5. Generates SDK
-6. Creates example usage file
+1. Creates `control-path.yaml` with sample flag and environment rules
+2. Compiles AST for production environment
+3. Installs runtime SDK (unless `--skip-install`)
+4. Generates SDK
+5. Creates example usage file
 
 ### Setup Output
 
@@ -418,80 +409,6 @@ Next steps:
   5. Get help:               controlpath help
 ```
 
-## Monorepo Support
-
-Control Path CLI supports monorepo environments where multiple services each need their own Control Path setup.
-
-### Working in a Monorepo
-
-#### From Service Directory
-
-```bash
-# Navigate to service
-cd services/service-a
-
-# Commands work as normal (backward compatible)
-controlpath compile --env production
-controlpath generate-sdk --lang typescript
-```
-
-#### From Workspace Root
-
-```bash
-# Stay at workspace root
-cd /path/to/monorepo
-
-# Target specific service
-controlpath compile --service service-a --env production
-controlpath validate --service service-a
-
-# Explicit workspace root
-controlpath compile --service service-a --workspace-root . --env production
-```
-
-### Monorepo Configuration
-
-Create `.controlpath/config.yaml` at workspace root:
-
-```yaml
-language: typescript
-defaultEnv: production
-
-monorepo:
-  serviceDirectories:
-    - services
-    - packages
-  discovery: auto
-```
-
-### Monorepo Examples
-
-#### Standard Services Layout
-
-```
-monorepo/
-├── .controlpath/config.yaml
-├── services/
-│   ├── api-service/
-│   │   ├── flags.definitions.yaml
-│   │   └── .controlpath/
-│   └── web-service/
-│       ├── flags.definitions.yaml
-│       └── .controlpath/
-```
-
-#### Working with Multiple Services
-
-```bash
-# Compile all services (when --all-services is implemented)
-controlpath compile --all-services --env production
-
-# Validate specific service
-controlpath validate --service api-service --all
-
-# Generate SDK for specific service
-controlpath generate-sdk --service web-service --lang typescript
-```
 
 ## Complete Workflows
 
@@ -500,23 +417,20 @@ controlpath generate-sdk --service web-service --lang typescript
 Complete workflow from creation to deployment:
 
 ```bash
-# 1. Add flag to definitions
+# 1. Add flag to configuration
 controlpath flag add --name new_dashboard --type boolean --default false
 
-# 2. Sync to environments
-controlpath env sync
+# 2. Enable in staging with rule
+controlpath enable new_dashboard --env staging --rule "role == 'admin'"
 
-# 3. Enable in staging with rule
-controlpath enable new_dashboard --env staging --rule "user.role == 'admin'"
+# 3. Test the flag
+controlpath explain --flag new_dashboard --attributes admin.json --env staging
 
-# 4. Test the flag
-controlpath explain --flag new_dashboard --user admin.json --env staging
-
-# 5. Compile for staging
+# 4. Compile for staging
 controlpath compile --env staging
 
-# 6. Deploy to production when ready
-controlpath enable new_dashboard --env production --rule "user.role == 'admin'"
+# 5. Deploy to production when ready
+controlpath enable new_dashboard --env production --rule "role == 'admin'"
 controlpath compile --env production
 ```
 
@@ -529,11 +443,10 @@ Development workflow using watch mode:
 controlpath watch --lang typescript
 
 # Terminal 2: Make changes
-# Edit flags.definitions.yaml → SDK regenerates automatically
-# Edit .controlpath/staging.deployment.yaml → AST recompiles automatically
+# Edit control-path.yaml → SDK regenerates and AST recompiles automatically
 
 # Terminal 3: Test changes
-controlpath explain --flag my_feature --user user.json --env staging
+controlpath explain --flag my_feature --attributes attributes.json --env staging
 ```
 
 ### Workflow 3: Debugging Flag Evaluation
@@ -542,14 +455,14 @@ Debug why a flag isn't working as expected:
 
 ```bash
 # 1. Use explain command for quick check
-controlpath explain --flag my_feature --user user.json --env production --trace
+controlpath explain --flag my_feature --attributes attributes.json --env production --trace
 
 # 2. Use debug UI for interactive exploration
 controlpath debug --env production
 
 # 3. In browser:
 #    - Select flag
-#    - Try different user values
+#    - Try different attribute values
 #    - See which rules match
 #    - View evaluation trace
 ```
@@ -569,13 +482,13 @@ controlpath flag add --name new_feature --type boolean
 controlpath env sync
 
 # 4. Enable in staging only
-controlpath enable new_feature --env staging --rule "user.beta == true"
+controlpath enable new_feature --env staging --rule "beta == true"
 
 # 5. Test in staging
-controlpath explain --flag new_feature --user beta_user.json --env staging
+controlpath explain --flag new_feature --attributes beta_user.json --env staging
 
 # 6. When ready, enable in production
-controlpath enable new_feature --env production --rule "user.beta == true"
+controlpath enable new_feature --env production --rule "beta == true"
 
 # 7. Deploy both environments
 controlpath deploy --env staging,production
@@ -590,10 +503,10 @@ Complete flag lifecycle:
 controlpath flag add --name experimental_feature --type boolean
 
 # 2. Enable in staging for testing
-controlpath enable experimental_feature --env staging --rule "user.role == 'tester'"
+controlpath enable experimental_feature --env staging --rule "role == 'tester'"
 
 # 3. Gradually roll out
-controlpath enable experimental_feature --env production --rule "user.id IN ['user1', 'user2']"
+controlpath enable experimental_feature --env production --rule "id IN ['user1', 'user2']"
 
 # 4. Monitor with debug UI
 controlpath debug --env production
@@ -610,16 +523,14 @@ controlpath flag remove --name experimental_feature
 ### Watch Mode
 
 - Use watch mode during active development
-- Watch definitions only when you're only changing flag definitions
-- Watch deployments only when you're only changing deployment rules
-- Watch everything when working on both
+- Watch mode automatically detects changes to `control-path.yaml` and regenerates SDK and compiles ASTs
 
 ### Debug Commands
 
 - Use `explain` for quick command-line debugging
 - Use `debug` UI for interactive exploration
 - Use `--trace` flag to understand complex rule evaluation
-- Test with different user/context combinations
+- Test with different attribute combinations
 
 ### Flag Management
 

@@ -1,6 +1,5 @@
 //! Setup command implementation
 
-use crate::commands::init;
 use crate::error::{CliError, CliResult};
 use crate::ops::{compile as ops_compile, generate_sdk as ops_generate_sdk};
 use crate::utils::config;
@@ -9,11 +8,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-// File path constants
-const DEFINITIONS_FILE: &str = "flags.definitions.yaml";
-const PRODUCTION_DEPLOYMENT: &str = ".controlpath/production.deployment.yaml";
-const STAGING_DEPLOYMENT: &str = ".controlpath/staging.deployment.yaml";
 const SDK_OUTPUT_DIR: &str = "./flags";
+const UNIFIED_CONFIG_FILE: &str = "control-path.yaml";
 
 pub struct Options {
     /// Language for SDK generation (auto-detected if not provided)
@@ -186,56 +182,49 @@ pub fn run(options: &Options) -> i32 {
     }
 }
 
-/// Create empty project files for minimal setup (when --no-examples is used)
-///
-/// Creates empty definitions and deployment files that allow compilation to work
-/// without including example flags.
-fn create_empty_project_files() -> CliResult<()> {
-    // Create empty definitions file so compilation can work
-    if !Path::new(DEFINITIONS_FILE).exists() {
-        let empty_definitions = "flags: []\n";
-        fs::write(DEFINITIONS_FILE, empty_definitions).map_err(|e| {
-            CliError::Message(format!(
-                "Failed to create empty definitions file at {}: {}. \
-                Ensure you have write permissions in the current directory.",
-                DEFINITIONS_FILE, e
-            ))
-        })?;
-    }
-
-    // Create empty production deployment file (without example_flag)
-    let empty_deployment = "environment: production\nrules: {}\n";
-    fs::write(PRODUCTION_DEPLOYMENT, empty_deployment).map_err(|e| {
-        CliError::Message(format!(
-            "Failed to create empty deployment file at {}: {}. \
-            Ensure the .controlpath directory exists and you have write permissions.",
-            PRODUCTION_DEPLOYMENT, e
-        ))
-    })?;
-
-    Ok(())
+/// Check if project already exists
+fn check_existing_project() -> bool {
+    Path::new(UNIFIED_CONFIG_FILE).exists() || Path::new(".controlpath").exists()
 }
 
-/// Create staging environment deployment file with example flag
-fn create_staging_deployment() -> CliResult<()> {
-    let staging_content = r"environment: staging
-rules:
-  example_flag:
-    rules:
-      - serve: false
-";
-    fs::write(STAGING_DEPLOYMENT, staging_content).map_err(|e| {
-        CliError::Message(format!(
-            "Failed to create staging deployment file at {}: {}. \
-            Ensure the .controlpath directory exists and you have write permissions.",
-            STAGING_DEPLOYMENT, e
-        ))
-    })
+/// Ensure .controlpath directory exists
+fn ensure_controlpath_directory() -> CliResult<()> {
+    fs::create_dir_all(".controlpath").map_err(CliError::from)
+}
+
+/// Create config file
+fn create_unified_config_file(with_examples: bool) -> CliResult<()> {
+    let config_content = if with_examples {
+        r"mode: local
+flags:
+  - name: example_flag
+    type: boolean
+    default: false
+    description: An example feature flag
+    environments:
+      production:
+        - serve: false
+      staging:
+        - serve: false
+"
+    } else {
+        r"mode: local
+flags: []
+"
+    };
+    fs::write(UNIFIED_CONFIG_FILE, config_content).map_err(CliError::from)
 }
 
 fn run_inner(options: &Options) -> CliResult<String> {
     println!("Setting up Control Path project...");
     println!();
+
+    // Check if project already exists
+    if check_existing_project() {
+        return Err(CliError::Message(
+            "Project already initialized. Remove control-path.yaml or .controlpath directory to start fresh.".to_string(),
+        ));
+    }
 
     // Determine language (priority: CLI flag > Config > Auto-detect > Default)
     let lang = language::determine_language(options.lang.clone())?;
@@ -243,36 +232,18 @@ fn run_inner(options: &Options) -> CliResult<String> {
     println!();
 
     // Step 1: Initialize project structure
-    println!("1. Initializing project structure...");
-    let init_options = init::Options {
-        force: true, // Use force to allow setup to work on existing projects
-        example_flags: !options.no_examples,
-        no_examples: options.no_examples,
-    };
-    let init_result = init::run(&init_options);
-    if init_result != 0 {
-        return Err(CliError::Message(
-            "Failed to initialize project structure. \
-            Check that you have write permissions in the current directory and that \
-            the .controlpath directory can be created."
-                .to_string(),
-        ));
-    }
-    println!("   ✓ Project structure created");
-
-    // If --no-examples was used, create empty definitions and deployment files
-    if options.no_examples {
-        create_empty_project_files()?;
+    println!("1. Creating project structure...");
+    ensure_controlpath_directory()?;
+    let create_examples = !options.no_examples;
+    create_unified_config_file(create_examples)?;
+    println!("   ✓ Created control-path.yaml");
+    if create_examples {
+        println!("   ✓ Created example flag");
     }
     println!();
 
-    // Step 1.5: Create staging environment (optional, but recommended)
-    // Only create staging if we created examples (i.e., not --no-examples)
-    let initial_envs = if !options.no_examples {
-        println!("1.5. Creating staging environment...");
-        create_staging_deployment()?;
-        println!("   ✓ Staging environment created");
-        println!();
+    // Determine initial environments
+    let initial_envs = if create_examples {
         vec!["production".to_string(), "staging".to_string()]
     } else {
         vec!["production".to_string()]
@@ -285,44 +256,25 @@ fn run_inner(options: &Options) -> CliResult<String> {
     println!("   ✓ Configuration written");
     println!();
 
-    // Step 3: Generate SDK (before compiling, so we have definitions)
-    // Only generate SDK if definitions file exists and has flags (skip if --no-examples was used)
-    if Path::new(DEFINITIONS_FILE).exists() {
-        // Check if definitions file has any flags (not just empty)
-        let definitions_content = fs::read_to_string(DEFINITIONS_FILE).map_err(|e| {
+    // Step 3: Generate SDK (only if we have flags)
+    if create_examples {
+        println!("3. Generating SDK...");
+        let generate_options = ops_generate_sdk::GenerateOptions {
+            lang: Some(lang.clone()),
+            output: Some(SDK_OUTPUT_DIR.to_string()),
+            skip_validation: false,
+        };
+        ops_generate_sdk::generate_sdk_helper(&generate_options).map_err(|e| {
             CliError::Message(format!(
-                "Failed to read definitions file at {}: {}. \
-                    Ensure the file exists and is readable.",
-                DEFINITIONS_FILE, e
+                "Failed to generate SDK: {}. \
+                Check that the config is valid and the output directory is writable.",
+                e
             ))
         })?;
-
-        // Only generate SDK if there are flags defined
-        if definitions_content.contains("flags:")
-            && !definitions_content.trim().ends_with("flags: []")
-        {
-            println!("3. Generating SDK...");
-            let generate_options = ops_generate_sdk::GenerateOptions {
-                lang: Some(lang.clone()),
-                output: Some(SDK_OUTPUT_DIR.to_string()),
-                service_context: None,
-                skip_validation: false,
-            };
-            ops_generate_sdk::generate_sdk_helper(&generate_options).map_err(|e| {
-                CliError::Message(format!(
-                    "Failed to generate SDK: {}. \
-                    Check that the definitions file is valid and the output directory is writable.",
-                    e
-                ))
-            })?;
-            println!("   ✓ SDK generated");
-            println!();
-        } else {
-            println!("3. Skipping SDK generation (no flags defined)");
-            println!();
-        }
+        println!("   ✓ SDK generated");
+        println!();
     } else {
-        println!("3. Skipping SDK generation (no definitions file)");
+        println!("3. Skipping SDK generation (no flags defined)");
         println!();
     }
 
@@ -330,13 +282,12 @@ fn run_inner(options: &Options) -> CliResult<String> {
     println!("4. Compiling ASTs for initial environments...");
     let compile_options = ops_compile::CompileOptions {
         envs: Some(initial_envs.clone()),
-        service_context: None,
         skip_validation: false,
     };
     let compiled_envs = ops_compile::compile_envs(&compile_options).map_err(|e| {
         CliError::Message(format!(
             "Failed to compile ASTs for environments {}: {}. \
-            Check that deployment files exist and are valid.",
+            Check that the config is valid.",
             initial_envs.join(", "),
             e
         ))
@@ -380,30 +331,10 @@ fn run_inner(options: &Options) -> CliResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::DirGuard;
     use serial_test::serial;
     use std::fs;
-    use std::path::PathBuf;
     use tempfile::TempDir;
-
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            // Ensure directory exists
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
 
     #[test]
     #[serial]
@@ -421,7 +352,7 @@ mod tests {
     fn test_create_example_usage_file_typescript() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = create_example_usage_file("typescript");
         assert!(result.is_ok());
@@ -442,7 +373,7 @@ mod tests {
     fn test_create_example_usage_file_other_lang() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = create_example_usage_file("python");
         assert!(result.is_ok());
@@ -468,7 +399,7 @@ mod tests {
     fn test_create_example_usage_file_javascript() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = create_example_usage_file("javascript");
         assert!(result.is_ok());
@@ -482,7 +413,7 @@ mod tests {
     fn test_create_example_usage_file_content_check() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = create_example_usage_file("typescript");
         assert!(result.is_ok());
@@ -532,7 +463,7 @@ mod tests {
     fn test_setup_with_skip_install() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create package.json to trigger TypeScript detection
         fs::write("package.json", "{}").unwrap();
@@ -573,7 +504,7 @@ mod tests {
     fn test_setup_auto_detects_language_from_package_json() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create package.json to trigger TypeScript detection
         fs::write("package.json", "{}").unwrap();

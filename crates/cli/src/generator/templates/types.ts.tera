@@ -3,14 +3,25 @@
  * DO NOT EDIT - This file is auto-generated
  */
 
-export interface User {
-  id: string;
-  [key: string]: any;
-}
-
-export interface Context {
+/**
+ * Attributes object - represents all attributes used for flag evaluation.
+ * Consolidates user identity, user attributes, and environmental context into a single object.
+ */
+export interface Attributes {
+  /** User ID */
+  id?: string;
+  /** User email */
+  email?: string;
+  /** User role */
+  role?: string;
+  /** Environment name */
   environment?: string;
-  [key: string]: any;
+  /** Device information */
+  device?: string;
+  /** Application version */
+  app_version?: string;
+  /** Additional attributes */
+  [key: string]: unknown;
 }
 
 {% for variation_type in variation_types %}

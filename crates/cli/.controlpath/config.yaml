@@ -3,4 +3,5 @@ default_env: null
 defaultEnv: null
 sdk_output: null
 sign_key: null
-monorepo: null
+branchEnvironments: null
+mode: null

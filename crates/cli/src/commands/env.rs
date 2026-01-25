@@ -703,17 +703,15 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn setup_test_env() -> (TempDir, PathBuf) {
+    use crate::test_helpers::DirGuard;
+
+    fn setup_test_env() -> (TempDir, DirGuard) {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp_path).unwrap();
-        fs::create_dir_all(".controlpath").unwrap();
-        (temp_dir, original_dir)
-    }
-
-    fn teardown_test_env(original_dir: PathBuf) {
-        let _ = std::env::set_current_dir(&original_dir);
+        // Create .controlpath directory before changing directory
+        fs::create_dir_all(temp_path.join(".controlpath")).unwrap();
+        let guard = DirGuard::new(temp_path).unwrap();
+        (temp_dir, guard)
     }
 
     #[test]
@@ -767,13 +765,13 @@ mod tests {
     #[test]
     #[serial]
     fn test_create_deployment_from_definitions() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -790,14 +788,12 @@ mod tests {
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("test_flag"))
             .is_some());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_create_deployment_from_definitions_empty() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create empty definitions file
         let definitions_content = r"flags: []
@@ -813,23 +809,21 @@ mod tests {
         );
         let rules = deployment.get("rules").and_then(|r| r.as_object()).unwrap();
         assert_eq!(rules.len(), 0); // Empty rules
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_create_deployment_with_template() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -865,23 +859,21 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("flag2"))
             .is_some());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_sync_flags_to_deployment() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -920,20 +912,18 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("old_flag"))
             .is_none());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_sync_preserves_existing_rules() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -968,20 +958,18 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("flag1"));
         assert_eq!(preserved_rules, original_rules.as_ref());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_add_command() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -1010,14 +998,12 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("test_flag"))
             .is_some());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_add_duplicate_name() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         fs::write("flags.definitions.yaml", "flags: []").unwrap();
@@ -1043,23 +1029,21 @@ rules: {}
         let result = run_inner(&opts);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("already exists"));
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_add_with_template() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -1102,23 +1086,21 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("serve"));
         assert_eq!(flag1_serve, Some(&Value::Bool(true)));
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_sync_single_environment() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -1149,20 +1131,18 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("flag2"))
             .is_some());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_sync_all_environments() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -1207,14 +1187,12 @@ rules: {}
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("flag1"))
             .is_some());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_list_table_format() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create deployment files
         fs::create_dir_all(".controlpath").unwrap();
@@ -1250,14 +1228,12 @@ rules:
 
         let result = run_inner(&opts);
         assert!(result.is_ok());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_list_json_format() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create deployment files
         fs::create_dir_all(".controlpath").unwrap();
@@ -1280,14 +1256,12 @@ rules:
 
         let result = run_inner(&opts);
         assert!(result.is_ok());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_list_yaml_format() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create deployment files
         fs::create_dir_all(".controlpath").unwrap();
@@ -1310,14 +1284,12 @@ rules:
 
         let result = run_inner(&opts);
         assert!(result.is_ok());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_list_empty() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Don't create any deployment files
 
@@ -1329,20 +1301,18 @@ rules:
 
         let result = run_inner(&opts);
         assert!(result.is_ok()); // Should handle empty gracefully
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_sync_removes_orphaned_flags() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file with one flag
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -1373,23 +1343,21 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("orphaned_flag"))
             .is_none());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_sync_dry_run() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create definitions file
         let definitions_content = r"flags:
   - name: flag1
     type: boolean
-    defaultValue: false
+    default: false
   - name: flag2
     type: boolean
-    defaultValue: true
+    default: true
 ";
         fs::write("flags.definitions.yaml", definitions_content).unwrap();
 
@@ -1420,14 +1388,12 @@ rules:
             .and_then(|r| r.as_object())
             .and_then(|r| r.get("flag2"))
             .is_none()); // flag2 should not be added in dry-run
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_remove_command() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         // Create deployment file
         fs::create_dir_all(".controlpath").unwrap();
@@ -1453,14 +1419,12 @@ rules:
 
         // Verify deployment file was removed
         assert!(!get_deployment_path("test").exists());
-
-        teardown_test_env(original_dir);
     }
 
     #[test]
     #[serial]
     fn test_env_remove_nonexistent() {
-        let (_temp_dir, original_dir) = setup_test_env();
+        let (_temp_dir, _guard) = setup_test_env();
 
         let opts = Options {
             subcommand: EnvSubcommand::Remove {
@@ -1472,7 +1436,5 @@ rules:
         let result = run_inner(&opts);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
-
-        teardown_test_env(original_dir);
     }
 }

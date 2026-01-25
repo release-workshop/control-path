@@ -479,7 +479,9 @@ impl ExpressionParser {
                 if self.check_token_type(&TokenType::LeftParen) {
                     self.parse_function_call(value)
                 } else {
-                    // Property access (e.g., user.role, device.type)
+                    // Property access (e.g., user.role, context.environment, or role, environment)
+                    // Note: user. and context. prefixes are accepted for backward compatibility
+                    // but will be normalized (stripped) during string table processing
                     Ok(IntermediateExpression::Property(value))
                 }
             }
@@ -640,7 +642,8 @@ impl Default for ExpressionParser {
 ///
 /// # Arguments
 ///
-/// * `expr` - Expression string (e.g., "user.role == 'admin'")
+/// * `expr` - Expression string (e.g., "user.role == 'admin'" or "role == 'admin'")
+///   Note: user. and context. prefixes are accepted but will be normalized during compilation
 ///
 /// # Returns
 ///
@@ -1084,4 +1087,125 @@ mod tests {
             _ => panic!("Expected Func"),
         }
     }
+
+    // Behavior tests: Verify that parsed expressions can be compiled and used
+    // These tests verify the expressions work end-to-end, not just their structure
+
+    #[test]
+    fn test_parse_and_compile_simple_comparison() {
+        use crate::compiler::string_table::StringTable;
+
+        let expr = parse_expression("user.role == 'admin'").unwrap();
+        let mut string_table = StringTable::new();
+
+        // Verify the expression can be compiled (processed through string table)
+        // This is a behavior test - it verifies the expression is usable
+        let compiled = string_table.process_expression(&expr).unwrap();
+
+        // Verify it compiled to a BinaryOp expression
+        match compiled {
+            crate::ast::Expression::BinaryOp { .. } => {
+                // Success - expression compiled correctly
+            }
+            _ => panic!("Expected BinaryOp after compilation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_and_compile_logical_and() {
+        use crate::compiler::string_table::StringTable;
+
+        let expr =
+            parse_expression("user.role == 'admin' AND environment == 'production'").unwrap();
+        let mut string_table = StringTable::new();
+
+        // Verify the expression can be compiled
+        let compiled = string_table.process_expression(&expr).unwrap();
+
+        match compiled {
+            crate::ast::Expression::LogicalOp { .. } => {
+                // Success - expression compiled correctly
+            }
+            _ => panic!("Expected LogicalOp after compilation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_and_compile_logical_or() {
+        use crate::compiler::string_table::StringTable;
+
+        let expr = parse_expression("user.role == 'admin' OR user.role == 'moderator'").unwrap();
+        let mut string_table = StringTable::new();
+
+        // Verify the expression can be compiled
+        let compiled = string_table.process_expression(&expr).unwrap();
+
+        match compiled {
+            crate::ast::Expression::LogicalOp { .. } => {
+                // Success - expression compiled correctly
+            }
+            _ => panic!("Expected LogicalOp after compilation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_and_compile_logical_not() {
+        use crate::compiler::string_table::StringTable;
+
+        let expr = parse_expression("NOT user.role == 'guest'").unwrap();
+        let mut string_table = StringTable::new();
+
+        // Verify the expression can be compiled
+        let compiled = string_table.process_expression(&expr).unwrap();
+
+        match compiled {
+            crate::ast::Expression::LogicalOp { .. } => {
+                // Success - expression compiled correctly
+            }
+            _ => panic!("Expected LogicalOp after compilation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_and_compile_function_call() {
+        use crate::compiler::string_table::StringTable;
+
+        let expr = parse_expression("STARTS_WITH(user.id, 'guest_')").unwrap();
+        let mut string_table = StringTable::new();
+
+        // Verify the expression can be compiled
+        let compiled = string_table.process_expression(&expr).unwrap();
+
+        match compiled {
+            crate::ast::Expression::Func { .. } => {
+                // Success - expression compiled correctly
+            }
+            _ => panic!("Expected Func after compilation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_and_compile_parentheses() {
+        use crate::compiler::string_table::StringTable;
+
+        let expr = parse_expression(
+            "(user.role == 'admin' AND environment == 'production') OR user.role == 'moderator'",
+        )
+        .unwrap();
+        let mut string_table = StringTable::new();
+
+        // Verify the expression can be compiled
+        let compiled = string_table.process_expression(&expr).unwrap();
+
+        match compiled {
+            crate::ast::Expression::LogicalOp { .. } => {
+                // Success - expression compiled correctly
+            }
+            _ => panic!("Expected LogicalOp after compilation"),
+        }
+    }
+
+    // Note: Full evaluation behavior is tested in the TypeScript runtime integration tests
+    // (runtime/typescript/src/integration.test.ts), which verify that compiled expressions
+    // evaluate correctly with actual user attributes.
 }

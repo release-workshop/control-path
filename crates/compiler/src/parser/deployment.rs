@@ -118,7 +118,7 @@ rules:
   new_dashboard:
     rules:
       - name: "Enable for admins"
-        when: "user.role == 'admin'"
+        when: "role == 'admin'"
         serve: ON
       - name: "10% rollout"
         when: "true"
@@ -201,22 +201,19 @@ rules:
   test_flag:
 segments:
   beta_users:
-    when: "user.role == 'beta'"
+    when: "role == 'beta'"
   premium_customers:
-    when: "user.subscription_tier == 'premium'"
+    when: "subscription_tier == 'premium'"
 "#;
 
         let result = parse_deployment_from_string(yaml, Some("test.yaml")).unwrap();
 
         assert!(result.is_object());
         assert!(result["segments"].is_object());
-        assert_eq!(
-            result["segments"]["beta_users"]["when"],
-            "user.role == 'beta'"
-        );
+        assert_eq!(result["segments"]["beta_users"]["when"], "role == 'beta'");
         assert_eq!(
             result["segments"]["premium_customers"]["when"],
-            "user.subscription_tier == 'premium'"
+            "subscription_tier == 'premium'"
         );
     }
 

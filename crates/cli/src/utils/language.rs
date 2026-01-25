@@ -74,37 +74,17 @@ pub fn determine_language(cli_lang: Option<String>) -> CliResult<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::DirGuard;
     use serial_test::serial;
     use std::fs;
-    use std::path::PathBuf;
     use tempfile::TempDir;
-
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            // Ensure directory exists
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
 
     #[test]
     #[serial]
     fn test_detect_language_from_package_json() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write("package.json", "{}").unwrap();
         let lang = detect_language().unwrap();
@@ -116,7 +96,7 @@ mod tests {
     fn test_detect_language_from_requirements_txt() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write("requirements.txt", "").unwrap();
         let lang = detect_language().unwrap();
@@ -128,7 +108,7 @@ mod tests {
     fn test_detect_language_from_pyproject_toml() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write("pyproject.toml", "").unwrap();
         let lang = detect_language().unwrap();
@@ -140,7 +120,7 @@ mod tests {
     fn test_detect_language_from_go_mod() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write("go.mod", "").unwrap();
         let lang = detect_language().unwrap();
@@ -152,7 +132,7 @@ mod tests {
     fn test_detect_language_from_cargo_toml() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write("Cargo.toml", "").unwrap();
         let lang = detect_language().unwrap();
@@ -164,7 +144,7 @@ mod tests {
     fn test_detect_language_default() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // No project files
         let lang = detect_language().unwrap();
@@ -182,7 +162,7 @@ mod tests {
     fn test_determine_language_without_cli_flag() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write("package.json", "{}").unwrap();
         let lang = determine_language(None).unwrap();

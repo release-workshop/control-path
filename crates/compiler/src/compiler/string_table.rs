@@ -6,6 +6,18 @@
 use crate::ast::Expression;
 use crate::compiler::expressions::IntermediateExpression;
 
+/// Normalize property path by removing user. and context. prefixes.
+/// This matches the simplified runtime API where all attributes are in a single object.
+fn normalize_property_path(path: &str) -> String {
+    if path.starts_with("user.") {
+        path.strip_prefix("user.").unwrap_or(path).to_string()
+    } else if path.starts_with("context.") {
+        path.strip_prefix("context.").unwrap_or(path).to_string()
+    } else {
+        path.to_string()
+    }
+}
+
 /// String table builder for AST compilation.
 /// Collects all strings used in the artifact and provides index-based access.
 pub struct StringTable {
@@ -102,7 +114,9 @@ impl StringTable {
                     .transpose()?,
             }),
             IntermediateExpression::Property(prop_path) => {
-                let prop_index = self.add(prop_path)?;
+                // Strip user. and context. prefixes to match simplified runtime API
+                let normalized_path = normalize_property_path(prop_path);
+                let prop_index = self.add(&normalized_path)?;
                 Ok(Expression::Property { prop_index })
             }
             IntermediateExpression::Literal(value) => {
@@ -189,7 +203,8 @@ mod tests {
         match processed {
             Expression::Property { prop_index } => {
                 assert_eq!(prop_index, 0);
-                assert_eq!(table.get(prop_index), Some("user.role"));
+                // Property path is normalized: user.role -> role
+                assert_eq!(table.get(prop_index), Some("role"));
             }
             _ => panic!("Expected Property expression"),
         }
@@ -236,7 +251,8 @@ mod tests {
                 match *left {
                     Expression::Property { prop_index } => {
                         assert_eq!(prop_index, 0);
-                        assert_eq!(table.get(prop_index), Some("user.role"));
+                        // Property path is normalized: user.role -> role
+                        assert_eq!(table.get(prop_index), Some("role"));
                     }
                     _ => panic!("Expected Property in left operand"),
                 }

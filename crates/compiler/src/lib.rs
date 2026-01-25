@@ -83,6 +83,18 @@ pub fn parse_deployment(content: &str) -> Result<serde_json::Value, CompilerErro
     parser::parse_deployment(content).map_err(|e| CompilerError::Parse(e.into()))
 }
 
+/// Parse control-path.yaml configuration from YAML/JSON string
+///
+/// This function works on in-memory strings only (no file I/O).
+/// The input can be YAML or JSON format.
+///
+/// # Errors
+///
+/// Returns `ParseError` if the input is invalid YAML/JSON or missing required fields.
+pub fn parse_unified_config(content: &str) -> Result<serde_json::Value, CompilerError> {
+    parser::parse_unified_config(content).map_err(|e| CompilerError::Parse(e.into()))
+}
+
 /// Validate flag definitions against JSON schema
 ///
 /// # Errors
@@ -123,6 +135,26 @@ pub fn validate_deployment(deployment: &serde_json::Value) -> Result<(), Compile
     }
 }
 
+/// Validate control-path.yaml configuration against JSON schema
+///
+/// # Errors
+///
+/// Returns `ValidationError` if validation fails.
+pub fn validate_unified_config(config: &serde_json::Value) -> Result<(), CompilerError> {
+    let validator = validator::Validator::new();
+    let result = validator.validate_unified_config("<input>", config);
+
+    if result.valid {
+        Ok(())
+    } else {
+        // Convert ValidationResult to ValidationError
+        let error_messages: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
+        Err(CompilerError::Validation(
+            error::ValidationError::SchemaValidation(error_messages.join("; ")),
+        ))
+    }
+}
+
 /// Compile deployment and definitions into an AST artifact
 ///
 /// # Errors
@@ -133,6 +165,33 @@ pub fn compile(
     definitions: &serde_json::Value,
 ) -> Result<Artifact, CompilerError> {
     compiler::compile(deployment, definitions)
+}
+
+/// Compile an environment from control-path.yaml configuration
+///
+/// This function extracts definitions and deployment for the specified environment
+/// from the config and compiles them into an AST artifact.
+///
+/// # Arguments
+///
+/// * `unified_config` - Parsed control-path.yaml configuration
+/// * `environment` - Environment name to compile (e.g., "production", "staging")
+///
+/// # Returns
+///
+/// Compiled AST artifact for the specified environment
+///
+/// # Errors
+///
+/// Returns `CompilerError` if:
+/// - The config is invalid
+/// - The environment is not found in the config
+/// - Compilation fails
+pub fn compile_from_unified(
+    unified_config: &serde_json::Value,
+    environment: &str,
+) -> Result<Artifact, CompilerError> {
+    compiler::compile_from_unified(unified_config, environment)
 }
 
 /// Serialize AST artifact to MessagePack bytes

@@ -6,19 +6,18 @@ This guide explains how to use the Control Path CLI with a focus on the core men
 
 Control Path is built around three core concepts:
 
-1. **Flags** → Flag definitions (`flags.definitions.yaml`)
-   - What flags you have and their types/defaults
-   - Declare flags here
+1. **Configuration** → Config file (`control-path.yaml`)
+   - Flag definitions and environment rules in one file
+   - Declare flags and their rollout rules here
 
-2. **Environments** → Deployment files (`.controlpath/<env>.deployment.yaml`)
-   - How flags behave per environment (rollout rules, targeting)
-   - Configure rollouts here
-
-3. **SDK** → Generated code (`./flags/`)
+2. **SDK** → Generated code (`./flags/`)
    - Type-safe SDK that your application code imports and uses
    - Generated automatically from your flag definitions
 
-Everything else (AST artifacts, compiler details) is handled automatically by the CLI as part of higher-level workflows. You don't need to think about them in day-to-day use.
+3. **AST Artifacts** → Compiled artifacts (`.controlpath/<env>.ast`)
+   - Compiled flag configurations per environment (generated automatically)
+
+Everything else (compiler details) is handled automatically by the CLI as part of higher-level workflows. You don't need to think about them in day-to-day use.
 
 ## Quick Start
 
@@ -30,8 +29,8 @@ controlpath setup
 ```
 
 This creates:
-- `flags.definitions.yaml` with an example flag
-- `.controlpath/production.deployment.yaml` (and optionally staging)
+- `control-path.yaml` with an example flag and environment rules
+- `.controlpath/` directory with compiled AST artifacts
 - Generated SDK in `./flags/` for your application code
 - Installs runtime SDK package
 - Compiles ASTs automatically
@@ -44,8 +43,8 @@ controlpath new-flag my_feature --enable staging
 ```
 
 This:
-- Adds the flag to `flags.definitions.yaml`
-- Syncs it to all environment deployment files
+- Adds the flag to `control-path.yaml`
+- Adds environment rules for staging
 - Enables it in staging
 - Regenerates the SDK automatically
 - Compiles the staging AST automatically
@@ -58,10 +57,13 @@ Import and use the generated SDK in your application code:
 // TypeScript example
 import { evaluator } from './flags';
 
-const user = { id: '123', role: 'admin' };
-const context = {};
+const attributes = {
+  id: '123',
+  role: 'admin',
+  environment: 'production'
+};
 
-if (evaluator.myFeature(user, context)) {
+if (evaluator.myFeature(attributes)) {
   // Feature is enabled for this user
 }
 ```
@@ -107,7 +109,7 @@ controlpath deploy --env staging
 controlpath enable my_feature --env staging --all
 
 # Enable with a rule (e.g., admins only)
-controlpath enable my_feature --env staging --rule "user.role == 'admin'"
+controlpath enable my_feature --env staging --rule "role == 'admin'"
 ```
 
 ### Testing Flags
@@ -116,8 +118,8 @@ controlpath enable my_feature --env staging --rule "user.role == 'admin'"
 # Test a flag with different users
 controlpath test my_feature --env staging
 
-# Test with specific user JSON
-controlpath test my_feature --user user.json --env staging
+# Test with specific attributes JSON
+controlpath test my_feature --attributes attributes.json --env staging
 ```
 
 ### CI/CD Integration
@@ -161,7 +163,7 @@ jobs:
 ```
 
 The `ci` command will:
-- ✅ Validate `flags.definitions.yaml` and all deployment files
+- ✅ Validate `control-path.yaml` file
 - ✅ Compile ASTs for all environments (or specified with `--env`)
 - ✅ Regenerate the SDK (unless `--no-sdk` is used)
 - ❌ Exit with non-zero status if validation or compilation fails
@@ -178,15 +180,14 @@ The `ci` command will:
 
 ### Core Commands
 
-- **`validate`** - Validate definitions and deployment files
-- **`compile`** - Compile deployment → AST (usually automatic)
-- **`generate-sdk`** - Generate SDK from definitions (usually automatic)
+- **`validate`** - Validate configuration file
+- **`compile`** - Compile configuration → AST (usually automatic)
+- **`generate-sdk`** - Generate SDK from flag definitions (usually automatic)
 
 ### Management Commands
 
 - **`flag`** - Manage flags (add, list, show, remove)
 - **`env`** - Manage environments (add, sync, list, remove)
-- **`services`** - Manage services in monorepo
 
 ### Debug Commands
 
@@ -207,11 +208,9 @@ The `ci` command will:
 
 ```
 your-project/
-├── flags.definitions.yaml          # Flag definitions (what flags you have)
+├── control-path.yaml               # Configuration (flags + environment rules)
 ├── .controlpath/
-│   ├── config.yaml                 # Optional config (language, defaults)
-│   ├── production.deployment.yaml  # Production rollout config
-│   ├── staging.deployment.yaml     # Staging rollout config
+│   ├── config.yaml                 # Optional config (language, defaults, mode)
 │   ├── production.ast              # Compiled AST (auto-generated)
 │   └── staging.ast                 # Compiled AST (auto-generated)
 └── flags/                          # Generated SDK (import this in your code)
@@ -221,7 +220,7 @@ your-project/
 
 ## Key Points
 
-1. **You edit**: `flags.definitions.yaml` and `.controlpath/<env>.deployment.yaml`
+1. **You edit**: `control-path.yaml` (flags and environment rules in one file)
 2. **You import**: The generated SDK from `./flags/` in your application code
 3. **You rarely touch**: `.controlpath/<env>.ast` files (they're auto-generated)
 

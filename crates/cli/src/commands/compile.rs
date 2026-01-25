@@ -1,13 +1,8 @@
 //! Compile command implementation
 
 use crate::error::{CliError, CliResult};
-use crate::monorepo::{
-    detect_workspace_root, discover_services, ServiceContext, ServicePathResolver,
-};
-use controlpath_compiler::{
-    compile, parse_definitions, parse_deployment, serialize, validate_definitions,
-    validate_deployment,
-};
+use crate::utils::unified_config;
+use controlpath_compiler::{compile, serialize, validate_definitions, validate_deployment};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -16,16 +11,9 @@ pub struct Options {
     pub env: Option<String>,
     pub output: Option<String>,
     pub definitions: Option<String>,
-    pub service_context: Option<ServiceContext>,
-    pub all_services: bool,
 }
 
 fn determine_deployment_path(options: &Options) -> Result<PathBuf, CliError> {
-    let resolver = options
-        .service_context
-        .as_ref()
-        .map(|ctx| ServicePathResolver::new(ctx.clone()));
-
     options.deployment.as_ref().map_or_else(
         || {
             options.env.as_ref().map_or_else(
@@ -34,31 +22,14 @@ fn determine_deployment_path(options: &Options) -> Result<PathBuf, CliError> {
                         "Either --deployment <file> or --env <env> must be provided".to_string(),
                     ))
                 },
-                |env| {
-                    Ok(if let Some(ref r) = resolver {
-                        r.deployment_file(env)
-                    } else {
-                        PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))
-                    })
-                },
+                |env| Ok(PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))),
             )
         },
-        |deployment| {
-            Ok(if let Some(ref r) = resolver {
-                r.base_path().join(deployment)
-            } else {
-                PathBuf::from(deployment)
-            })
-        },
+        |deployment| Ok(PathBuf::from(deployment)),
     )
 }
 
 fn determine_output_path(options: &Options, deployment_path: &Path) -> PathBuf {
-    let resolver = options
-        .service_context
-        .as_ref()
-        .map(|ctx| ServicePathResolver::new(ctx.clone()));
-
     options.output.as_ref().map_or_else(
         || {
             options.env.as_ref().map_or_else(
@@ -72,47 +43,18 @@ fn determine_output_path(options: &Options, deployment_path: &Path) -> PathBuf {
                         .replace(".deployment", "");
                     deployment_dir.join(format!("{deployment_stem}.ast"))
                 },
-                |env| {
-                    if let Some(ref r) = resolver {
-                        r.ast_file(env)
-                    } else {
-                        PathBuf::from(format!(".controlpath/{env}.ast"))
-                    }
-                },
+                |env| PathBuf::from(format!(".controlpath/{env}.ast")),
             )
         },
-        |output| {
-            if let Some(ref r) = resolver {
-                r.base_path().join(output)
-            } else {
-                PathBuf::from(output)
-            }
-        },
+        PathBuf::from,
     )
 }
 
 fn determine_definitions_path(options: &Options) -> PathBuf {
-    let resolver = options
-        .service_context
+    options
+        .definitions
         .as_ref()
-        .map(|ctx| ServicePathResolver::new(ctx.clone()));
-
-    options.definitions.as_ref().map_or_else(
-        || {
-            if let Some(ref r) = resolver {
-                r.definitions_file()
-            } else {
-                PathBuf::from("flags.definitions.yaml")
-            }
-        },
-        |definitions| {
-            if let Some(ref r) = resolver {
-                r.base_path().join(definitions)
-            } else {
-                PathBuf::from(definitions)
-            }
-        },
-    )
+        .map_or_else(|| PathBuf::from("flags.definitions.yaml"), PathBuf::from)
 }
 
 pub fn run(options: &Options) -> i32 {
@@ -127,33 +69,60 @@ pub fn run(options: &Options) -> i32 {
 }
 
 fn run_inner(options: &Options) -> CliResult<()> {
-    // Handle bulk operations for monorepo
-    if options.all_services {
-        return run_bulk_compile(options);
-    }
+    // Check if using config (when env is specified but no explicit files)
+    let (deployment, definitions, output_path) = if options.env.is_some()
+        && options.deployment.is_none()
+        && options.definitions.is_none()
+        && unified_config::unified_config_exists()
+    {
+        // Use config
+        let env = options.env.as_ref().ok_or_else(|| {
+            CliError::Message("--env must be specified when using config".to_string())
+        })?;
 
-    // Determine file paths
-    let deployment_path = determine_deployment_path(options)?;
-    let output_path = determine_output_path(options, &deployment_path);
-    let definitions_path = determine_definitions_path(options);
+        let unified = unified_config::read_unified_config()?;
+        let definitions = unified_config::extract_definitions(&unified)?;
+        let deployment = unified_config::extract_deployment(&unified, env)?;
 
-    // Read and parse definitions
-    let definitions_content = fs::read_to_string(&definitions_path)
-        .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
-    let definitions = parse_definitions(&definitions_content)?;
+        // Validate
+        validate_definitions(&definitions)
+            .map_err(|e| CliError::Message(format!("Config is invalid: {e}")))?;
+        validate_deployment(&deployment)
+            .map_err(|e| CliError::Message(format!("Deployment for {env} is invalid: {e}")))?;
 
-    // Validate definitions
-    validate_definitions(&definitions)
-        .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
+        let output_path = options
+            .output
+            .as_ref()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(format!(".controlpath/{env}.ast")));
 
-    // Read and parse deployment
-    let deployment_content = fs::read_to_string(&deployment_path)
-        .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
-    let deployment = parse_deployment(&deployment_content)?;
+        (deployment, definitions, output_path)
+    } else {
+        // Use legacy file-based approach
+        let deployment_path = determine_deployment_path(options)?;
+        let output_path = determine_output_path(options, &deployment_path);
+        let definitions_path = determine_definitions_path(options);
 
-    // Validate deployment
-    validate_deployment(&deployment)
-        .map_err(|e| CliError::Message(format!("Deployment file is invalid: {e}")))?;
+        // Read and parse definitions
+        let definitions_content = fs::read_to_string(&definitions_path)
+            .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
+        let definitions = controlpath_compiler::parse_definitions(&definitions_content)?;
+
+        // Validate definitions
+        validate_definitions(&definitions)
+            .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
+
+        // Read and parse deployment
+        let deployment_content = fs::read_to_string(&deployment_path)
+            .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
+        let deployment = controlpath_compiler::parse_deployment(&deployment_content)?;
+
+        // Validate deployment
+        validate_deployment(&deployment)
+            .map_err(|e| CliError::Message(format!("Deployment file is invalid: {e}")))?;
+
+        (deployment, definitions, output_path)
+    };
 
     // Compile to AST
     let artifact = compile(&deployment, &definitions)?;
@@ -175,149 +144,10 @@ fn run_inner(options: &Options) -> CliResult<()> {
     Ok(())
 }
 
-fn run_bulk_compile(_options: &Options) -> CliResult<()> {
-    // Detect workspace root
-    let workspace_root = detect_workspace_root(None)?.ok_or_else(|| {
-        CliError::Message(
-            "Not in a monorepo. --all-services flag only works in monorepo environments"
-                .to_string(),
-        )
-    })?;
-
-    // Discover all services
-    let services = discover_services(&workspace_root)?;
-
-    if services.is_empty() {
-        return Err(CliError::Message(
-            "No services found in monorepo".to_string(),
-        ));
-    }
-
-    println!("Compiling {} service(s)...", services.len());
-
-    let mut total_compiled = 0;
-    let mut total_errors = 0;
-
-    for service in &services {
-        println!("\nService: {}", service.name);
-        println!("  Path: {}", service.relative_path.display());
-
-        let resolver = ServicePathResolver::new(ServiceContext {
-            service: Some(service.clone()),
-            workspace_root: Some(workspace_root.clone()),
-            is_monorepo: true,
-        });
-
-        // Read definitions
-        let definitions_path = resolver.definitions_file();
-        if !definitions_path.exists() {
-            println!("  - Definitions: not found, skipping");
-            continue;
-        }
-
-        let definitions_content = fs::read_to_string(&definitions_path)
-            .map_err(|e| CliError::Message(format!("Failed to read definitions: {e}")))?;
-        let definitions = parse_definitions(&definitions_content)?;
-        validate_definitions(&definitions)
-            .map_err(|e| CliError::Message(format!("Definitions invalid: {e}")))?;
-
-        // Find all deployment files
-        let controlpath_dir = resolver.base_path().join(".controlpath");
-        if !controlpath_dir.exists() {
-            println!("  - Deployments: not found, skipping");
-            continue;
-        }
-
-        let mut service_compiled = 0;
-        let mut service_errors = 0;
-
-        if let Ok(entries) = fs::read_dir(&controlpath_dir) {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".deployment.yaml") {
-                        let env_name = name.strip_suffix(".deployment.yaml").unwrap_or(name);
-                        let deployment_path = entry.path();
-                        let output_path = resolver.ast_file(env_name);
-
-                        match compile_service_deployment(
-                            &deployment_path,
-                            &output_path,
-                            &definitions,
-                        ) {
-                            Ok(()) => {
-                                println!("  ✓ {}: compiled", env_name);
-                                service_compiled += 1;
-                                total_compiled += 1;
-                            }
-                            Err(e) => {
-                                println!("  ✗ {}: failed", env_name);
-                                eprintln!("    Error: {e}");
-                                service_errors += 1;
-                                total_errors += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if service_errors > 0 {
-            println!(
-                "  Service summary: {} compiled, {} errors",
-                service_compiled, service_errors
-            );
-        }
-    }
-
-    println!("\nSummary:");
-    println!("  Compiled: {}", total_compiled);
-    if total_errors > 0 {
-        println!("  Errors: {}", total_errors);
-        return Err(CliError::Message(format!(
-            "Compilation failed for {} deployment(s)",
-            total_errors
-        )));
-    }
-
-    Ok(())
-}
-
-fn compile_service_deployment(
-    deployment_path: &Path,
-    output_path: &Path,
-    definitions: &serde_json::Value,
-) -> CliResult<()> {
-    // Read and parse deployment
-    let deployment_content = fs::read_to_string(deployment_path)
-        .map_err(|e| CliError::Message(format!("Failed to read deployment: {e}")))?;
-    let deployment = parse_deployment(&deployment_content)?;
-
-    // Validate deployment
-    validate_deployment(&deployment)
-        .map_err(|e| CliError::Message(format!("Deployment invalid: {e}")))?;
-
-    // Compile to AST
-    let artifact = compile(&deployment, definitions)?;
-
-    // Serialize to MessagePack
-    let ast_bytes = serialize(&artifact)?;
-
-    // Create output directory if needed
-    if let Some(parent) = output_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-
-    // Write AST file
-    fs::write(output_path, ast_bytes)?;
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::fs;
     use tempfile::TempDir;
 
@@ -328,8 +158,6 @@ mod tests {
             env: None,
             output: None,
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         let path = determine_deployment_path(&options).unwrap();
         assert_eq!(path, PathBuf::from("test.deployment.yaml"));
@@ -342,8 +170,6 @@ mod tests {
             env: Some("production".to_string()),
             output: None,
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         let path = determine_deployment_path(&options).unwrap();
         assert_eq!(
@@ -359,8 +185,6 @@ mod tests {
             env: None,
             output: None,
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         assert!(determine_deployment_path(&options).is_err());
     }
@@ -372,8 +196,6 @@ mod tests {
             env: None,
             output: Some("output.ast".to_string()),
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         let deployment_path = PathBuf::from("test.deployment.yaml");
         let path = determine_output_path(&options, &deployment_path);
@@ -387,8 +209,6 @@ mod tests {
             env: Some("production".to_string()),
             output: None,
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         let deployment_path = PathBuf::from("test.deployment.yaml");
         let path = determine_output_path(&options, &deployment_path);
@@ -402,8 +222,6 @@ mod tests {
             env: None,
             output: None,
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         let deployment_path = PathBuf::from("test.deployment.yaml");
         let path = determine_output_path(&options, &deployment_path);
@@ -417,8 +235,6 @@ mod tests {
             env: None,
             output: None,
             definitions: Some("custom.definitions.yaml".to_string()),
-            service_context: None,
-            all_services: false,
         };
         let path = determine_definitions_path(&options);
         assert_eq!(path, PathBuf::from("custom.definitions.yaml"));
@@ -431,38 +247,36 @@ mod tests {
             env: None,
             output: None,
             definitions: None,
-            service_context: None,
-            all_services: false,
         };
         let path = determine_definitions_path(&options);
         assert_eq!(path, PathBuf::from("flags.definitions.yaml"));
     }
 
     #[test]
+    #[serial]
     fn test_compile_command_success() {
+        use crate::test_helpers::DirGuard;
+
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
-        // Create test files
-        let definitions_path = temp_path.join("flags.definitions.yaml");
+        // Use DirGuard pattern for proper isolation
+        let _guard = DirGuard::new(temp_path).unwrap();
+
+        // Create .controlpath directory for AST output
+        fs::create_dir_all(".controlpath").unwrap();
+
+        // Create config file
         fs::write(
-            &definitions_path,
-            r"flags:
+            "control-path.yaml",
+            r"mode: local
+flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
-",
-        )
-        .unwrap();
-
-        let deployment_path = temp_path.join("test.deployment.yaml");
-        fs::write(
-            &deployment_path,
-            r"environment: test
-rules:
-  test_flag:
-    rules:
-      - serve: true
+    default: false
+    environments:
+      test:
+        - serve: true
 ",
         )
         .unwrap();
@@ -470,15 +284,14 @@ rules:
         let output_path = temp_path.join("test.ast");
 
         let options = Options {
-            deployment: Some(deployment_path.to_str().unwrap().to_string()),
-            env: None,
+            deployment: None,
+            env: Some("test".to_string()),
             output: Some(output_path.to_str().unwrap().to_string()),
-            definitions: Some(definitions_path.to_str().unwrap().to_string()),
-            service_context: None,
-            all_services: false,
+            definitions: None,
         };
 
         let exit_code = run(&options);
+
         assert_eq!(exit_code, 0);
         assert!(output_path.exists());
     }

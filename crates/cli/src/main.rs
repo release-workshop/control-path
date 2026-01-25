@@ -7,14 +7,16 @@
 mod commands;
 mod error;
 mod generator;
-mod monorepo;
 mod ops;
 mod utils;
 
+#[cfg(test)]
+mod test_helpers;
+
 use clap::{CommandFactory, Parser, Subcommand};
 use commands::{
-    ci, compile, completion, debug, dev, env, explain, flag, generate_sdk, init,
-    r#override as override_cmd, services, setup, validate, watch, workflow,
+    ci, compile, completion, debug, dev, env, explain, flag, generate_sdk,
+    r#override as override_cmd, setup, validate, watch, workflow,
 };
 use std::path::PathBuf;
 
@@ -26,14 +28,14 @@ const VERSION: &str = env!("CONTROLPATH_VERSION");
 ///
 /// Control Path is built around three core concepts:
 ///
-/// 1. **Flags** → Flag definitions (`flags.definitions.yaml`)
-///    What flags you have and their types/defaults
+/// 1. **Configuration** → Config file (`control-path.yaml`)
+///    Flags, their types/defaults, and environment-specific rules
 ///
-/// 2. **Environments** → Deployment files (`.controlpath/<env>.deployment.yaml`)
-///    How flags behave per environment (rollout rules, targeting)
-///
-/// 3. **SDK** → Generated code (`./flags/`)
+/// 2. **SDK** → Generated code (`./flags/`)
 ///    Type-safe SDK that your application code imports and uses
+///
+/// 3. **AST Artifacts** → Compiled artifacts (`.controlpath/<env>.ast`)
+///    Compiled flag configurations per environment (generated automatically)
 ///
 /// Everything else (AST artifacts, compiler details) is handled automatically
 /// by the CLI as part of higher-level workflows.
@@ -47,7 +49,7 @@ const VERSION: &str = env!("CONTROLPATH_VERSION");
 ///   validate, compile, generate-sdk
 ///
 /// **Management Commands**:
-///   flag, env, services
+///   flag, env
 ///
 /// **Debug Commands**:
 ///   explain, debug, status
@@ -62,20 +64,6 @@ const VERSION: &str = env!("CONTROLPATH_VERSION");
 #[command(about = "Control Path CLI - Manage feature flags with a Git-native workflow")]
 #[command(version = VERSION)]
 struct Cli {
-    /// Operate on a specific service (monorepo mode)
-    ///
-    /// When in a monorepo, specifies which service to operate on.
-    /// Can be a service name or a path relative to workspace root.
-    #[arg(long, global = true)]
-    service: Option<String>,
-
-    /// Explicitly set workspace root (monorepo mode)
-    ///
-    /// When in a monorepo, explicitly sets the workspace root.
-    /// If not provided, the CLI will auto-detect the workspace root.
-    #[arg(long, global = true)]
-    workspace_root: Option<PathBuf>,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -84,7 +72,7 @@ struct Cli {
 enum Commands {
     /// Validate flag definitions and deployment files
     ///
-    /// Validates flags.definitions.yaml and .controlpath/*.deployment.yaml files
+    /// Validates control-path.yaml file
     /// against JSON schemas. Usually called automatically by deploy and ci commands.
     Validate {
         /// Path to flag definitions file
@@ -93,25 +81,22 @@ enum Commands {
         /// Path to deployment file
         #[arg(long)]
         deployment: Option<String>,
-        /// Environment name (uses .controlpath/<env>.deployment.yaml)
+        /// Environment name (extracts from control-path.yaml)
         #[arg(long)]
         env: Option<String>,
         /// Validate all files (auto-detect)
         #[arg(long)]
         all: bool,
-        /// Validate all services in monorepo
-        #[arg(long)]
-        all_services: bool,
     },
     /// Compile deployment files to AST artifacts
     ///
-    /// Compiles .controlpath/<env>.deployment.yaml → .controlpath/<env>.ast.
+    /// Compiles environment from control-path.yaml → .controlpath/<env>.ast.
     /// Usually called automatically by enable, deploy, dev, and ci commands.
     Compile {
         /// Path to deployment file
         #[arg(long)]
         deployment: Option<String>,
-        /// Environment name (uses .controlpath/<env>.deployment.yaml)
+        /// Environment name (extracts from control-path.yaml)
         #[arg(long)]
         env: Option<String>,
         /// Output path for AST file
@@ -120,27 +105,11 @@ enum Commands {
         /// Path to flag definitions file
         #[arg(long)]
         definitions: Option<String>,
-        /// Compile all services in monorepo
-        #[arg(long)]
-        all_services: bool,
-    },
-    /// Initialize a new Control Path project
-    Init {
-        /// Overwrite existing files
-        #[arg(long)]
-        force: bool,
-        /// Create example flags
-        #[arg(long)]
-        example_flags: bool,
-        /// Skip creating example files
-        #[arg(long)]
-        no_examples: bool,
     },
     /// Setup a new Control Path project (primary bootstrap command)
     ///
     /// One-command setup for new projects. Creates:
-    /// - Flag definitions (flags.definitions.yaml) with example flags
-    /// - Environment deployments (.controlpath/<env>.deployment.yaml)
+    /// - Configuration file (control-path.yaml) with example flags
     /// - Generated SDK (./flags/) for your application code
     ///
     /// Also installs runtime SDK and compiles ASTs automatically.
@@ -176,7 +145,7 @@ enum Commands {
     },
     /// Generate type-safe SDK from flag definitions
     ///
-    /// Reads flags.definitions.yaml and generates the SDK in ./flags/ for your
+    /// Reads control-path.yaml and generates the SDK in ./flags/ for your
     /// application code to import. Usually called automatically by setup, new-flag, dev, and ci.
     GenerateSdk {
         /// Language (typescript, python, etc.)
@@ -188,9 +157,6 @@ enum Commands {
         /// Path to flag definitions file
         #[arg(long)]
         definitions: Option<String>,
-        /// Generate SDKs for all services in monorepo
-        #[arg(long)]
-        all_services: bool,
     },
     /// Watch for file changes and auto-compile/regenerate
     ///
@@ -210,18 +176,18 @@ enum Commands {
         /// Language for SDK generation (default: typescript)
         ///
         /// Required when watching definitions file. Used to determine which SDK
-        /// generator to use when flags.definitions.yaml changes.
+        /// generator to use when control-path.yaml changes.
         #[arg(long)]
         lang: Option<String>,
         /// Watch definitions file only
         ///
-        /// When set, only watches flags.definitions.yaml and regenerates the SDK
+        /// When set, only watches control-path.yaml and regenerates the SDK
         /// when it changes. Requires --lang to be specified.
         #[arg(long)]
         definitions: bool,
         /// Watch deployment files only
         ///
-        /// When set, only watches .controlpath/*.deployment.yaml files and
+        /// When set, only watches control-path.yaml and recompiles ASTs for
         /// recompiles ASTs when they change.
         #[arg(long)]
         deployments: bool,
@@ -400,7 +366,7 @@ enum Commands {
     },
     /// Complete workflow for adding a new flag
     ///
-    /// Adds a flag to definitions (flags.definitions.yaml), syncs to environments,
+    /// Adds a flag to control-path.yaml and optionally enables it in environments
     /// and regenerates the SDK (./flags/). Optionally enables and deploys in one step.
     NewFlag {
         /// Flag name (optional, prompts if not provided)
@@ -418,16 +384,13 @@ enum Commands {
         /// Enable flag in specific environment(s) (comma-separated)
         #[arg(long)]
         enable_in: Option<String>,
-        /// Don't sync to environments
-        #[arg(long)]
-        skip_sync: bool,
         /// Don't regenerate SDK
         #[arg(long)]
         skip_sdk: bool,
     },
     /// Enable a flag in one or more environments
     ///
-    /// Updates deployment files (.controlpath/<env>.deployment.yaml) with rollout rules
+    /// Updates control-path.yaml with rollout rules for specified environments
     /// and automatically compiles ASTs for the affected environments.
     Enable {
         /// Flag name (required)
@@ -466,9 +429,6 @@ enum Commands {
         /// Skip validation step
         #[arg(long)]
         skip_validation: bool,
-        /// Deploy all services in monorepo
-        #[arg(long)]
-        all_services: bool,
     },
     /// Manage override files (kill switches)
     ///
@@ -491,32 +451,6 @@ enum Commands {
         #[command(subcommand)]
         subcommand: OverrideSubcommand,
     },
-    /// Manage services in a monorepo
-    ///
-    /// Commands for listing and checking status of services in a monorepo.
-    ///
-    /// Examples:
-    ///   # List all services
-    ///   controlpath services list
-    ///
-    ///   # List with detailed information
-    ///   controlpath services list --detailed
-    ///
-    ///   # List as JSON
-    ///   controlpath services list --format json
-    ///
-    ///   # Check status of all services
-    ///   controlpath services status
-    ///
-    ///   # Check status of specific service
-    ///   controlpath services status --service service-a
-    ///
-    ///   # Check sync status
-    ///   controlpath services status --check-sync
-    Services {
-        #[command(subcommand)]
-        subcommand: ServicesSubcommand,
-    },
     /// Generate shell completion scripts
     Completion {
         /// Shell type (bash, zsh, fish)
@@ -529,7 +463,7 @@ enum Commands {
 enum FlagSubcommand {
     /// Add a new flag to definitions and sync to deployments
     ///
-    /// Adds a flag to flags.definitions.yaml and optionally syncs it to all
+    /// Adds a flag to control-path.yaml
     /// deployment files. Runs in interactive mode by default, prompting for
     /// missing values.
     ///
@@ -602,7 +536,7 @@ enum FlagSubcommand {
     List {
         /// List from definitions file
         ///
-        /// When set, lists flags from flags.definitions.yaml.
+        /// When set, lists flags from control-path.yaml.
         /// This is the default behavior if no flags are specified.
         #[arg(long)]
         definitions: bool,
@@ -652,7 +586,7 @@ enum FlagSubcommand {
     },
     /// Remove a flag from definitions and deployments
     ///
-    /// Removes a flag from flags.definitions.yaml and optionally from deployment files.
+    /// Removes a flag from control-path.yaml.
     /// Shows a confirmation prompt unless --force is used.
     ///
     /// Examples:
@@ -781,7 +715,7 @@ enum OverrideSubcommand {
 enum EnvSubcommand {
     /// Add a new environment
     ///
-    /// Creates a new deployment environment by creating a .controlpath/<name>.deployment.yaml
+    /// Adds a new environment (flags can be enabled in this environment via control-path.yaml)
     /// file. Can optionally copy flags from a template environment.
     ///
     /// Examples:
@@ -816,7 +750,7 @@ enum EnvSubcommand {
     },
     /// Sync flags from definitions to deployment files
     ///
-    /// Synchronizes flags from flags.definitions.yaml to deployment files.
+    /// Synchronizes flags across environments in control-path.yaml.
     /// Adds missing flags (disabled by default) and optionally removes flags
     /// that no longer exist in definitions.
     ///
@@ -862,7 +796,7 @@ enum EnvSubcommand {
     },
     /// Remove an environment
     ///
-    /// Removes a deployment environment by deleting its .controlpath/<name>.deployment.yaml
+    /// Removes an environment (removes all rules for that environment from control-path.yaml)
     /// file. Shows a confirmation prompt unless --force is used.
     ///
     /// Examples:
@@ -885,53 +819,6 @@ enum EnvSubcommand {
     },
 }
 
-#[derive(Subcommand)]
-enum ServicesSubcommand {
-    /// List all services in monorepo
-    ///
-    /// Lists all services found in the monorepo. Can show simple or detailed information.
-    ///
-    /// Examples:
-    ///   # List all services
-    ///   controlpath services list
-    ///
-    ///   # List with detailed information
-    ///   controlpath services list --detailed
-    ///
-    ///   # List as JSON
-    ///   controlpath services list --format json
-    List {
-        /// Show detailed information (flag counts, environments, etc.)
-        #[arg(long)]
-        detailed: bool,
-        /// Output format (table, json)
-        #[arg(long, default_value = "table")]
-        format: String,
-    },
-    /// Show status of services
-    ///
-    /// Shows status information for services, including flag definitions, deployments,
-    /// environments, and SDK generation status. Can optionally check sync status.
-    ///
-    /// Examples:
-    ///   # Check status of all services
-    ///   controlpath services status
-    ///
-    ///   # Check status of specific service
-    ///   controlpath services status --service service-a
-    ///
-    ///   # Check sync status
-    ///   controlpath services status --check-sync
-    Status {
-        /// Specific service to check (shows all if not provided)
-        #[arg(long)]
-        service: Option<String>,
-        /// Check sync status between definitions and deployments
-        #[arg(long)]
-        check_sync: bool,
-    },
-}
-
 /// Get the CLI command structure for completion generation
 pub fn get_cli_command() -> clap::Command {
     Cli::command()
@@ -940,29 +827,18 @@ pub fn get_cli_command() -> clap::Command {
 fn main() {
     let cli = Cli::parse();
 
-    // Resolve service context for monorepo support
-    let service_context =
-        monorepo::resolve_service_context(cli.service.as_deref(), cli.workspace_root.as_deref())
-            .unwrap_or_else(|e| {
-                eprintln!("Error resolving service context: {e}");
-                std::process::exit(1);
-            });
-
     let exit_code = match cli.command {
         Commands::Validate {
             definitions,
             deployment,
             env,
             all,
-            all_services,
         } => {
             let opts = validate::Options {
                 definitions,
                 deployment,
                 env,
                 all,
-                all_services,
-                service_context: Some(service_context.clone()),
             };
             validate::run(&opts)
         }
@@ -971,29 +847,14 @@ fn main() {
             env,
             output,
             definitions,
-            all_services,
         } => {
             let opts = compile::Options {
                 deployment,
                 env,
                 output,
                 definitions,
-                service_context: Some(service_context.clone()),
-                all_services,
             };
             compile::run(&opts)
-        }
-        Commands::Init {
-            force,
-            example_flags,
-            no_examples,
-        } => {
-            let opts = init::Options {
-                force,
-                example_flags,
-                no_examples,
-            };
-            init::run(&opts)
         }
         Commands::Setup {
             lang,
@@ -1011,14 +872,11 @@ fn main() {
             lang,
             output,
             definitions,
-            all_services,
         } => {
             let opts = generate_sdk::Options {
                 lang,
                 output,
                 definitions,
-                all_services,
-                service_context: Some(service_context.clone()),
             };
             generate_sdk::run(&opts)
         }
@@ -1048,7 +906,6 @@ fn main() {
                 envs,
                 no_sdk,
                 no_validate,
-                service_context: Some(service_context.clone()),
             };
             ci::run(&opts)
         }
@@ -1206,7 +1063,6 @@ fn main() {
             default,
             description,
             enable_in,
-            skip_sync,
             skip_sdk,
         } => {
             let opts = workflow::NewFlagOptions {
@@ -1215,7 +1071,6 @@ fn main() {
                 default,
                 description,
                 enable_in,
-                skip_sync,
                 skip_sdk,
             };
             workflow::run_new_flag(&opts)
@@ -1244,14 +1099,11 @@ fn main() {
             env,
             dry_run,
             skip_validation,
-            all_services,
         } => {
             let opts = workflow::DeployOptions {
                 env,
                 dry_run,
                 skip_validation,
-                all_services,
-                service_context: Some(service_context.clone()),
             };
             workflow::run_deploy(&opts)
         }
@@ -1293,36 +1145,6 @@ fn main() {
                 subcommand: override_subcommand,
             };
             override_cmd::run(&opts)
-        }
-        Commands::Services { subcommand } => {
-            let services_subcommand = match subcommand {
-                ServicesSubcommand::List { detailed, format } => {
-                    // Detect TTY for format selection
-                    let format_str = if format == "table" && !atty::is(atty::Stream::Stdout) {
-                        "json".to_string()
-                    } else {
-                        format
-                    };
-                    let output_format = services::OutputFormat::from_str(&format_str)
-                        .unwrap_or(services::OutputFormat::Table);
-                    services::ServicesSubcommand::List {
-                        detailed,
-                        format: output_format,
-                    }
-                }
-                ServicesSubcommand::Status {
-                    service,
-                    check_sync,
-                } => services::ServicesSubcommand::Status {
-                    service,
-                    check_sync,
-                },
-            };
-
-            let opts = services::Options {
-                subcommand: services_subcommand,
-            };
-            services::run(&opts)
         }
         Commands::Completion { shell } => {
             let opts = completion::Options { shell };

@@ -9,7 +9,7 @@
  * This module handles rule matching and expression evaluation.
  */
 
-import type { Artifact, Rule, Expression, User, Context, Variation } from './types';
+import type { Artifact, Rule, Expression, Attributes, Variation } from './types';
 import {
   RuleType,
   ExpressionType,
@@ -22,20 +22,14 @@ import {
 import * as semver from 'semver';
 
 /**
- * Evaluate a flag by index using the provided artifact, user, and context.
+ * Evaluate a flag by index using the provided artifact and attributes.
  * Returns the evaluated value or undefined if no rules match.
  * @param flagIndex - The index of the flag in the flags array
  * @param artifact - The AST artifact containing flag definitions
- * @param user - User object with identity and attributes
- * @param context - Optional context object with environmental data
+ * @param attributes - Optional attributes object with user identity, attributes, and context
  * @returns The evaluated value or undefined if no rules match
  */
-export function evaluate(
-  flagIndex: number,
-  artifact: Artifact,
-  user: User,
-  context?: Context
-): unknown {
+export function evaluate(flagIndex: number, artifact: Artifact, attributes?: Attributes): unknown {
   // Type guard: ensure flags exists and is an array
   if (!Array.isArray(artifact.flags) || flagIndex < 0 || flagIndex >= artifact.flags.length) {
     return undefined;
@@ -48,7 +42,7 @@ export function evaluate(
 
   // Iterate through rules in order - first matching rule wins
   for (const rule of flagRules) {
-    const result = evaluateRule(rule, artifact, user, context);
+    const result = evaluateRule(rule, artifact, attributes);
     if (result !== undefined) {
       return result;
     }
@@ -58,20 +52,14 @@ export function evaluate(
 }
 
 /**
- * Evaluate a single rule against user and context.
+ * Evaluate a single rule against attributes.
  * Returns the rule's payload value if the rule matches, undefined otherwise.
  * @param rule - The rule to evaluate
  * @param artifact - The AST artifact containing flag definitions and string table
- * @param user - User object with identity and attributes
- * @param context - Optional context object with environmental data
+ * @param attributes - Optional attributes object with user identity, attributes, and context
  * @returns The rule's payload value if the rule matches, undefined otherwise
  */
-export function evaluateRule(
-  rule: Rule,
-  artifact: Artifact,
-  user: User,
-  context?: Context
-): unknown {
+export function evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attributes): unknown {
   if (!Array.isArray(rule) || rule.length < 2) {
     return undefined;
   }
@@ -85,7 +73,7 @@ export function evaluateRule(
 
   // Evaluate when clause if present (check for both undefined and null since Rust serializes None as null)
   if (when !== undefined && when !== null) {
-    const whenResult = evaluateExpression(when, artifact, user, context);
+    const whenResult = evaluateExpression(when, artifact, attributes);
     if (!whenResult) {
       // When clause doesn't match, skip this rule
       return undefined;
@@ -109,7 +97,7 @@ export function evaluateRule(
       }
       // Type guard: ensure payload is Variation[]
       const variations = payload as Variation[];
-      return selectVariation(variations, artifact, user);
+      return selectVariation(variations, artifact, attributes);
     }
 
     case RuleType.ROLLOUT: {
@@ -119,7 +107,7 @@ export function evaluateRule(
       }
       const rolloutPayload = payload as [string | number, number];
       const [valueIndex, pct] = rolloutPayload;
-      if (selectRollout(user, pct)) {
+      if (selectRollout(pct, attributes)) {
         if (typeof valueIndex === 'number') {
           return artifact.strs[valueIndex];
         }
@@ -134,19 +122,17 @@ export function evaluateRule(
 }
 
 /**
- * Evaluate an expression against user and context.
+ * Evaluate an expression against attributes.
  * Returns the boolean result of the expression.
  * @param expr - The expression to evaluate
  * @param artifact - The AST artifact containing string table
- * @param user - User object with identity and attributes
- * @param context - Optional context object with environmental data
+ * @param attributes - Optional attributes object with user identity, attributes, and context
  * @returns The boolean result of the expression
  */
 export function evaluateExpression(
   expr: Expression,
   artifact: Artifact,
-  user: User,
-  context?: Context
+  attributes?: Attributes
 ): boolean {
   if (!Array.isArray(expr) || expr.length < 2) {
     return false;
@@ -166,8 +152,8 @@ export function evaluateExpression(
       if (!isExpression(leftExpr) || !isExpression(rightExpr)) {
         return false;
       }
-      const left = evaluateExpressionValue(leftExpr, artifact, user, context);
-      const right = evaluateExpressionValue(rightExpr, artifact, user, context);
+      const left = evaluateExpressionValue(leftExpr, artifact, attributes);
+      const right = evaluateExpressionValue(rightExpr, artifact, attributes);
       return evaluateBinaryOp(opCode as number, left, right);
     }
 
@@ -180,7 +166,7 @@ export function evaluateExpression(
       if (!isExpression(leftExpr)) {
         return false;
       }
-      const left = evaluateExpression(leftExpr, artifact, user, context);
+      const left = evaluateExpression(leftExpr, artifact, attributes);
 
       if (opCode === LogicalOp.NOT) {
         // NOT has no right operand
@@ -194,7 +180,7 @@ export function evaluateExpression(
       if (!isExpression(rightExpr)) {
         return false;
       }
-      const right = evaluateExpression(rightExpr, artifact, user, context);
+      const right = evaluateExpression(rightExpr, artifact, attributes);
 
       switch (opCode) {
         case LogicalOp.AND:
@@ -216,7 +202,7 @@ export function evaluateExpression(
       if (!propPath) {
         return false;
       }
-      const value = getProperty(propPath, user, context);
+      const value = getProperty(propPath, attributes);
       return Boolean(value);
     }
 
@@ -246,8 +232,7 @@ export function evaluateExpression(
         funcCode as number,
         args as Expression[],
         artifact,
-        user,
-        context
+        attributes
       );
       // Coerce function result to boolean
       return Boolean(result);
@@ -265,8 +250,7 @@ export function evaluateExpression(
 function evaluateExpressionValue(
   expr: Expression,
   artifact: Artifact,
-  user: User,
-  context?: Context
+  attributes?: Attributes
 ): unknown {
   if (!Array.isArray(expr) || expr.length < 2) {
     return undefined;
@@ -283,7 +267,7 @@ function evaluateExpressionValue(
       if (!propPath) {
         return undefined;
       }
-      return getProperty(propPath, user, context);
+      return getProperty(propPath, attributes);
     }
 
     case ExpressionType.LITERAL: {
@@ -300,7 +284,7 @@ function evaluateExpressionValue(
       if (!Array.isArray(args)) {
         return undefined;
       }
-      return evaluateFunction(funcCode as number, args as Expression[], artifact, user, context);
+      return evaluateFunction(funcCode as number, args as Expression[], artifact, attributes);
     }
 
     default:
@@ -448,10 +432,14 @@ function coerceToBoolean(value: unknown): boolean | null {
 }
 
 /**
- * Get a property value from user or context using dot notation.
+ * Get a property value from attributes using dot notation.
  * Rejects prototype-polluting property paths for security.
  */
-function getProperty(propPath: string, user: User, context?: Context): unknown {
+function getProperty(propPath: string, attributes?: Attributes): unknown {
+  if (!attributes) {
+    return undefined;
+  }
+
   const parts = propPath.split('.');
   if (parts.length === 0) {
     return undefined;
@@ -466,29 +454,10 @@ function getProperty(propPath: string, user: User, context?: Context): unknown {
     return undefined;
   }
 
-  // First part determines the root object
-  const root = parts[0];
-  let obj: unknown;
+  // Navigate properties directly from attributes object
+  let obj: unknown = attributes;
 
-  if (root === 'user') {
-    obj = user;
-  } else if (root === 'context' && context) {
-    obj = context;
-  } else {
-    // Try user first, then context
-    const userRecord: Record<string, unknown> = user as Record<string, unknown>;
-    const contextRecord: Record<string, unknown> | undefined = context
-      ? (context as Record<string, unknown>)
-      : undefined;
-    obj = userRecord[root] ?? contextRecord?.[root];
-  }
-
-  if (obj === undefined || obj === null) {
-    return undefined;
-  }
-
-  // Navigate nested properties
-  for (let i = 1; i < parts.length; i++) {
+  for (let i = 0; i < parts.length; i++) {
     if (typeof obj !== 'object' || obj === null) {
       return undefined;
     }
@@ -505,7 +474,11 @@ function getProperty(propPath: string, user: User, context?: Context): unknown {
 /**
  * Select a variation based on user ID hash.
  */
-function selectVariation(variations: Variation[], artifact: Artifact, user: User): unknown {
+function selectVariation(
+  variations: Variation[],
+  artifact: Artifact,
+  attributes?: Attributes
+): unknown {
   if (!variations || variations.length === 0) {
     return undefined;
   }
@@ -519,7 +492,7 @@ function selectVariation(variations: Variation[], artifact: Artifact, user: User
   };
 
   // Use user ID for consistent hashing
-  const userId = user.id || '';
+  const userId = attributes?.id || '';
   const hash = hashString(userId);
 
   // Calculate total percentage
@@ -552,7 +525,7 @@ function selectVariation(variations: Variation[], artifact: Artifact, user: User
 /**
  * Select rollout based on percentage.
  */
-function selectRollout(user: User, pct: number): boolean {
+function selectRollout(pct: number, attributes?: Attributes): boolean {
   if (pct <= 0) {
     return false;
   }
@@ -561,7 +534,7 @@ function selectRollout(user: User, pct: number): boolean {
   }
 
   // Use user ID for consistent hashing
-  const userId = user.id || '';
+  const userId = attributes?.id || '';
   const hash = hashString(userId);
   const bucket = hash % 100;
 
@@ -588,16 +561,14 @@ function hashString(str: string): number {
  * @param funcCode - Function code from FuncCode enum
  * @param args - Function arguments (expressions)
  * @param artifact - AST artifact containing string table and segments
- * @param user - User object
- * @param context - Optional context object
+ * @param attributes - Optional attributes object with user identity, attributes, and context
  * @returns Function result (type depends on function)
  */
 function evaluateFunction(
   funcCode: number,
   args: Expression[],
   artifact: Artifact,
-  user: User,
-  context?: Context
+  attributes?: Attributes
 ): unknown {
   switch (funcCode) {
     // String functions
@@ -605,8 +576,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const str = evaluateExpressionValue(args[0], artifact, user, context);
-      const prefix = evaluateExpressionValue(args[1], artifact, user, context);
+      const str = evaluateExpressionValue(args[0], artifact, attributes);
+      const prefix = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof str !== 'string' || typeof prefix !== 'string') {
         return false;
       }
@@ -617,8 +588,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const str = evaluateExpressionValue(args[0], artifact, user, context);
-      const suffix = evaluateExpressionValue(args[1], artifact, user, context);
+      const str = evaluateExpressionValue(args[0], artifact, attributes);
+      const suffix = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof str !== 'string' || typeof suffix !== 'string') {
         return false;
       }
@@ -629,8 +600,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const container = evaluateExpressionValue(args[0], artifact, user, context);
-      const value = evaluateExpressionValue(args[1], artifact, user, context);
+      const container = evaluateExpressionValue(args[0], artifact, attributes);
+      const value = evaluateExpressionValue(args[1], artifact, attributes);
 
       // Support both string and array containers
       if (typeof container === 'string' && typeof value === 'string') {
@@ -646,8 +617,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const str = evaluateExpressionValue(args[0], artifact, user, context);
-      const pattern = evaluateExpressionValue(args[1], artifact, user, context);
+      const str = evaluateExpressionValue(args[0], artifact, attributes);
+      const pattern = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof str !== 'string' || typeof pattern !== 'string') {
         return false;
       }
@@ -664,7 +635,7 @@ function evaluateFunction(
       if (args.length < 1) {
         return '';
       }
-      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      const str = evaluateExpressionValue(args[0], artifact, attributes);
       if (typeof str !== 'string') {
         return String(str).toUpperCase();
       }
@@ -675,7 +646,7 @@ function evaluateFunction(
       if (args.length < 1) {
         return '';
       }
-      const str = evaluateExpressionValue(args[0], artifact, user, context);
+      const str = evaluateExpressionValue(args[0], artifact, attributes);
       if (typeof str !== 'string') {
         return String(str).toLowerCase();
       }
@@ -686,7 +657,7 @@ function evaluateFunction(
       if (args.length < 1) {
         return 0;
       }
-      const value = evaluateExpressionValue(args[0], artifact, user, context);
+      const value = evaluateExpressionValue(args[0], artifact, attributes);
       if (typeof value === 'string' || Array.isArray(value)) {
         return value.length;
       }
@@ -698,8 +669,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const value = evaluateExpressionValue(args[0], artifact, user, context);
-      const list = evaluateExpressionValue(args[1], artifact, user, context);
+      const value = evaluateExpressionValue(args[0], artifact, attributes);
+      const list = evaluateExpressionValue(args[1], artifact, attributes);
       if (!Array.isArray(list)) {
         return false;
       }
@@ -710,8 +681,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const arr1 = evaluateExpressionValue(args[0], artifact, user, context);
-      const arr2 = evaluateExpressionValue(args[1], artifact, user, context);
+      const arr1 = evaluateExpressionValue(args[0], artifact, attributes);
+      const arr2 = evaluateExpressionValue(args[1], artifact, attributes);
       if (!Array.isArray(arr1) || !Array.isArray(arr2)) {
         return false;
       }
@@ -723,8 +694,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
-      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      const v1 = evaluateExpressionValue(args[0], artifact, attributes);
+      const v2 = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof v1 !== 'string' || typeof v2 !== 'string') {
         return false;
       }
@@ -739,8 +710,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
-      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      const v1 = evaluateExpressionValue(args[0], artifact, attributes);
+      const v2 = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof v1 !== 'string' || typeof v2 !== 'string') {
         return false;
       }
@@ -755,8 +726,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
-      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      const v1 = evaluateExpressionValue(args[0], artifact, attributes);
+      const v2 = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof v1 !== 'string' || typeof v2 !== 'string') {
         return false;
       }
@@ -771,8 +742,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
-      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      const v1 = evaluateExpressionValue(args[0], artifact, attributes);
+      const v2 = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof v1 !== 'string' || typeof v2 !== 'string') {
         return false;
       }
@@ -787,8 +758,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const v1 = evaluateExpressionValue(args[0], artifact, user, context);
-      const v2 = evaluateExpressionValue(args[1], artifact, user, context);
+      const v1 = evaluateExpressionValue(args[0], artifact, attributes);
+      const v2 = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof v1 !== 'string' || typeof v2 !== 'string') {
         return false;
       }
@@ -805,8 +776,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return 0;
       }
-      const id = evaluateExpressionValue(args[0], artifact, user, context);
-      const buckets = evaluateExpressionValue(args[1], artifact, user, context);
+      const id = evaluateExpressionValue(args[0], artifact, attributes);
+      const buckets = evaluateExpressionValue(args[1], artifact, attributes);
 
       const idStr = String(id ?? '');
       const bucketsNum = typeof buckets === 'number' ? buckets : Number(buckets);
@@ -827,7 +798,7 @@ function evaluateFunction(
       }
       // Return first non-null value
       for (const arg of args) {
-        const value = evaluateExpressionValue(arg, artifact, user, context);
+        const value = evaluateExpressionValue(arg, artifact, attributes);
         if (value !== null && value !== undefined) {
           return value;
         }
@@ -840,8 +811,8 @@ function evaluateFunction(
       if (args.length < 2) {
         return false;
       }
-      const start = evaluateExpressionValue(args[0], artifact, user, context);
-      const end = evaluateExpressionValue(args[1], artifact, user, context);
+      const start = evaluateExpressionValue(args[0], artifact, attributes);
+      const end = evaluateExpressionValue(args[1], artifact, attributes);
       if (typeof start !== 'string' || typeof end !== 'string') {
         return false;
       }
@@ -859,7 +830,7 @@ function evaluateFunction(
       if (args.length < 1) {
         return false;
       }
-      const timestamp = evaluateExpressionValue(args[0], artifact, user, context);
+      const timestamp = evaluateExpressionValue(args[0], artifact, attributes);
       if (typeof timestamp !== 'string') {
         return false;
       }
@@ -875,7 +846,7 @@ function evaluateFunction(
       if (args.length < 1) {
         return false;
       }
-      const timestamp = evaluateExpressionValue(args[0], artifact, user, context);
+      const timestamp = evaluateExpressionValue(args[0], artifact, attributes);
       if (typeof timestamp !== 'string') {
         return false;
       }
@@ -919,8 +890,8 @@ function evaluateFunction(
         return false;
       }
       // First arg is user (we ignore it since we have user in scope)
-      const _userArg = evaluateExpressionValue(args[0], artifact, user, context);
-      const segmentName = evaluateExpressionValue(args[1], artifact, user, context);
+      const _userArg = evaluateExpressionValue(args[0], artifact, attributes);
+      const segmentName = evaluateExpressionValue(args[1], artifact, attributes);
 
       // First arg should be user (we can ignore it since we have user in scope)
       // Second arg is segment name (string table index or string)
@@ -950,7 +921,7 @@ function evaluateFunction(
 
       // Evaluate segment expression (same as when clause)
       const [, segmentExpr] = segment;
-      return evaluateExpression(segmentExpr, artifact, user, context);
+      return evaluateExpression(segmentExpr, artifact, attributes);
     }
 
     default:

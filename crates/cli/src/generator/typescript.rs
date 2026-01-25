@@ -280,8 +280,7 @@ impl TypeScriptGenerator {
   "main": "index.js",
   "types": "index.d.ts",
   "dependencies": {
-    "@controlpath/runtime": "^0.1.0",
-    "@openfeature/server-sdk": "^1.20.1"
+    "@controlpath/runtime": "^0.1.0"
   }
 }"#
         .to_string()

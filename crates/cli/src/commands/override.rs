@@ -594,31 +594,14 @@ mod tests {
     use serial_test::serial;
     use tempfile::TempDir;
 
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
+    use crate::test_helpers::DirGuard;
 
     #[test]
     #[serial]
     fn test_set_override() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -655,7 +638,7 @@ mod tests {
     fn test_clear_override() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -693,7 +676,7 @@ mod tests {
     fn test_list_overrides() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -751,7 +734,7 @@ mod tests {
     fn test_set_override_with_definitions_boolean() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create flag definitions file
         fs::write(
@@ -759,7 +742,7 @@ mod tests {
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -791,7 +774,7 @@ mod tests {
     fn test_set_override_with_definitions_multivariate() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create flag definitions file with multivariate flag
         fs::write(
@@ -799,7 +782,7 @@ mod tests {
             r"flags:
   - name: api_version
     type: multivariate
-    defaultValue: V1
+    default: V1
     variations:
       - name: V1
         value: v1
@@ -838,7 +821,7 @@ mod tests {
     fn test_set_override_invalid_boolean_value() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create flag definitions file
         fs::write(
@@ -846,7 +829,7 @@ mod tests {
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -873,7 +856,7 @@ mod tests {
     fn test_set_override_invalid_multivariate_value() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create flag definitions file with multivariate flag
         fs::write(
@@ -881,7 +864,7 @@ mod tests {
             r"flags:
   - name: api_version
     type: multivariate
-    defaultValue: V1
+    default: V1
     variations:
       - name: V1
         value: v1
@@ -913,7 +896,7 @@ mod tests {
     fn test_set_override_flag_not_in_definitions() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create flag definitions file
         fs::write(
@@ -921,7 +904,7 @@ mod tests {
             r"flags:
   - name: other_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -948,7 +931,7 @@ mod tests {
     fn test_read_override_file_invalid_json() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -969,7 +952,7 @@ mod tests {
     fn test_write_override_file_schema_validation_failure() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -990,7 +973,7 @@ mod tests {
     fn test_write_override_file_schema_validation_invalid_version() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1012,7 +995,7 @@ mod tests {
     fn test_list_overrides_with_invalid_file() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1034,7 +1017,7 @@ mod tests {
     fn test_list_overrides_with_schema_warning() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1083,14 +1066,14 @@ mod tests {
     fn test_set_override_all_boolean_variants() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             temp_path.join("flags.definitions.yaml"),
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1137,7 +1120,7 @@ mod tests {
     fn test_clear_nonexistent_override() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1157,7 +1140,7 @@ mod tests {
     fn test_set_override_multivariate_no_variations() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create flag definitions file with multivariate flag but no variations
         fs::write(
@@ -1165,7 +1148,7 @@ mod tests {
             r"flags:
   - name: api_version
     type: multivariate
-    defaultValue: V1
+    default: V1
 ",
         )
         .unwrap();
@@ -1192,7 +1175,7 @@ mod tests {
     fn test_list_empty_overrides() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1220,7 +1203,7 @@ mod tests {
     fn test_set_override_with_simple_format() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1250,7 +1233,7 @@ mod tests {
     fn test_history_command_display_all() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1294,7 +1277,7 @@ mod tests {
     fn test_history_command_filter_by_flag() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 
@@ -1338,7 +1321,7 @@ mod tests {
     fn test_history_command_no_overrides() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let override_file = temp_path.join("overrides.json");
 

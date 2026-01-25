@@ -1,11 +1,8 @@
 //! Reusable compile operations
 
 use crate::error::{CliError, CliResult};
-use crate::monorepo::ServiceContext;
-use controlpath_compiler::{
-    compile, parse_definitions, parse_deployment, serialize, validate_definitions,
-    validate_deployment,
-};
+use crate::utils::unified_config;
+use controlpath_compiler::{compile, serialize, validate_definitions, validate_deployment};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,8 +10,6 @@ use std::path::{Path, PathBuf};
 pub struct CompileOptions {
     /// Environment names to compile (if None, compiles all found)
     pub envs: Option<Vec<String>>,
-    /// Service context for monorepo support
-    pub service_context: Option<ServiceContext>,
     /// Skip validation before compilation
     pub skip_validation: bool,
 }
@@ -26,113 +21,62 @@ pub struct CompileOptions {
 /// 2. Compiles each environment's deployment to an AST file
 /// 3. Writes AST files to `.controlpath/<env>.ast`
 pub fn compile_envs(options: &CompileOptions) -> CliResult<Vec<String>> {
-    use crate::monorepo::ServicePathResolver;
+    // Path resolution simplified - always use project root
 
-    let resolver = options
-        .service_context
-        .as_ref()
-        .map(|ctx| ServicePathResolver::new(ctx.clone()));
+    // Read config
+    let unified = unified_config::read_unified_config()?;
+
+    // Extract definitions from config
+    let definitions = unified_config::extract_definitions(&unified)?;
+
+    // Validate definitions
+    if !options.skip_validation {
+        validate_definitions(&definitions)
+            .map_err(|e| CliError::Message(format!("Config is invalid: {e}")))?;
+    }
 
     // Determine which environments to compile
     let envs = if let Some(ref envs) = options.envs {
         envs.clone()
     } else {
-        // Find all deployment files
-        let controlpath_dir = if let Some(ref r) = resolver {
-            r.base_path().join(".controlpath")
-        } else {
-            PathBuf::from(".controlpath")
-        };
-
-        if !controlpath_dir.exists() {
-            return Err(CliError::Message(
-                "No .controlpath directory found. Run 'controlpath init' first.".to_string(),
-            ));
-        }
-
-        let mut found_envs = Vec::new();
-        if let Ok(entries) = fs::read_dir(&controlpath_dir) {
-            for entry in entries.flatten() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".deployment.yaml") {
-                        if let Some(env_name) = name.strip_suffix(".deployment.yaml") {
-                            found_envs.push(env_name.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
+        // Get all environments from config
+        let found_envs = unified_config::get_environments(&unified);
         if found_envs.is_empty() {
             return Err(CliError::Message(
-                "No deployment files found. Run 'controlpath env add --name <env>' to create one."
+                "No environments found in config. Add flags with environment rules first."
                     .to_string(),
             ));
         }
-
         found_envs
     };
-
-    // Determine paths
-    let definitions_path = if let Some(ref r) = resolver {
-        r.definitions_file()
-    } else {
-        PathBuf::from("flags.definitions.yaml")
-    };
-
-    if !definitions_path.exists() {
-        return Err(CliError::Message(format!(
-            "Definitions file not found: {}",
-            definitions_path.display()
-        )));
-    }
-
-    // Read and parse definitions
-    let definitions_content = fs::read_to_string(&definitions_path)
-        .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
-    let definitions = parse_definitions(&definitions_content)?;
-
-    // Validate definitions
-    if !options.skip_validation {
-        validate_definitions(&definitions)
-            .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
-    }
 
     // Compile each environment
     let mut compiled_envs = Vec::new();
     let mut missing_envs = Vec::new();
     for env in &envs {
-        let deployment_path = if let Some(ref r) = resolver {
-            r.deployment_file(env)
-        } else {
-            PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))
+        // Extract deployment for this environment
+        let deployment = match unified_config::extract_deployment(&unified, env) {
+            Ok(dep) => dep,
+            Err(e) => {
+                if options.envs.is_some() {
+                    return Err(CliError::Message(format!(
+                        "Failed to extract deployment for environment '{env}': {e}"
+                    )));
+                }
+                missing_envs.push(env.clone());
+                continue;
+            }
         };
 
-        if !deployment_path.exists() {
-            // If environments were explicitly requested, fail fast
-            if options.envs.is_some() {
-                return Err(CliError::Message(format!(
-                    "Deployment file not found for environment '{env}': {}",
-                    deployment_path.display()
-                )));
-            }
-            // Otherwise, just skip and collect missing ones
-            missing_envs.push(env.clone());
-            continue;
+        // Validate deployment (unless skipped)
+        if !options.skip_validation {
+            validate_deployment(&deployment)
+                .map_err(|e| CliError::Message(format!("Deployment for {env} is invalid: {e}")))?;
         }
 
-        let output_path = if let Some(ref r) = resolver {
-            r.ast_file(env)
-        } else {
-            PathBuf::from(format!(".controlpath/{env}.ast"))
-        };
+        let output_path = PathBuf::from(format!(".controlpath/{env}.ast"));
 
-        match compile_single_env(
-            &deployment_path,
-            &output_path,
-            &definitions,
-            options.skip_validation,
-        ) {
+        match compile_single_env_from_values(&deployment, &output_path, &definitions) {
             Ok(()) => {
                 compiled_envs.push(env.clone());
             }
@@ -145,7 +89,7 @@ pub fn compile_envs(options: &CompileOptions) -> CliResult<Vec<String>> {
     // Warn about missing environments if we were auto-discovering
     if !missing_envs.is_empty() && options.envs.is_none() {
         eprintln!(
-            "⚠ Warning: Skipped {} environment(s) with missing deployment files: {}",
+            "⚠ Warning: Skipped {} environment(s) with no rules defined: {}",
             missing_envs.len(),
             missing_envs.join(", ")
         );
@@ -154,33 +98,22 @@ pub fn compile_envs(options: &CompileOptions) -> CliResult<Vec<String>> {
     // Validate that we compiled at least one environment
     if compiled_envs.is_empty() {
         return Err(CliError::Message(
-            "No environments were compiled. Check that deployment files exist.".to_string(),
+            "No environments were compiled. Check that flags have environment rules defined."
+                .to_string(),
         ));
     }
 
     Ok(compiled_envs)
 }
 
-/// Compile a single environment's deployment file to an AST
-fn compile_single_env(
-    deployment_path: &Path,
+/// Compile a single environment from already-parsed deployment and definitions
+fn compile_single_env_from_values(
+    deployment: &serde_json::Value,
     output_path: &Path,
     definitions: &serde_json::Value,
-    skip_validation: bool,
 ) -> CliResult<()> {
-    // Read and parse deployment
-    let deployment_content = fs::read_to_string(deployment_path)
-        .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
-    let deployment = parse_deployment(&deployment_content)?;
-
-    // Validate deployment (unless skipped)
-    if !skip_validation {
-        validate_deployment(&deployment)
-            .map_err(|e| CliError::Message(format!("Deployment file is invalid: {e}")))?;
-    }
-
     // Compile to AST
-    let artifact = compile(&deployment, definitions)?;
+    let artifact = compile(deployment, definitions)?;
 
     // Serialize to MessagePack
     let ast_bytes = serialize(&artifact)?;

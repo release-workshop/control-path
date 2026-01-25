@@ -1,6 +1,6 @@
 # @controlpath/runtime
 
-Low-level runtime SDK for Control Path. This package provides AST artifact loading and flag evaluation capabilities with OpenFeature compliance.
+Low-level runtime SDK for Control Path. This package provides AST artifact loading and flag evaluation capabilities.
 
 ## Installation
 
@@ -13,19 +13,20 @@ npm install @controlpath/runtime
 ### Basic Usage
 
 ```typescript
-import { Provider } from '@controlpath/runtime';
+import { loadFromFile, evaluate, buildFlagNameMapFromArtifact } from '@controlpath/runtime';
 
-// Create provider instance (flag name map is optional)
-const provider = new Provider();
+// Load AST artifact from file
+const artifact = await loadFromFile('./flags/production.ast');
 
-// Load AST artifact from file (flag name map is automatically built)
-await provider.loadArtifact('./flags/production.ast');
+// Build flag name map from artifact
+const flagNameMap = buildFlagNameMapFromArtifact(artifact);
 
-// Evaluate flags using OpenFeature interface
-const context = { id: 'user123', role: 'admin' };
-const result = provider.resolveBooleanEvaluation('new_dashboard', false, context);
+// Evaluate flags using attributes
+const attributes = { id: 'user123', role: 'admin' };
+const flagIndex = flagNameMap['new_dashboard'];
+const result = evaluate(flagIndex, artifact, attributes);
 
-if (result.value) {
+if (result === 'ON') {
   console.log('New dashboard enabled');
 }
 ```
@@ -48,117 +49,87 @@ const artifact = loadFromBuffer(buffer);
 
 ### Flag Name Map
 
-The Provider automatically builds the flag name map from the artifact when you call `loadArtifact()` or `reloadArtifact()`. The artifact includes flag names, so no manual configuration is needed.
+The flag name map is built from the `flagNames` array in the artifact, which contains string table indices for each flag name. This allows you to look up flags by name without requiring the flag definitions file at runtime.
 
-The flag name map is built automatically from the `flagNames` array in the artifact, which contains string table indices for each flag name. This allows the Provider to look up flags by name without requiring the flag definitions file at runtime.
+```typescript
+import { buildFlagNameMapFromArtifact } from '@controlpath/runtime';
+
+const flagNameMap = buildFlagNameMapFromArtifact(artifact);
+const flagIndex = flagNameMap['my_flag'];
+```
 
 ### Signature Verification
 
 Verify Ed25519 signatures when loading artifacts from untrusted sources:
 
 ```typescript
-import { Provider } from '@controlpath/runtime';
+import { loadFromFile } from '@controlpath/runtime';
 
 // Public key (base64 or hex encoded)
 const publicKey = 'base64-encoded-public-key-here';
 
-const provider = new Provider({
+const artifact = await loadFromFile('./flags/production.ast', {
   publicKey,
   requireSignature: true, // Require signature (optional, default: false)
 });
-
-await provider.loadArtifact('https://cdn.example.com/flags/production.ast');
 ```
 
-### Hot Reloading
+### Evaluation with Attributes
+
+All attributes (user identity, user attributes, and environmental context) are provided in a single `Attributes` object:
 
 ```typescript
-const provider = new Provider();
-await provider.loadArtifact('./flags/production.ast');
+import { evaluate } from '@controlpath/runtime';
 
-// Later, reload updated artifact (clears cache automatically)
-await provider.reloadArtifact('./flags/production.ast');
-```
+const attributes = {
+  id: 'user123',
+  role: 'admin',
+  email: 'user@example.com',
+  environment: 'production',
+  device: 'desktop',
+  app_version: '1.2.3'
+};
 
-### Result Caching
-
-The Provider caches evaluation results by default (5 minute TTL):
-
-```typescript
-const provider = new Provider({
-  enableCache: true, // Default: true
-  cacheTTL: 5 * 60 * 1000, // 5 minutes (default)
-});
-
-// Clear cache manually if needed
-provider.clearCache();
+const flagIndex = flagNameMap['my_flag'];
+const result = evaluate(flagIndex, artifact, attributes);
 ```
 
 ### Error Handling
 
-The Provider follows a "Never Throws" policy - evaluation methods always return `ResolutionDetails`:
+The `evaluate` function returns `undefined` if no rule matches. Always provide a default value:
 
 ```typescript
-const result = provider.resolveBooleanEvaluation('my_flag', false, context);
-
-// Check for errors
-if (result.errorCode) {
-  switch (result.errorCode) {
-    case 'FLAG_NOT_FOUND':
-      console.warn('Flag not found in flag name map');
-      break;
-    case 'GENERAL':
-      console.error('Evaluation error:', result.errorMessage);
-      break;
-  }
-}
-
-// Use the value (always safe)
-const flagValue = result.value; // Guaranteed to be boolean
+const result = evaluate(flagIndex, artifact, attributes);
+const value = result ?? defaultValue;
 ```
-
-### Using with OpenFeature SDK
-
-The Provider is fully compatible with `@openfeature/server-sdk`.
-
-```typescript
-import { OpenFeature } from '@openfeature/server-sdk';
-import { Provider } from '@controlpath/runtime';
-
-// Create and register provider (flag name map is automatically inferred)
-const provider = new Provider();
-await provider.loadArtifact('./flags/production.ast');
-
-OpenFeature.setProvider(provider);
-
-// Use OpenFeature client
-const client = OpenFeature.getClient();
-const showNewDashboard = await client.getBooleanValue('new_dashboard', false, {
-  role: 'admin'
-});
-```
-
-**Note**: The Provider supports both synchronous (for direct usage) and asynchronous (for OpenFeature SDK) method signatures via TypeScript method overloading. The OpenFeature SDK will automatically use the async signature.
 
 ## API Reference
 
-### Provider
+### Loading Functions
 
-OpenFeature-compliant provider for flag evaluation.
+- `loadFromFile(path: string, options?: LoadOptions): Promise<Artifact>` - Load AST artifact from file
+- `loadFromURL(url: string | URL, timeout?: number, logger?: Logger, options?: LoadOptions): Promise<Artifact>` - Load AST artifact from URL
+- `loadFromBuffer(buffer: Buffer | Uint8Array): Artifact` - Load AST artifact from buffer
 
-#### Methods
+### Evaluation Functions
 
-- `loadArtifact(artifact: string | URL)`: Load AST artifact from file path or URL
-- `reloadArtifact(artifact: string | URL)`: Reload AST artifact (replaces cached AST)
-- `resolveBooleanEvaluation(flagKey, defaultValue, context)`: Evaluate boolean flag
-- `resolveStringEvaluation(flagKey, defaultValue, context)`: Evaluate string flag
-- `resolveNumberEvaluation(flagKey, defaultValue, context)`: Evaluate number flag
-- `resolveObjectEvaluation(flagKey, defaultValue, context)`: Evaluate object flag
+- `evaluate(flagIndex: number, artifact: Artifact, attributes?: Attributes): unknown` - Evaluate a flag by index
+- `evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attributes): unknown` - Evaluate a single rule
 
-#### Properties
+### Utility Functions
 
-- `metadata`: Provider metadata (`{ name: 'controlpath' }`)
-- `hooks`: Array of OpenFeature hooks (optional)
+- `buildFlagNameMapFromArtifact(artifact: Artifact): Record<string, number>` - Build flag name to index map from artifact
+
+### Types
+
+- `Artifact` - AST artifact structure
+- `Rule` - Flag rule structure
+- `Expression` - Expression node structure
+- `Variation` - Variation structure
+- `Attributes` - Attributes object for evaluation (consolidates user identity, attributes, and context)
+- `Logger` - Logger interface
+- `OverrideFile` - Override file format
+- `OverrideValue` - Override value type
 
 ## Development
 
@@ -179,4 +150,3 @@ npm run lint
 ## License
 
 Elastic License 2.0
-

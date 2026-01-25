@@ -103,9 +103,24 @@ fn test_enable_flag_nonexistent() {
 fn test_enable_flag_nonexistent_env() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
-    // Try to enable in non-existent environment
-    let output = project.run_command_failure(&["enable", "my_flag", "--env", "nonexistent"]);
-    assert!(!output.status.success());
+    // Also create legacy file for enable command if it needs it
+    let legacy_definitions = r"flags:
+  - name: my_flag
+    type: boolean
+    default: false
+    defaultValue: false
+";
+    project.write_file("flags.definitions.yaml", legacy_definitions);
+
+    // Enable command now automatically creates environments, so this should succeed
+    // (The enable command uses config and creates environments automatically)
+    let output = project.run_command(&["enable", "my_flag", "--env", "nonexistent"]);
+    // Should succeed - environments are created automatically
+    assert!(output.status.success());
+
+    // Verify the environment was created in config
+    let config = project.read_file("control-path.yaml");
+    assert!(config.contains("nonexistent"));
 }
 
 #[test]

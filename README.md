@@ -63,8 +63,7 @@ Control Path solves these problems with a **developer-first, Git-native approach
 
 - ✅ **Zero Network Calls** - Flags are evaluated locally in your application (< 1ms per evaluation)
 - ✅ **Type-Safe SDKs** - Generated from your flag definitions, catching typos at compile-time
-- ✅ **Git-Native Workflow** - Flag definitions and deployment rules live in your repository
-- ✅ **OpenFeature Compatible** - Works with industry-standard OpenFeature SDKs
+- ✅ **Git-Native Workflow** - Configuration file lives in your repository
 - ✅ **Fast & Reliable** - No external dependencies, works offline, no single point of failure
 
 ## Who Control Path is For
@@ -100,7 +99,7 @@ For more information about Control Path, visit [releaseworkshop.com](https://rel
 ```
 ┌─────────────────────────────────────────────┐
 │  Your Application Code                      │
-│  evaluator.newDashboard(context)            │
+│  evaluator.newDashboard(attributes)         │
 └──────────────────┬──────────────────────────┘
                    │
                    ▼
@@ -115,7 +114,6 @@ For more information about Control Path, visit [releaseworkshop.com](https://rel
 ┌─────────────────────────────────────────────┐
 │  Layer 1: Low-Level Runtime SDK             │
 │  • AST artifact loading                     │
-│  • OpenFeature-compliant Provider           │
 │  • Flag evaluation                          │
 └─────────────────────────────────────────────┘
 ```
@@ -127,12 +125,12 @@ For more information about Control Path, visit [releaseworkshop.com](https://rel
 - Generate type-safe methods for each flag (e.g., `evaluator.newDashboard()`)
 - IDE autocomplete for all flags and their types
 - Compile-time validation catches typos before deployment
-- Type-safe user and context objects
+- Type-safe attributes object
 
 **📝 Git-Native Workflow**
 
-- Flag definitions (`flags.definitions.yaml`) live in your repository
-- Deployment rules (`.controlpath/production.deployment.yaml`) are versioned in Git
+- Configuration (`control-path.yaml`) lives in your repository
+- Flag definitions and environment rules in a single file
 - Complete audit trail through Git history
 - Standard Git workflows: branches, PRs, reviews, rollbacks
 
@@ -143,11 +141,11 @@ For more information about Control Path, visit [releaseworkshop.com](https://rel
 - Sub-millisecond evaluation (< 1ms per flag)
 - Works offline, no external service dependencies
 
-**🔧 OpenFeature Compatible**
+**🔧 Direct Evaluation API**
 
-- Low-level SDK directly implements OpenFeature Provider interface
-- Works with any OpenFeature SDK (no adapter needed)
-- Industry-standard API for feature flag evaluation
+- Simple, direct API for flag evaluation
+- No external dependencies or adapters required
+- Clean integration with your application code
 
 **🚀 Fast & Reliable**
 
@@ -185,32 +183,35 @@ cargo build --release --bin controlpath
 **2. Initialize Your Project**
 
 ```bash
-controlpath init
+controlpath setup
 ```
 
 This creates:
 
-- `flags.definitions.yaml` - Define your flags here
-- `.controlpath/` directory - Deployment rules per environment
+- `control-path.yaml` - Configuration file with flags and environment rules
+- `.controlpath/` directory - Compiled AST artifacts per environment
 
-**3. Define Your Flags**
+**3. Define Your Flags and Rules**
 
-Edit `flags.definitions.yaml`:
+Edit `control-path.yaml`:
 
 ```yaml
 flags:
-  new_dashboard:
+  - name: new_dashboard
     type: boolean
     default: false
     description: 'Enable the new dashboard UI'
-
-  welcome_message:
-    type: string
-    default: 'Welcome!'
-    variations:
-      - 'Welcome!'
-      - 'Hello there!'
-      - 'Greetings!'
+    environments:
+      production:
+        rules:
+          - when: "role == 'admin'"
+            serve: ON
+          - when: 'beta_tester == true'
+            serve: ON
+          - serve: OFF # Default
+      staging:
+        rules:
+          - serve: ON # Enabled for all in staging
 ```
 
 **4. Generate Type-Safe SDK**
@@ -221,22 +222,7 @@ controlpath generate-sdk
 
 This generates a type-safe SDK in `./flags/` directory.
 
-**5. Configure Deployment Rules**
-
-Edit `.controlpath/production.deployment.yaml`:
-
-```yaml
-flags:
-  new_dashboard:
-    rules:
-      - when: "user.role == 'admin'"
-        serve: ON
-      - when: 'user.beta_tester == true'
-        serve: ON
-      - serve: OFF # Default
-```
-
-**6. Compile AST Artifact**
+**5. Compile AST Artifact**
 
 ```bash
 controlpath compile --env production
@@ -244,34 +230,7 @@ controlpath compile --env production
 
 This creates `.controlpath/production.ast` - a compact binary artifact.
 
-### Monorepo Support
-
-Control Path CLI supports monorepo environments. Each service can have its own `flags.definitions.yaml` and `.controlpath/` directory.
-
-**Working from service directory:**
-```bash
-cd services/service-a
-controlpath compile --env production
-```
-
-**Working from workspace root:**
-```bash
-# Target specific service
-controlpath compile --service service-a --env production
-```
-
-**Configure workspace** (`.controlpath/config.yaml` at workspace root):
-```yaml
-monorepo:
-  serviceDirectories:
-    - services
-    - packages
-  discovery: auto
-```
-
-See [CLI Documentation](docs/rust-cli.md#monorepo-support) for more details.
-
-**7. Use in Your Application**
+**6. Use in Your Application**
 
 ```typescript
 import { Evaluator } from './flags';
@@ -279,8 +238,15 @@ import { Evaluator } from './flags';
 const evaluator = new Evaluator();
 await evaluator.loadArtifact('./.controlpath/production.ast');
 
-// Type-safe flag evaluation
-const showNewDashboard = await evaluator.newDashboard(user, context);
+// Type-safe flag evaluation with single attributes object
+const attributes = {
+  id: '123',
+  role: 'admin',
+  beta_tester: true,
+  environment: 'production'
+};
+
+const showNewDashboard = await evaluator.newDashboard(attributes);
 if (showNewDashboard) {
   // Render new dashboard
 }
@@ -293,7 +259,7 @@ if (showNewDashboard) {
 controlpath flag add new_feature --type boolean
 
 # 2. Configure deployment rules
-# Edit .controlpath/production.deployment.yaml
+# Edit control-path.yaml to add environment rules
 
 # 3. Validate configuration
 controlpath validate
@@ -305,7 +271,7 @@ controlpath compile --env production
 controlpath generate-sdk
 
 # 6. Commit changes
-git add flags.definitions.yaml .controlpath/production.deployment.yaml .controlpath/production.ast
+git add control-path.yaml .controlpath/production.ast
 git commit -m "Add new_feature flag"
 ```
 
@@ -326,31 +292,31 @@ Control Path supports a powerful expression language for targeting:
 
 ```yaml
 rules:
-  - when: "user.role == 'admin' AND context.environment == 'production'"
+  - when: "role == 'admin' AND environment == 'production'"
     serve: ON
-  - when: "IN_SEGMENT(user, 'beta_users') AND user.account_age_days > 30"
+  - when: "IN_SEGMENT('beta_users') AND account_age_days > 30"
     serve: ON
-  - when: 'HASHED_PARTITION(user.id, 100) < 25' # 25% rollout
+  - when: 'HASHED_PARTITION(id, 100) < 25' # 25% rollout
     serve: ON
 ```
 
 **Segments**
 
-Define user segments in your deployment file:
+Define segments in your configuration file:
 
 ```yaml
 segments:
-  beta_users:
-    when: "user.role == 'beta' AND user.account_age_days > 30"
-  premium_customers:
-    when: "user.subscription_tier == 'premium' OR user.subscription_tier == 'pro'"
+  - name: beta_users
+    when: "role == 'beta' AND account_age_days > 30"
+  - name: premium_customers
+    when: "subscription_tier == 'premium' OR subscription_tier == 'pro'"
 ```
 
 Then use them in flag rules:
 
 ```yaml
 rules:
-  - when: "IN_SEGMENT(user, 'beta_users')"
+  - when: "IN_SEGMENT('beta_users')"
     serve: ON
 ```
 

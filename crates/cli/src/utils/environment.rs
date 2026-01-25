@@ -57,31 +57,14 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    struct DirGuard {
-        original_dir: std::path::PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
+    use crate::test_helpers::DirGuard;
 
     #[test]
     #[serial]
     fn test_determine_environment_from_branch_mapping() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Initialize git repo
         let _ = Command::new("git").args(["init"]).output();
@@ -127,7 +110,7 @@ defaultEnv: production
     fn test_determine_environment_from_default_env() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(".controlpath/config.yaml", "defaultEnv: staging\n").unwrap();
@@ -141,7 +124,7 @@ defaultEnv: production
     fn test_determine_environment_no_config() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = determine_environment().unwrap();
         assert_eq!(result, None);

@@ -25,8 +25,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'flags.definitions.yaml'
-      - '.controlpath/**/*.deployment.yaml'
+      - 'control-path.yaml'
+      - '.controlpath/**/*.ast'
 
 jobs:
   compile-flags:
@@ -74,8 +74,11 @@ Instead of environment names, specify file paths directly:
 - name: Compile Flags
   uses: releaseworkshop/control-path/actions/controlpath-compile-action@main
   with:
-    definitions-file: flags.definitions.yaml
-    deployment-file: .controlpath/production.deployment.yaml
+    # Using config (recommended)
+    environment: production
+    # Or legacy files:
+    # definitions-file: flags.definitions.yaml
+    # deployment-file: .controlpath/production.deployment.yaml
 ```
 
 ### Multiple Environments
@@ -104,9 +107,9 @@ jobs:
           path: .controlpath/${{ matrix.environment }}.ast
 ```
 
-### Monorepo Support
+### Working Directory Support
 
-For monorepos with multiple services, each having their own Control Path setup, use the `working-directory` input:
+For projects where Control Path files are in a subdirectory, use the `working-directory` input:
 
 ```yaml
 jobs:
@@ -132,24 +135,21 @@ jobs:
           path: packages/${{ matrix.service }}/${{ steps.compile.outputs.compiled-artifact-path }}
 ```
 
-**Monorepo Structure Example:**
+**Subdirectory Structure Example:**
 ```
 .
 └── packages/
     ├── service-a/
-    │   ├── flags.definitions.yaml
+    │   ├── control-path.yaml
     │   └── .controlpath/
-    │       ├── production.deployment.yaml
     │       └── production.ast (generated)
     ├── service-b/
-    │   ├── flags.definitions.yaml
+    │   ├── control-path.yaml
     │   └── .controlpath/
-    │       ├── production.deployment.yaml
     │       └── production.ast (generated)
     └── service-c/
-        ├── flags.definitions.yaml
+        ├── control-path.yaml
         └── .controlpath/
-            ├── production.deployment.yaml
             └── production.ast (generated)
 ```
 
@@ -181,11 +181,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'flags.definitions.yaml'
+      - 'control-path.yaml'
       - '.controlpath/**'
   pull_request:
     paths:
-      - 'flags.definitions.yaml'
+      - 'control-path.yaml'
       - '.controlpath/**'
 
 jobs:
@@ -293,13 +293,13 @@ The action expects your project to follow the standard Control Path structure:
 .
 └── packages/
     ├── service-a/
-    │   ├── flags.definitions.yaml
+    │   ├── control-path.yaml
     │   └── .controlpath/
-    │       └── production.deployment.yaml
+    │       └── production.ast
     └── service-b/
-        ├── flags.definitions.yaml
+        ├── control-path.yaml
         └── .controlpath/
-            └── production.deployment.yaml
+            └── production.ast
 ```
 
 Use the `working-directory` input to specify which service directory to use.
@@ -352,8 +352,8 @@ Common causes:
 ### "No files to validate"
 
 Ensure your project structure matches the expected layout:
-- `flags.definitions.yaml` exists (or specify custom path)
-- `.controlpath/*.deployment.yaml` files exist (or specify `deployment-file`)
+- `control-path.yaml` exists (config, recommended), OR
+- Legacy files: `flags.definitions.yaml` and `.controlpath/*.deployment.yaml` (or specify custom paths)
 
 ## License
 

@@ -365,25 +365,7 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
 
-    struct DirGuard {
-        original_dir: PathBuf,
-    }
-
-    impl DirGuard {
-        fn new(temp_path: &std::path::Path) -> Self {
-            // Ensure directory exists
-            fs::create_dir_all(temp_path).unwrap();
-            let original_dir = std::env::current_dir().unwrap();
-            std::env::set_current_dir(temp_path).unwrap();
-            DirGuard { original_dir }
-        }
-    }
-
-    impl Drop for DirGuard {
-        fn drop(&mut self) {
-            let _ = std::env::set_current_dir(&self.original_dir);
-        }
-    }
+    use crate::test_helpers::DirGuard;
 
     #[test]
     fn test_determine_definitions_path() {
@@ -417,13 +399,13 @@ mod tests {
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
 
         // Change to temp directory
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let options = Options {
             lang: Some("typescript".to_string()),
@@ -448,7 +430,7 @@ mod tests {
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -469,7 +451,7 @@ rules:
         .unwrap();
 
         // Change to temp directory
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = recompile_ast(&deployment_path);
         assert!(result.is_ok());
@@ -483,7 +465,7 @@ rules:
     fn test_find_deployment_files() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -517,7 +499,7 @@ rules: {}
     fn test_find_deployment_files_empty() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
 
@@ -530,7 +512,7 @@ rules: {}
     fn test_regenerate_sdk_missing_file() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let options = Options {
             lang: Some("typescript".to_string()),
@@ -548,7 +530,7 @@ rules: {}
     fn test_recompile_ast_missing_definitions() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         let deployment_path = PathBuf::from(".controlpath/test.deployment.yaml");
@@ -589,12 +571,12 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Use typescript which is definitely supported
         let options = Options {
@@ -619,12 +601,12 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let options = Options {
             lang: None,
@@ -648,7 +630,7 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -669,7 +651,7 @@ rules:
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = recompile_ast(&deployment_path);
         assert!(result.is_ok());
@@ -690,7 +672,7 @@ rules:
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -701,7 +683,7 @@ rules:
         let deployment_path = controlpath_dir.join("test.deployment.yaml");
         fs::write(&deployment_path, "invalid yaml: [").unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = recompile_ast(&deployment_path);
         assert!(result.is_err());
@@ -728,7 +710,7 @@ rules: {}
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let result = recompile_ast(&deployment_path);
         assert!(result.is_err());
@@ -739,7 +721,7 @@ rules: {}
     fn test_run_error_path() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let options = Options {
             lang: None,
@@ -764,12 +746,12 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let _options = Options {
             lang: None,
@@ -795,7 +777,7 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -812,7 +794,7 @@ rules: {}
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let _options = Options {
             lang: None,
@@ -836,12 +818,12 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let options = Options {
             lang: None,
@@ -863,7 +845,7 @@ rules: {}
     fn test_run_inner_definitions_not_found() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         let options = Options {
             lang: None,
@@ -891,7 +873,7 @@ rules: {}
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -908,7 +890,7 @@ rules: {}
         )
         .unwrap();
 
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Neither flag set - should default to watching both
         let _options = Options {
@@ -926,7 +908,7 @@ rules: {}
     fn test_regenerate_sdk_read_error() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create a directory instead of a file to trigger read error
         fs::create_dir_all("flags.definitions.yaml").unwrap();
@@ -946,7 +928,7 @@ rules: {}
     fn test_regenerate_sdk_validation_error() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
@@ -972,14 +954,14 @@ rules: {}
     fn test_recompile_ast_validation_error() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1008,14 +990,14 @@ rules:
     fn test_recompile_ast_write_error() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
             "flags.definitions.yaml",
             r"flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
+    default: false
 ",
         )
         .unwrap();
@@ -1059,7 +1041,7 @@ rules: {}
     fn test_find_deployment_files_with_multiple_envs() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
@@ -1086,7 +1068,7 @@ rules: {}
     fn test_regenerate_sdk_error_path() {
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path);
+        let _guard = DirGuard::new(temp_path).unwrap();
 
         // Create invalid definitions file
         fs::write("flags.definitions.yaml", r"invalid: yaml: [").unwrap();

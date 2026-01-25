@@ -112,12 +112,9 @@ fn test_generate_types_boolean_flag() {
 
     let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
 
-    // Should contain User interface
-    assert!(types_content.contains("export interface User"));
-    assert!(types_content.contains("id: string"));
-
-    // Should contain Context interface
-    assert!(types_content.contains("export interface Context"));
+    // Should contain Attributes interface
+    assert!(types_content.contains("export interface Attributes"));
+    assert!(types_content.contains("id?: string"));
 
     // Should contain FlagName type
     assert!(types_content.contains("export type FlagName"));
@@ -186,18 +183,17 @@ fn test_generate_evaluator_boolean_flag() {
 
     // Should contain method for the flag
     assert!(index_content.contains("async newDashboard()"));
-    assert!(index_content.contains("async newDashboard(user: User)"));
-    assert!(index_content.contains("async newDashboard(user: User, context: Context)"));
+    assert!(index_content.contains("async newDashboard(attributes: Attributes)"));
 
     // Should contain method implementation
-    assert!(index_content.contains("async newDashboard(user?: User, context?: Context)"));
+    assert!(index_content.contains("async newDashboard(attributes?: Attributes)"));
 
     // Should contain Provider import
     assert!(index_content.contains("import { Provider } from '@controlpath/runtime'"));
 
-    // Should contain context management methods
-    assert!(index_content.contains("setContext"));
-    assert!(index_content.contains("clearContext"));
+    // Should contain attributes management methods
+    assert!(index_content.contains("setAttributes"));
+    assert!(index_content.contains("clearAttributes"));
 
     // Should contain batch evaluation methods
     assert!(index_content.contains("evaluateBatch"));
@@ -266,7 +262,8 @@ fn test_generate_package_json() {
     // Check dependencies
     let deps = package_json["dependencies"].as_object().unwrap();
     assert!(deps.contains_key("@controlpath/runtime"));
-    assert!(deps.contains_key("@openfeature/server-sdk"));
+    // OpenFeature support has been removed - should not be in dependencies
+    assert!(!deps.contains_key("@openfeature/server-sdk"));
 }
 
 #[test]
@@ -334,7 +331,7 @@ fn test_generate_empty_flags() {
     let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
     let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
 
-    assert!(types_content.contains("export interface User"));
+    assert!(types_content.contains("export interface Attributes"));
     assert!(index_content.contains("export class Evaluator"));
 }
 
@@ -528,16 +525,7 @@ fn test_generate_context_resolution() {
 
     let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
 
-    // Should contain resolveContext method
-    assert!(index_content.contains("resolveContext"));
-
-    // Should contain flattenUserAttributes
-    assert!(index_content.contains("flattenUserAttributes"));
-
-    // Should contain flattenContextAttributes
-    assert!(index_content.contains("flattenContextAttributes"));
-
-    // Should handle user.id
+    // Should handle attributes.id for targeting key
     assert!(index_content.contains("targetingKey"));
-    assert!(index_content.contains("user."));
+    assert!(index_content.contains("attributes"));
 }

@@ -4,8 +4,7 @@
  */
 
 import { Provider } from '@controlpath/runtime';
-import { EvaluationContext } from '@openfeature/server-sdk';
-import type { User, Context, FlagName, FlagReturnTypes } from './types';
+import type { Attributes, FlagName, FlagReturnTypes } from './types';
 {% if has_variations %}
 {% for variation_type in variation_types %}
 import type { {{ variation_type.name }} } from './types';
@@ -15,8 +14,7 @@ import type { {{ variation_type.name }} } from './types';
 export class Evaluator {
   private provider: Provider;
   private initialized: boolean = false;
-  private setUser?: User;
-  private setContextValue?: Context;
+  private setAttributes?: Attributes;
 
   constructor() {
     this.provider = new Provider();
@@ -35,14 +33,12 @@ export class Evaluator {
     }
   }
 
-  setContext(user: User, context?: Context): void {
-    this.setUser = user;
-    this.setContextValue = context;
+  setAttributes(attributes: Attributes): void {
+    this.setAttributes = attributes;
   }
 
-  clearContext(): void {
-    this.setUser = undefined;
-    this.setContextValue = undefined;
+  clearAttributes(): void {
+    this.setAttributes = undefined;
   }
 
   setLogger(logger: { error: (msg: string, data?: any) => void; warn: (msg: string, data?: any) => void; info: (msg: string, data?: any) => void; debug: (msg: string, data?: any) => void }): void {
@@ -124,19 +120,17 @@ export class Evaluator {
   }
 
 {% for flag in flags %}
-  // Overload 1: No parameters (uses setContext)
+  // Overload 1: No parameters (uses setAttributes)
   async {{ flag.method_name }}(): Promise<{{ flag.return_type }}>;
-  // Overload 2: User only
-  async {{ flag.method_name }}(user: User): Promise<{{ flag.return_type }}>;
-  // Overload 3: User + Context
-  async {{ flag.method_name }}(user: User, context: Context): Promise<{{ flag.return_type }}>;
+  // Overload 2: Attributes
+  async {{ flag.method_name }}(attributes: Attributes): Promise<{{ flag.return_type }}>;
   // Implementation
-  async {{ flag.method_name }}(user?: User, context?: Context): Promise<{{ flag.return_type }}> {
+  async {{ flag.method_name }}(attributes?: Attributes): Promise<{{ flag.return_type }}> {
     await this.ensureInitialized();
 
     try {
-      const evalContext = this.resolveContext(user, context);
-      if (!evalContext) {
+      const evalAttributes = this.resolveAttributes(attributes);
+      if (!evalAttributes) {
 {% if flag.flag_type == "boolean" %}
         return {{ flag.default_value }};
 {% else %}
@@ -148,7 +142,7 @@ export class Evaluator {
       const result = await this.provider.resolveBooleanEvaluation(
         '{{ flag.snake_name }}',
         {{ flag.default_value }},
-        evalContext
+        evalAttributes
       );
 
       if (result.errorCode) {
@@ -160,7 +154,7 @@ export class Evaluator {
       const result = await this.provider.resolveStringEvaluation(
         '{{ flag.snake_name }}',
         '{{ flag.default_string }}',
-        evalContext
+        evalAttributes
       );
 
       if (result.errorCode) {
@@ -181,16 +175,15 @@ export class Evaluator {
 {% endfor %}
   async evaluateBatch<T extends readonly FlagName[]>(
     flagNames: T,
-    user?: User,
-    context?: Context
+    attributes?: Attributes
   ): Promise<{
     [K in T[number]]: FlagReturnTypes[K]
   }> {
     await this.ensureInitialized();
 
     try {
-      const evalContext = this.resolveContext(user, context);
-      if (!evalContext) {
+      const evalAttributes = this.resolveAttributes(attributes);
+      if (!evalAttributes) {
         return this.getDefaults(flagNames) as any;
       }
 
@@ -208,14 +201,14 @@ export class Evaluator {
             const result = await this.provider.resolveBooleanEvaluation(
               snakeName,
               flagInfo.defaultValue as boolean,
-              evalContext
+              evalAttributes
             );
             results[camelName] = result.errorCode ? flagInfo.defaultValue : result.value;
           } else {
             const result = await this.provider.resolveStringEvaluation(
               snakeName,
               flagInfo.defaultValue as string,
-              evalContext
+              evalAttributes
             );
             results[camelName] = result.errorCode ? flagInfo.defaultValue : (result.value as any);
           }
@@ -231,11 +224,10 @@ export class Evaluator {
   }
 
   async evaluateAll(
-    user?: User,
-    context?: Context
+    attributes?: Attributes
   ): Promise<FlagReturnTypes> {
     const flagNames: FlagName[] = [{% for name in flag_names %}{% if not loop.first %}, {% endif %}{{ name }}{% endfor %}];
-    return this.evaluateBatch(flagNames as readonly FlagName[], user, context);
+    return this.evaluateBatch(flagNames as readonly FlagName[], attributes);
   }
 
   private getDefaults(flagNames: readonly FlagName[]): Partial<FlagReturnTypes> {
@@ -267,42 +259,18 @@ export class Evaluator {
     return camelCase.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
   }
 
-  private resolveContext(user?: User, context?: Context): EvaluationContext | null {
-    const resolvedUser = user ?? this.setUser;
-    const resolvedContext = context ?? this.setContextValue;
+  private resolveAttributes(attributes?: Attributes): Attributes | null {
+    const resolvedAttributes = attributes ?? this.setAttributes;
 
-    if (!resolvedUser || !resolvedUser.id || (typeof resolvedUser.id === 'string' && resolvedUser.id.trim() === '')) {
+    if (!resolvedAttributes || !resolvedAttributes.id || (typeof resolvedAttributes.id === 'string' && resolvedAttributes.id.trim() === '')) {
       return null;
     }
 
-    return {
-      targetingKey: resolvedUser.id,
-      ...this.flattenUserAttributes(resolvedUser),
-      ...this.flattenContextAttributes(resolvedContext)
-    };
-  }
-
-  private flattenUserAttributes(user: User): Record<string, unknown> {
-    const attrs: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(user)) {
-      if (key !== "id") {
-        attrs[`user.${key}`] = value;
-      }
-    }
-    return attrs;
-  }
-
-  private flattenContextAttributes(context?: Context): Record<string, unknown> {
-    if (!context) return {};
-    const attrs: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(context)) {
-      attrs[`context.${key}`] = value;
-    }
-    return attrs;
+    return resolvedAttributes;
   }
 }
 
 export const evaluator = new Evaluator();
 
 // Re-export types
-export type { User, Context, FlagName, FlagReturnTypes } from './types';
+export type { Attributes, FlagName, FlagReturnTypes } from './types';

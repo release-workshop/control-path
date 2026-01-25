@@ -5,14 +5,14 @@ branding:
   color: 'blue'
 inputs:
   definitions-file:
-    description: 'Path to flag definitions file (default: flags.definitions.yaml)'
+    description: 'Path to flag definitions file (legacy support, default: flags.definitions.yaml). Use unified control-path.yaml when possible.'
     required: false
     default: 'flags.definitions.yaml'
   deployment-file:
-    description: 'Path to deployment file (optional if environment is provided)'
+    description: 'Path to deployment file (legacy support, optional if environment is provided). Use unified control-path.yaml when possible.'
     required: false
   environment:
-    description: 'Environment name (uses .controlpath/<env>.deployment.yaml)'
+    description: 'Environment name (uses unified control-path.yaml or legacy .controlpath/<env>.deployment.yaml)'
     required: false
   version:
     description: 'Control Path CLI version to use (default: latest)'

@@ -7,11 +7,11 @@
 import { describe, it, expect } from 'vitest';
 import { pack } from 'msgpackr';
 import { evaluate } from './evaluator';
-import type { Artifact, User } from './types';
+import type { Artifact, Attributes } from './types';
 import { RuleType, ExpressionType, BinaryOp } from './types';
 
 describe('Performance Tests', () => {
-  const mockUser: User = {
+  const mockAttributes: Attributes = {
     id: 'user1',
     email: 'test@example.com',
     role: 'admin',
@@ -27,7 +27,7 @@ describe('Performance Tests', () => {
       };
 
       const start = performance.now();
-      const result = evaluate(0, artifact, mockUser);
+      const result = evaluate(0, artifact, mockAttributes);
       const end = performance.now();
       const duration = end - start;
 
@@ -39,7 +39,7 @@ describe('Performance Tests', () => {
       const artifact: Artifact = {
         v: '1.0',
         env: 'test',
-        strs: ['ON', 'OFF', 'user.role', 'admin'],
+        strs: ['ON', 'OFF', 'role', 'admin'],
         flags: [
           [
             [
@@ -57,7 +57,7 @@ describe('Performance Tests', () => {
       };
 
       const start = performance.now();
-      const result = evaluate(0, artifact, mockUser);
+      const result = evaluate(0, artifact, mockAttributes);
       const end = performance.now();
       const duration = end - start;
 
@@ -85,7 +85,7 @@ describe('Performance Tests', () => {
 
       for (let i = 0; i < iterations; i++) {
         for (let flagIndex = 0; flagIndex < 5; flagIndex++) {
-          evaluate(flagIndex, artifact, mockUser);
+          evaluate(flagIndex, artifact, mockAttributes);
         }
       }
 
@@ -113,7 +113,7 @@ describe('Performance Tests', () => {
       };
 
       const start = performance.now();
-      const result = evaluate(0, artifact, mockUser);
+      const result = evaluate(0, artifact, mockAttributes);
       const end = performance.now();
       const duration = end - start;
 
@@ -125,7 +125,7 @@ describe('Performance Tests', () => {
       const artifact: Artifact = {
         v: '1.0',
         env: 'test',
-        strs: ['ON', 'OFF', 'user.role', 'admin', 'user'],
+        strs: ['ON', 'OFF', 'role', 'admin'],
         flags: [
           [
             // 10 rules, first one matches
@@ -153,7 +153,7 @@ describe('Performance Tests', () => {
       };
 
       const start = performance.now();
-      const result = evaluate(0, artifact, mockUser);
+      const result = evaluate(0, artifact, mockAttributes);
       const end = performance.now();
       const duration = end - start;
 

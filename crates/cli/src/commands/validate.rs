@@ -1,9 +1,7 @@
 //! Validate command implementation
 
 use crate::error::{CliError, CliResult};
-use crate::monorepo::{
-    detect_workspace_root, discover_services, ServiceContext, ServicePathResolver,
-};
+use crate::utils::unified_config;
 use controlpath_compiler::{
     parse_definitions, parse_deployment, validate_definitions, validate_deployment,
 };
@@ -15,20 +13,33 @@ pub struct Options {
     pub deployment: Option<String>,
     pub env: Option<String>,
     pub all: bool,
-    pub all_services: bool,
-    #[allow(dead_code)]
-    pub service_context: Option<ServiceContext>,
 }
 
 #[derive(Debug, Clone)]
 enum FileToValidate {
+    UnifiedConfig,
     Definitions(PathBuf),
     Deployment(PathBuf),
+    Environment(String), // Environment name for config
 }
 
 fn collect_files_from_options(options: &Options) -> Vec<FileToValidate> {
     let mut files = Vec::new();
 
+    // Check for config first
+    if unified_config::unified_config_exists()
+        && options.definitions.is_none()
+        && options.deployment.is_none()
+    {
+        if let Some(ref env) = options.env {
+            files.push(FileToValidate::Environment(env.clone()));
+        } else if options.all {
+            // Will validate all environments from config
+            files.push(FileToValidate::UnifiedConfig);
+        }
+    }
+
+    // Legacy file-based options
     if let Some(ref definitions) = options.definitions {
         files.push(FileToValidate::Definitions(PathBuf::from(definitions)));
     }
@@ -38,12 +49,23 @@ fn collect_files_from_options(options: &Options) -> Vec<FileToValidate> {
     }
 
     if let Some(ref env) = options.env {
-        files.push(FileToValidate::Deployment(PathBuf::from(format!(
-            ".controlpath/{env}.deployment.yaml"
-        ))));
+        // Only add if not already added as config environment
+        if !unified_config::unified_config_exists() {
+            files.push(FileToValidate::Deployment(PathBuf::from(format!(
+                ".controlpath/{env}.deployment.yaml"
+            ))));
+        }
     }
 
     files
+}
+
+fn find_unified_config() -> Option<FileToValidate> {
+    if unified_config::unified_config_exists() {
+        Some(FileToValidate::UnifiedConfig)
+    } else {
+        None
+    }
 }
 
 fn find_definitions_file(files: &mut Vec<FileToValidate>) {
@@ -70,13 +92,48 @@ fn find_deployment_files(files: &mut Vec<FileToValidate>) {
 
 fn auto_detect_files() -> Vec<FileToValidate> {
     let mut files = Vec::new();
-    find_definitions_file(&mut files);
-    find_deployment_files(&mut files);
+
+    // Check for config first
+    if let Some(unified) = find_unified_config() {
+        files.push(unified);
+        // Also add all environments from config
+        if let Ok(unified_val) = unified_config::read_unified_config() {
+            let envs = unified_config::get_environments(&unified_val);
+            for env in envs {
+                files.push(FileToValidate::Environment(env));
+            }
+        }
+    } else {
+        // Fall back to legacy files
+        find_definitions_file(&mut files);
+        find_deployment_files(&mut files);
+    }
+
     files
 }
 
 fn validate_file(file: &FileToValidate) -> CliResult<()> {
     match file {
+        FileToValidate::UnifiedConfig => {
+            let unified = unified_config::read_unified_config()?;
+            // Validate definitions extracted from config
+            let definitions = unified_config::extract_definitions(&unified)?;
+            validate_definitions(&definitions)?;
+
+            // Validate all environments
+            let envs = unified_config::get_environments(&unified);
+            for env in envs {
+                let deployment = unified_config::extract_deployment(&unified, &env)?;
+                validate_deployment(&deployment)?;
+            }
+            Ok(())
+        }
+        FileToValidate::Environment(env) => {
+            let unified = unified_config::read_unified_config()?;
+            let deployment = unified_config::extract_deployment(&unified, env)?;
+            validate_deployment(&deployment)?;
+            Ok(())
+        }
         FileToValidate::Definitions(path) => {
             let content = fs::read_to_string(path).map_err(|e| {
                 CliError::Message(format!("Failed to read {}: {e}", path.display()))
@@ -109,7 +166,9 @@ pub fn run(options: &Options) -> i32 {
             } else {
                 eprintln!("✗ No files to validate");
                 eprintln!("  Use --definitions <file> or --deployment <file> to specify files");
-                eprintln!("  Or run in a directory with flags.definitions.yaml or .controlpath/*.deployment.yaml");
+                eprintln!(
+                    "  Or run in a directory with control-path.yaml or flags.definitions.yaml"
+                );
                 1
             }
         }
@@ -122,11 +181,6 @@ pub fn run(options: &Options) -> i32 {
 }
 
 fn run_inner(options: &Options) -> CliResult<usize> {
-    // Handle bulk operations for monorepo
-    if options.all_services {
-        return run_bulk_validation(options);
-    }
-
     // Collect files to validate
     let mut files_to_validate = collect_files_from_options(options);
 
@@ -138,7 +192,7 @@ fn run_inner(options: &Options) -> CliResult<usize> {
 
     if files_to_validate.is_empty() {
         return Err(CliError::Message(
-            "No files to validate. Use --definitions <file> or --deployment <file> to specify files, or run in a directory with flags.definitions.yaml or .controlpath/*.deployment.yaml".to_string(),
+            "No files to validate. Use --definitions <file> or --deployment <file> to specify files, or run in a directory with control-path.yaml or flags.definitions.yaml".to_string(),
         ));
     }
 
@@ -168,101 +222,10 @@ fn run_inner(options: &Options) -> CliResult<usize> {
     Ok(valid_count)
 }
 
-fn run_bulk_validation(_options: &Options) -> CliResult<usize> {
-    // Detect workspace root
-    let workspace_root = detect_workspace_root(None)?.ok_or_else(|| {
-        CliError::Message(
-            "Not in a monorepo. --all-services flag only works in monorepo environments"
-                .to_string(),
-        )
-    })?;
-
-    // Discover all services
-    let services = discover_services(&workspace_root)?;
-
-    if services.is_empty() {
-        return Err(CliError::Message(
-            "No services found in monorepo".to_string(),
-        ));
-    }
-
-    println!("Validating {} service(s)...", services.len());
-
-    let mut total_valid = 0;
-    let mut total_errors = 0;
-
-    for service in &services {
-        println!("\nService: {}", service.name);
-        println!("  Path: {}", service.relative_path.display());
-
-        let resolver = ServicePathResolver::new(ServiceContext {
-            service: Some(service.clone()),
-            workspace_root: Some(workspace_root.clone()),
-            is_monorepo: true,
-        });
-
-        // Validate definitions
-        let definitions_path = resolver.definitions_file();
-        if definitions_path.exists() {
-            match validate_file(&FileToValidate::Definitions(definitions_path.clone())) {
-                Ok(()) => {
-                    println!("  ✓ Definitions: valid");
-                    total_valid += 1;
-                }
-                Err(e) => {
-                    println!("  ✗ Definitions: failed");
-                    eprintln!("    Error: {e}");
-                    total_errors += 1;
-                }
-            }
-        } else {
-            println!("  - Definitions: not found");
-        }
-
-        // Validate deployments
-        let controlpath_dir = resolver.base_path().join(".controlpath");
-        if controlpath_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&controlpath_dir) {
-                for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        if name.ends_with(".deployment.yaml") {
-                            let deployment_path = entry.path();
-                            match validate_file(&FileToValidate::Deployment(
-                                deployment_path.clone(),
-                            )) {
-                                Ok(()) => {
-                                    println!("  ✓ Deployment {}: valid", name);
-                                    total_valid += 1;
-                                }
-                                Err(e) => {
-                                    println!("  ✗ Deployment {}: failed", name);
-                                    eprintln!("    Error: {e}");
-                                    total_errors += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    println!("\nSummary:");
-    println!("  Valid: {}", total_valid);
-    if total_errors > 0 {
-        println!("  Errors: {}", total_errors);
-        return Err(CliError::Message(format!(
-            "Validation failed for {} file(s)",
-            total_errors
-        )));
-    }
-
-    Ok(total_valid)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::fs;
     use tempfile::TempDir;
 
@@ -273,8 +236,6 @@ mod tests {
             deployment: Some("test.deployment.yaml".to_string()),
             env: None,
             all: false,
-            all_services: false,
-            service_context: None,
         };
         let files = collect_files_from_options(&options);
         assert_eq!(files.len(), 2);
@@ -287,8 +248,6 @@ mod tests {
             deployment: None,
             env: Some("production".to_string()),
             all: false,
-            all_services: false,
-            service_context: None,
         };
         let files = collect_files_from_options(&options);
         assert_eq!(files.len(), 1);
@@ -297,48 +256,46 @@ mod tests {
                 assert!(path.to_str().unwrap().contains("production"));
             }
             FileToValidate::Definitions(_) => panic!("Expected deployment file"),
+            FileToValidate::UnifiedConfig => panic!("Expected deployment file"),
+            FileToValidate::Environment(_) => panic!("Expected deployment file"),
         }
     }
 
     #[test]
+    #[serial]
     fn test_validate_command_success() {
+        use crate::test_helpers::DirGuard;
+
         let temp_dir = TempDir::new().unwrap();
         let temp_path = temp_dir.path();
 
-        // Create test files
-        let definitions_path = temp_path.join("flags.definitions.yaml");
+        // Use DirGuard pattern for proper isolation
+        let _guard = DirGuard::new(temp_path).unwrap();
+
+        // Create config file
         fs::write(
-            &definitions_path,
-            r"flags:
+            "control-path.yaml",
+            r"mode: local
+flags:
   - name: test_flag
     type: boolean
-    defaultValue: false
-",
-        )
-        .unwrap();
-
-        let deployment_path = temp_path.join("test.deployment.yaml");
-        fs::write(
-            &deployment_path,
-            r"environment: test
-rules:
-  test_flag:
-    rules:
-      - serve: true
+    default: false
+    environments:
+      test:
+        - serve: true
 ",
         )
         .unwrap();
 
         let options = Options {
-            definitions: Some(definitions_path.to_str().unwrap().to_string()),
-            deployment: Some(deployment_path.to_str().unwrap().to_string()),
-            env: None,
+            definitions: None,
+            deployment: None,
+            env: Some("test".to_string()),
             all: false,
-            all_services: false,
-            service_context: None,
         };
 
         let exit_code = run(&options);
+
         assert_eq!(exit_code, 0);
     }
 }

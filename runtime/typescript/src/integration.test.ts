@@ -11,8 +11,7 @@ import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 import { loadFromBuffer, loadFromFile } from './ast-loader';
 import { evaluate } from './evaluator';
-import { Provider } from './provider';
-import type { User, Context } from './types';
+import type { Attributes } from './types';
 
 /**
  * Get the path to the Rust CLI binary
@@ -117,7 +116,7 @@ describe('Integration Tests with Real AST Artifacts', () => {
 rules:
   new_dashboard:
     rules:
-      - when: "user.role == 'admin'"
+      - when: "role == 'admin'"
         serve: ON
       - serve: OFF
   
@@ -127,7 +126,7 @@ rules:
   
   theme_color:
     rules:
-      - when: "user.role == 'admin'"
+      - when: "role == 'admin'"
         serve: DARK
       - serve: BLUE
 `;
@@ -174,50 +173,25 @@ rules:
     });
 
     // Test flag 0: new_dashboard
-    const adminUser: User = { id: 'admin1', role: 'admin' };
-    const result1 = evaluate(flagNameMap['new_dashboard'], loaded, adminUser);
+    const adminAttributes: Attributes = { id: 'admin1', role: 'admin' };
+    const result1 = evaluate(flagNameMap['new_dashboard'], loaded, adminAttributes);
     expect(result1).toBe('ON'); // Admin should get ON
 
-    const regularUser: User = { id: 'user1', role: 'user' };
-    const result2 = evaluate(flagNameMap['new_dashboard'], loaded, regularUser);
+    const regularAttributes: Attributes = { id: 'user1', role: 'user' };
+    const result2 = evaluate(flagNameMap['new_dashboard'], loaded, regularAttributes);
     expect(result2).toBe('OFF'); // Regular user should get OFF
 
     // Test flag 1: enable_analytics (always true)
     // Note: The compiler converts boolean true to "ON" string in the string table
-    const result3 = evaluate(flagNameMap['enable_analytics'], loaded, regularUser);
+    const result3 = evaluate(flagNameMap['enable_analytics'], loaded, regularAttributes);
     expect(result3).toBe('ON'); // Compiler normalizes true to "ON"
 
     // Test flag 2: theme_color
-    const result4 = evaluate(flagNameMap['theme_color'], loaded, adminUser);
+    const result4 = evaluate(flagNameMap['theme_color'], loaded, adminAttributes);
     expect(result4).toBe('DARK'); // Admin should get DARK
 
-    const result5 = evaluate(flagNameMap['theme_color'], loaded, regularUser);
+    const result5 = evaluate(flagNameMap['theme_color'], loaded, regularAttributes);
     expect(result5).toBe('BLUE'); // Regular user should get BLUE
-  });
-
-  it('should work with Provider class using compiled AST', async () => {
-    // Compile using Rust CLI
-    await compileWithRustCli(definitionsFile, deploymentFile, astFile);
-
-    // Create provider and load artifact (flag name map is automatically built)
-    const provider = new Provider();
-    await provider.loadArtifact(astFile);
-
-    // Test evaluation
-    const adminUser = { id: 'admin1', role: 'admin' };
-    const result1 = provider.resolveBooleanEvaluation('new_dashboard', false, adminUser);
-    expect(result1.value).toBe(true); // ON converts to true
-    expect(result1.reason).toBe('TARGETING_MATCH');
-
-    const regularUser = { id: 'user1', role: 'user' };
-    const result2 = provider.resolveBooleanEvaluation('new_dashboard', false, regularUser);
-    expect(result2.value).toBe(false); // OFF converts to false
-    expect(result2.reason).toBe('TARGETING_MATCH');
-
-    // Test string evaluation
-    const result3 = provider.resolveStringEvaluation('theme_color', 'blue', adminUser);
-    expect(result3.value).toBe('DARK');
-    expect(result3.reason).toBe('TARGETING_MATCH');
   });
 
   it('should handle context in evaluation', async () => {
@@ -234,11 +208,10 @@ rules:
       }
     });
 
-    const user: User = { id: 'user1', role: 'admin' };
-    const context: Context = { environment: 'production', device: 'desktop' };
+    const attributes: Attributes = { id: 'user1', role: 'admin', environment: 'production', device: 'desktop' };
 
-    // Evaluation should work with context
-    const result = evaluate(flagNameMap['new_dashboard'], loaded, user, context);
+    // Evaluation should work with attributes
+    const result = evaluate(flagNameMap['new_dashboard'], loaded, attributes);
     expect(result).toBe('ON');
   });
 });

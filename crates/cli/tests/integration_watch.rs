@@ -3,22 +3,45 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
+use serial_test::serial;
+use std::fs;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
 #[test]
+#[serial]
 fn test_watch_mode_definitions_change() {
     let project = TestProject::with_definitions(&simple_flag_definition("initial_flag"));
 
     // Test that watch command accepts valid arguments and starts successfully
     // We spawn the process, wait briefly to verify it starts, then kill it
 
+    // Also create legacy file for watch command if it needs it
+    let legacy_definitions = r"flags:
+  - name: initial_flag
+    type: boolean
+    default: false
+    defaultValue: false
+";
+    project.write_file("flags.definitions.yaml", legacy_definitions);
+
+    // Create a deployment file so watch has something to watch
+    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
+    let deployment = r"environment: production
+rules:
+  initial_flag:
+    rules:
+      - serve: true
+";
+    project.write_file(".controlpath/production.deployment.yaml", deployment);
+
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_controlpath"));
     cmd.current_dir(&project.project_path);
-    cmd.args(["watch", "--lang", "typescript", "--definitions"]);
+    cmd.args(["watch", "--lang", "typescript"]);
+    // Don't suppress stderr so we can see errors
     cmd.stdout(Stdio::null());
-    cmd.stderr(Stdio::null());
+    cmd.stderr(Stdio::piped());
 
     let mut child = cmd.spawn().expect("Failed to spawn watch command");
 
@@ -45,6 +68,7 @@ fn test_watch_mode_definitions_change() {
 }
 
 #[test]
+#[serial]
 fn test_watch_mode_help() {
     let project = TestProject::new();
 
