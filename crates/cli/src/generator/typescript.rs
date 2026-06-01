@@ -44,17 +44,6 @@ pub(crate) fn to_ts_string_literal(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::to_ts_string_literal;
-
-    #[test]
-    fn to_ts_string_literal_escapes_single_quotes_in_urls() {
-        let literal = to_ts_string_literal("https://flags.example.com/o'reilly/rules.ast");
-        assert_eq!(literal, "\"https://flags.example.com/o'reilly/rules.ast\"");
-    }
-}
-
 impl TypeScriptGenerator {
     pub fn new() -> Result<Self, CliError> {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -222,5 +211,16 @@ impl Generator for TypeScriptGenerator {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::to_ts_string_literal;
+
+    #[test]
+    fn to_ts_string_literal_escapes_single_quotes_in_urls() {
+        let literal = to_ts_string_literal("https://flags.example.com/o'reilly/rules.ast");
+        assert_eq!(literal, "\"https://flags.example.com/o'reilly/rules.ast\"");
     }
 }
