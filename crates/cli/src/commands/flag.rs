@@ -7,9 +7,11 @@ use crate::saas::{
     print_flag_rot_report, FakeSaasClient,
 };
 use crate::utils::catalog;
+use crate::utils::catalog_store::CatalogStore;
 use crate::utils::runtime;
 use crate::utils::unified_config;
 use controlpath_compiler::effective_catalog_id;
+use controlpath_compiler::FlagKind;
 use dialoguer::{Input, Select};
 use serde_json::Value;
 use std::env;
@@ -117,19 +119,25 @@ fn catalog_flag_names(unified: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn find_similar_flag_names(unified: &Value, name: &str) -> Vec<String> {
+fn find_similar_flag_names(flag_names: &[String], name: &str) -> Vec<String> {
     let mut similar = Vec::new();
-    for flag_name in catalog_flag_names(unified) {
-        let distance = levenshtein(name, &flag_name);
+    for flag_name in flag_names {
+        let distance = levenshtein(name, flag_name);
         if distance > 0 && distance <= name.len().max(flag_name.len()) / 2 {
-            similar.push((flag_name, distance));
+            similar.push((flag_name.clone(), distance));
         }
     }
     similar.sort_by_key(|(_, d)| *d);
     similar.into_iter().take(3).map(|(name, _)| name).collect()
 }
 
-fn prompt_for_flag_name(unified: &Value) -> CliResult<String> {
+fn store_flag_names(store: &CatalogStore) -> Vec<String> {
+    let mut names: Vec<String> = store.document().flags.keys().cloned().collect();
+    names.sort();
+    names
+}
+
+fn prompt_for_flag_name(store: &CatalogStore) -> CliResult<String> {
     runtime::require_interactive("prompt for flag name")?;
     loop {
         let name: String = Input::new()
@@ -140,8 +148,8 @@ fn prompt_for_flag_name(unified: &Value) -> CliResult<String> {
             .interact()
             .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
 
-        if unified_config::flag_exists(unified, &name) {
-            let similar = find_similar_flag_names(unified, &name);
+        if store.flag_exists(&name) {
+            let similar = find_similar_flag_names(&store_flag_names(store), &name);
             let mut msg = format!("Flag '{name}' already exists");
             if !similar.is_empty() {
                 msg.push_str(&format!("\n  Did you mean: {}?", similar.join(", ")));
@@ -215,14 +223,14 @@ fn run_unified(options: &Options) -> CliResult<()> {
             sync,
             interactive,
         } => {
-            let mut unified = unified_config::read_unified_config()?;
+            let mut store = CatalogStore::open_default()?;
 
             let (name, flag_type, default_value, description) = if *interactive && name.is_none() {
                 println!();
                 println!("Interactive mode: We'll guide you through adding a new flag");
                 println!("Press Ctrl+C at any time to cancel");
                 println!();
-                let name = prompt_for_flag_name(&unified)?;
+                let name = prompt_for_flag_name(&store)?;
                 let flag_type = flag_type.clone().unwrap_or_else(|| {
                     prompt_for_flag_type().unwrap_or_else(|_| "boolean".to_string())
                 });
@@ -251,7 +259,7 @@ fn run_unified(options: &Options) -> CliResult<()> {
                     )
                 })?;
                 validate_flag_name(&name)?;
-                if unified_config::flag_exists(&unified, &name) {
+                if store.flag_exists(&name) {
                     return Err(CliError::Message(format!("Flag '{name}' already exists")));
                 }
                 let flag_type = flag_type.as_deref().unwrap_or("boolean");
@@ -278,7 +286,7 @@ fn run_unified(options: &Options) -> CliResult<()> {
             };
 
             let existing_envs_for_sync = if *sync {
-                unified_config::get_environments(&unified)
+                store.environment_names()
             } else {
                 Vec::new()
             };
@@ -298,25 +306,24 @@ fn run_unified(options: &Options) -> CliResult<()> {
                 }
             };
 
-            unified_config::add_flag(
-                &mut unified,
+            store.add_flag(
                 &name,
                 default_bool,
-                "release",
+                FlagKind::Release,
                 description.as_deref(),
                 &existing_envs_for_sync,
             )?;
-
-            unified_config::write_unified_config(&unified)?;
-
-            let base_dir = std::env::current_dir().map_err(|e| {
-                CliError::Message(format!("Failed to resolve working directory: {e}"))
-            })?;
-            catalog::load_sdk_catalog(&base_dir)?;
+            store.save()?;
+            // Without --lang: hard-fail if SdkGenerate/import rules break (old load_sdk_catalog gate).
+            // With --lang: SdkGenerate runs inside regen (warnings only on failure).
+            if lang.is_none() {
+                store.validate_sdk_generate()?;
+            }
             println!("✓ Added flag '{name}'");
 
             if let Some(language) = lang {
-                let output_path = unified_config::get_sdk_output_path(&unified)
+                let output_path = store
+                    .sdk_output_path()
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("node_modules/@controlpath/generated"));
                 let base_dir = std::env::current_dir().map_err(|e| {
@@ -354,19 +361,19 @@ fn run_unified(options: &Options) -> CliResult<()> {
             Ok(())
         }
         FlagSubcommand::Remove { name, env } => {
-            let mut unified = unified_config::read_unified_config()?;
-            unified_config::remove_flag(&mut unified, name, env.as_deref())?;
-            unified_config::write_unified_config(&unified)?;
+            let mut store = CatalogStore::open_default()?;
+            store.remove_flag(name, env.as_deref())?;
+            store.save()?;
             println!("✓ Removed flag '{name}'");
             Ok(())
         }
         FlagSubcommand::Deprecate { name } => {
-            let mut unified = unified_config::read_unified_config()?;
-            if !unified_config::flag_exists(&unified, name) {
+            let mut store = CatalogStore::open_default()?;
+            if !store.flag_exists(name) {
                 return Err(CliError::Message(format!("Flag '{name}' not found.")));
             }
-            unified_config::deprecate_flag(&mut unified, name)?;
-            unified_config::write_unified_config(&unified)?;
+            store.deprecate_flag(name)?;
+            store.save()?;
             println!("✓ Flag '{name}' marked as deprecated");
             println!("  Rule changes are blocked unless --force is used with flag enable");
             Ok(())
@@ -543,7 +550,7 @@ fn show_flag_from_catalog(
         .and_then(|f| f.get(name))
         .ok_or_else(|| {
             let available = catalog_flag_names(unified);
-            let similar = find_similar_flag_names(unified, name);
+            let similar = find_similar_flag_names(&available, name);
             let mut msg = format!("Flag '{name}' not found.");
             if !available.is_empty() {
                 msg.push_str(&format!("\n  Available flags: {}", available.join(", ")));
@@ -841,7 +848,7 @@ flags:
         )
         .unwrap();
 
-        let similar = find_similar_flag_names(&unified, "test_flag_1");
+        let similar = find_similar_flag_names(&catalog_flag_names(&unified), "test_flag_1");
         assert!(!similar.is_empty());
         assert!(similar.len() <= 3);
     }
@@ -863,7 +870,8 @@ flags:
         )
         .unwrap();
 
-        let similar = find_similar_flag_names(&unified, "completely_different");
+        let similar =
+            find_similar_flag_names(&catalog_flag_names(&unified), "completely_different");
         assert!(similar.len() <= 3);
     }
 
@@ -878,7 +886,7 @@ flags: {}
         )
         .unwrap();
 
-        let similar = find_similar_flag_names(&unified, "test_flag");
+        let similar = find_similar_flag_names(&catalog_flag_names(&unified), "test_flag");
         assert!(similar.is_empty());
     }
 
@@ -1106,7 +1114,7 @@ flags:
         .unwrap();
 
         let unified = unified_config::read_unified_config().unwrap();
-        let similar = find_similar_flag_names(&unified, "my_feature_flg");
+        let similar = find_similar_flag_names(&catalog_flag_names(&unified), "my_feature_flg");
         // Should find "my_feature_flag" as similar
         assert!(similar.contains(&"my_feature_flag".to_string()));
     }
@@ -1413,9 +1421,9 @@ flags:
         )
         .unwrap();
 
-        let unified = unified_config::read_unified_config().unwrap();
-        assert!(unified_config::flag_exists(&unified, "existing_flag"));
-        assert!(!unified_config::flag_exists(&unified, "nonexistent_flag"));
+        let store = crate::utils::catalog_store::CatalogStore::open_default().unwrap();
+        assert!(store.flag_exists("existing_flag"));
+        assert!(!store.flag_exists("nonexistent_flag"));
     }
 
     #[test]

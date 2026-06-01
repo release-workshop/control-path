@@ -1,6 +1,6 @@
 # Catalog document store for control-path.yaml authoring
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -13,11 +13,11 @@ Re-serialization may reorder keys and drop comments; that is acceptable.
 
 ## Acceptance criteria
 
-- [ ] Store API supports at least: open/load, save, and mutations used by `flag` and `env` commands today (add/update/remove flag, environment rules where applicable in local mode).
-- [ ] Invalid mutations fail before write with the same diagnostics as compiler validation.
-- [ ] `flag add` / `flag set` (or equivalent) and one `env` workflow use only the store — no `read_unified_config` + separate `load_sdk_catalog` double-read in one command.
-- [ ] Integration or unit tests: round-trip edit on a fixture catalog; rejected invalid edit does not touch disk.
-- [ ] No remaining production use of `unified_config::read_unified_config` for catalog mutation (grep-clean or allowlist documented).
+- [x] Store API supports at least: open/load, save, and mutations used by `flag` and `env` commands today (add/update/remove flag, environment rules where applicable in local mode).
+- [x] Invalid mutations fail before write with the same diagnostics as compiler validation.
+- [x] `flag add` / `flag set` (or equivalent) and one `env` workflow use only the store — no `read_unified_config` + separate `load_sdk_catalog` double-read in one command.
+- [x] Integration or unit tests: round-trip edit on a fixture catalog; rejected invalid edit does not touch disk.
+- [x] No remaining production use of `unified_config::read_unified_config` for catalog mutation (grep-clean or allowlist documented).
 
 ## Blocked by
 

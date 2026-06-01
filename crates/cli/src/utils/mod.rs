@@ -2,6 +2,7 @@
 
 pub mod atomic_write;
 pub mod catalog;
+pub mod catalog_store;
 pub mod config;
 pub mod environment;
 pub mod kill_switch;

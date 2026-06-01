@@ -1,6 +1,6 @@
 # Replace skip_validation with explicit validation modes
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -11,11 +11,11 @@ Every user-facing compile and SDK generation path uses full validation. The prev
 
 ## Acceptance criteria
 
-- [ ] Compiler exposes a small `ValidationMode` (or equivalent) used by `validate_catalog` / load helpers; modes are documented next to `validate_catalog`.
-- [ ] `compile_catalog_envs`, `load_sdk_catalog*`, and `ci` / `workflow` / `dev` / `compile` / `generate-sdk` no longer take or pass `skip_validation` / `no_validate`.
-- [ ] CLI flags `--skip-validation` and `ci --no-validate` are removed; help text and integration tests updated.
-- [ ] Unit test per mode on a fixture catalog: schema failure, semantic failure, and import rule failure are rejected under `Compile` and `SdkGenerate`.
-- [ ] `cargo test --workspace` and clippy pass.
+- [x] Compiler exposes a small `ValidationMode` (or equivalent) used by `validate_catalog` / load helpers; modes are documented next to `validate_catalog`.
+- [x] `compile_catalog_envs`, `load_sdk_catalog*`, and `ci` / `workflow` / `dev` / `compile` / `generate-sdk` no longer take or pass `skip_validation` / `no_validate`.
+- [x] CLI flags `--skip-validation` and `ci --no-validate` are removed; help text and integration tests updated.
+- [x] Unit test per mode on a fixture catalog: schema failure, semantic failure, and import rule failure are rejected under `Compile` and `SdkGenerate`.
+- [x] `cargo test --workspace` and clippy pass.
 
 ## Blocked by
 

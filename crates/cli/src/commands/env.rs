@@ -2,8 +2,8 @@
 
 use crate::error::{CliError, CliResult};
 use crate::utils::catalog;
+use crate::utils::catalog_store::CatalogStore;
 use crate::utils::runtime;
-use crate::utils::unified_config;
 use dialoguer::Input;
 use std::env;
 
@@ -115,29 +115,29 @@ fn run_unified(options: &Options) -> CliResult<()> {
                 })?
             };
             validate_environment_name(&env_name)?;
-            let mut unified = unified_config::read_unified_config()?;
-            unified_config::add_environment(&mut unified, &env_name)?;
-            unified_config::write_unified_config(&unified)?;
+            let mut store = CatalogStore::open_default()?;
+            store.add_environment(&env_name)?;
+            store.save()?;
             println!("✓ Added environment '{env_name}' to control-path.yaml");
             Ok(())
         }
         EnvSubcommand::Sync { env, dry_run } => {
-            let unified = unified_config::read_unified_config()?;
+            let base_dir = env::current_dir().map_err(|e| {
+                CliError::Message(format!("Failed to resolve working directory: {e}"))
+            })?;
+            let bundle = catalog::load_catalog_bundle(&base_dir)?;
             let envs = if let Some(one) = env {
                 vec![one.clone()]
             } else {
-                unified_config::get_environments(&unified)
+                let mut names: Vec<String> = bundle.catalog.environments.keys().cloned().collect();
+                names.sort();
+                names
             };
             if envs.is_empty() {
                 return Err(CliError::Message(
                     "No environments found in control-path.yaml.".to_string(),
                 ));
             }
-
-            let base_dir = env::current_dir().map_err(|e| {
-                CliError::Message(format!("Failed to resolve working directory: {e}"))
-            })?;
-            catalog::load_sdk_catalog(&base_dir)?;
             for env_name in &envs {
                 if *dry_run {
                     println!("{env_name} is up to date");
@@ -148,8 +148,8 @@ fn run_unified(options: &Options) -> CliResult<()> {
             Ok(())
         }
         EnvSubcommand::List { format } => {
-            let unified = unified_config::read_unified_config()?;
-            let envs = unified_config::get_environments(&unified);
+            let store = CatalogStore::open_default()?;
+            let envs = store.environment_names();
             match format {
                 OutputFormat::Table => {
                     if envs.is_empty() {
@@ -176,9 +176,9 @@ fn run_unified(options: &Options) -> CliResult<()> {
         }
         EnvSubcommand::Remove { name } => {
             validate_environment_name(name)?;
-            let mut unified = unified_config::read_unified_config()?;
-            unified_config::remove_environment(&mut unified, name)?;
-            unified_config::write_unified_config(&unified)?;
+            let mut store = CatalogStore::open_default()?;
+            store.remove_environment(name)?;
+            store.save()?;
             println!("✓ Removed environment '{name}' from control-path.yaml");
             Ok(())
         }

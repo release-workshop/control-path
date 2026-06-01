@@ -8,10 +8,11 @@
 use crate::commands::{compile, validate};
 use crate::error::{CliError, CliResult};
 use crate::ops::{compile as ops_compile, generate_sdk as ops_generate_sdk};
+use crate::utils::catalog_store::CatalogStore;
 use crate::utils::environment;
 use crate::utils::runtime;
-use crate::utils::unified_config;
 use controlpath_compiler::compiler::expressions::parse_expression;
+use controlpath_compiler::FlagKind;
 use dialoguer::Input;
 use serde_json::Value;
 
@@ -27,11 +28,6 @@ pub struct NewFlagOptions {
     pub enable_in: Option<String>, // Comma-separated environments
     pub skip_sdk: bool,
     pub best_effort: bool,
-}
-
-// Write config
-fn write_unified(config: &Value) -> CliResult<()> {
-    unified_config::write_unified_config(config)
 }
 
 fn validate_flag_name(name: &str) -> CliResult<()> {
@@ -56,33 +52,19 @@ fn validate_flag_name(name: &str) -> CliResult<()> {
     Ok(())
 }
 
-fn check_flag_exists(unified: &Value, name: &str) -> bool {
-    unified_config::flag_exists(unified, name)
+fn catalog_flag_names_for_error(store: &CatalogStore) -> Vec<String> {
+    let mut names: Vec<String> = store.document().flags.keys().cloned().collect();
+    names.sort();
+    names
 }
 
-// ============================================================================
-// Config helper functions
-// ============================================================================
-
-fn catalog_flag_names_for_error(unified: &Value) -> Vec<String> {
-    unified
-        .get("flags")
-        .and_then(|f| f.as_object())
-        .map(|flags| {
-            let mut names: Vec<String> = flags.keys().cloned().collect();
-            names.sort();
-            names
-        })
-        .unwrap_or_default()
-}
-
-fn default_bool_from_flag(unified: &Value, flag_name: &str) -> Value {
-    unified
-        .get("flags")
-        .and_then(|f| f.get(flag_name))
-        .and_then(|flag| flag.get("default"))
-        .cloned()
-        .unwrap_or(Value::Bool(false))
+fn default_bool_from_flag(store: &CatalogStore, flag_name: &str) -> bool {
+    store
+        .document()
+        .flags
+        .get(flag_name)
+        .map(|f| f.default)
+        .unwrap_or(false)
 }
 
 pub fn run_new_flag(options: &NewFlagOptions) -> i32 {
@@ -132,11 +114,11 @@ pub fn run_new_flag(options: &NewFlagOptions) -> i32 {
 }
 
 fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
-    let mut unified = unified_config::read_unified_config()?;
+    let mut store = CatalogStore::open_default()?;
 
     let flag_name = if let Some(ref name) = options.name {
         validate_flag_name(name)?;
-        if check_flag_exists(&unified, name) {
+        if store.flag_exists(name) {
             return Err(CliError::Message(format!("Flag '{}' already exists", name)));
         }
         name.clone()
@@ -146,7 +128,7 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
             .with_prompt("Flag name (snake_case)")
             .validate_with(|input: &String| -> Result<(), String> {
                 validate_flag_name(input).map_err(|e| e.to_string())?;
-                if check_flag_exists(&unified, input) {
+                if store.flag_exists(input) {
                     Err(format!("Flag '{}' already exists", input))
                 } else {
                     Ok(())
@@ -190,84 +172,62 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
 
     let description = options.description.as_deref();
 
-    unified_config::add_flag(
-        &mut unified,
+    store.add_flag(
         &flag_name,
         default_bool,
-        "release",
+        FlagKind::Release,
         description,
         &[],
     )?;
-    write_unified(&unified)?;
-    if !runtime::is_json_output() {
-        println!("✓ Added flag to configuration");
-    }
 
     // Enable in specified environments
     let mut enabled_envs = Vec::new();
     if let Some(ref enable_envs) = options.enable_in {
         let envs: Vec<&str> = enable_envs.split(',').map(|s| s.trim()).collect();
 
-        // Re-read config to get latest state
-        let mut unified = unified_config::read_unified_config()?;
-
         for env in envs {
-            // Determine serve value (opposite of default for boolean, or default for others)
-            let serve_value = match &default_value {
-                Value::Bool(b) => Value::Bool(!b),
-                _ => default_value.clone(),
-            };
-
-            let serve_bool = match serve_value {
-                Value::Bool(b) => b,
-                _ => default_bool,
-            };
-            unified_config::enable_flag_in_environment(
-                &mut unified,
-                &flag_name,
-                env,
-                None,
-                serve_bool,
-                false,
-            )?;
+            let serve_bool = !default_bool;
+            store.enable_flag_in_environment(&flag_name, env, None, serve_bool, false)?;
             if !runtime::is_json_output() {
                 println!("✓ Enabled flag in {env}");
             }
             enabled_envs.push(env.to_string());
         }
+    }
 
-        // Write config back
-        write_unified(&unified)?;
+    store.save()?;
+    store.validate_sdk_generate_if_imported()?;
+    if !runtime::is_json_output() {
+        println!("✓ Added flag to configuration");
+    }
 
-        // Auto-compile ASTs for enabled environments
-        if !enabled_envs.is_empty() {
-            if !runtime::is_json_output() {
-                println!("Compiling ASTs for enabled environments...");
-            }
-            let compile_opts = ops_compile::CompileOptions {
-                envs: Some(enabled_envs.clone()),
-            };
-            match ops_compile::compile_envs(&compile_opts) {
-                Ok(compiled) => {
-                    for env in &compiled {
-                        if !runtime::is_json_output() {
-                            println!("✓ Compiled AST for {env}");
-                        }
+    if !enabled_envs.is_empty() {
+        if !runtime::is_json_output() {
+            println!("Compiling ASTs for enabled environments...");
+        }
+        let compile_opts = ops_compile::CompileOptions {
+            envs: Some(enabled_envs.clone()),
+        };
+        match ops_compile::compile_envs(&compile_opts) {
+            Ok(compiled) => {
+                for env in &compiled {
+                    if !runtime::is_json_output() {
+                        println!("✓ Compiled AST for {env}");
                     }
                 }
-                Err(e) => {
-                    if options.best_effort {
-                        eprintln!("⚠ Warning: Failed to compile ASTs: {e}");
-                        eprintln!(
-                            "  You can compile manually with: controlpath compile --env {}",
-                            enabled_envs.join(",")
-                        );
-                    } else {
-                        return Err(CliError::Message(format!(
-                            "Failed to compile ASTs after adding flag '{}': {e}",
-                            flag_name
-                        )));
-                    }
+            }
+            Err(e) => {
+                if options.best_effort {
+                    eprintln!("⚠ Warning: Failed to compile ASTs: {e}");
+                    eprintln!(
+                        "  You can compile manually with: controlpath compile --env {}",
+                        enabled_envs.join(",")
+                    );
+                } else {
+                    return Err(CliError::Message(format!(
+                        "Failed to compile ASTs after adding flag '{}': {e}",
+                        flag_name
+                    )));
                 }
             }
         }
@@ -397,10 +357,10 @@ pub fn run_enable(options: &EnableOptions) -> i32 {
 }
 
 fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
-    let mut unified = unified_config::read_unified_config()?;
+    let mut store = CatalogStore::open_default()?;
 
-    if !unified_config::flag_exists(&unified, &options.name) {
-        let available_flags = catalog_flag_names_for_error(&unified);
+    if !store.flag_exists(&options.name) {
+        let available_flags = catalog_flag_names_for_error(&store);
         let mut msg = format!("Flag '{}' not found in configuration.", options.name);
         if !available_flags.is_empty() {
             msg.push_str(&format!(
@@ -416,7 +376,7 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
         return Err(CliError::Message(msg));
     }
 
-    let default_value = default_bool_from_flag(&unified, &options.name);
+    let default_bool = default_bool_from_flag(&store, &options.name);
 
     // Get environments (interactive if not provided)
     let envs = if let Some(ref env_str) = options.env {
@@ -425,16 +385,16 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
         // Try smart defaults: git branch mapping or defaultEnv
         if let Ok(Some(default_env)) = environment::determine_environment() {
             // Check if environment exists in config
-            let all_envs = unified_config::get_environments(&unified);
+            let all_envs = store.environment_names();
             if all_envs.contains(&default_env) {
                 vec![default_env]
             } else {
                 // Default env doesn't exist, fall through to finding available environments
-                find_envs_for_enable_unified(&unified, options)?
+                find_envs_for_enable(&store, options)?
             }
         } else {
             // No smart default found, find available environments
-            find_envs_for_enable_unified(&unified, options)?
+            find_envs_for_enable(&store, options)?
         }
     };
 
@@ -481,36 +441,15 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
         None // Default: enable for all (no rule)
     };
 
-    // Get value to serve
-    let serve_value = options.value.as_deref();
-
-    // Determine serve value
-    let serve_val = if let Some(val_str) = serve_value {
-        if val_str == "true" || val_str == "True" {
-            Value::Bool(true)
-        } else {
-            Value::Bool(false)
-        }
+    let serve_bool = if let Some(val_str) = options.value.as_deref() {
+        val_str == "true" || val_str == "True"
     } else {
-        match &default_value {
-            Value::Bool(b) => Value::Bool(!*b),
-            _ => default_value.clone(),
-        }
-    };
-
-    let serve_bool = match serve_val {
-        Value::Bool(b) => b,
-        _ => {
-            return Err(CliError::Message(
-                "v2 catalogs only support boolean serve values".to_string(),
-            ))
-        }
+        !default_bool
     };
 
     let mut updated_envs = Vec::new();
     for env in &envs {
-        unified_config::enable_flag_in_environment(
-            &mut unified,
+        store.enable_flag_in_environment(
             &options.name,
             env,
             rule_expr.as_deref(),
@@ -520,8 +459,8 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
         updated_envs.push(env.clone());
     }
 
-    // Write config back
-    write_unified(&unified)?;
+    store.save()?;
+    store.validate_sdk_generate_if_imported()?;
 
     // Auto-compile ASTs for updated environments (unless --no-compile)
     if !options.no_compile && !updated_envs.is_empty() {
@@ -560,11 +499,8 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
 }
 
 /// Helper function to find environments for enable command when no env specified (config)
-fn find_envs_for_enable_unified(
-    unified: &Value,
-    _options: &EnableOptions,
-) -> CliResult<Vec<String>> {
-    let envs = unified_config::get_environments(unified);
+fn find_envs_for_enable(store: &CatalogStore, _options: &EnableOptions) -> CliResult<Vec<String>> {
+    let envs = store.environment_names();
     if envs.is_empty() {
         return Err(CliError::Message(
             "No environments found. Add flags with environment rules first.".to_string(),
@@ -636,8 +572,8 @@ pub fn run_deploy(options: &DeployOptions) -> i32 {
 }
 
 fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
-    let unified = unified_config::read_unified_config()?;
-    let all_envs = unified_config::get_environments(&unified);
+    let store = CatalogStore::open_default()?;
+    let all_envs = store.environment_names();
 
     // Get environments
     let envs = if let Some(ref env_str) = options.env {
@@ -757,8 +693,8 @@ environments:
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "test_flag");
 
-        let unified = unified_config::read_unified_config().unwrap();
-        assert!(unified_config::flag_exists(&unified, "test_flag"));
+        let store = CatalogStore::open_default().unwrap();
+        assert!(store.flag_exists("test_flag"));
     }
 
     #[test]
@@ -795,17 +731,15 @@ environments:
         let result = run_enable_inner(&enable_options);
         assert!(result.is_ok());
 
-        let unified = unified_config::read_unified_config().unwrap();
-        let env_rules = unified
-            .get("environments")
-            .and_then(|e| e.get("production"))
-            .and_then(|e| e.get("rules"))
-            .and_then(|r| r.get("test_flag"))
-            .and_then(|r| r.as_array())
+        let store = CatalogStore::open_default().unwrap();
+        let env_rules = store
+            .document()
+            .environments
+            .get("production")
+            .and_then(|e| e.rules.get("test_flag"))
             .expect("production rules for test_flag");
 
-        let serve_value = env_rules[0].get("serve").and_then(|s| s.as_bool()).unwrap();
-        assert!(serve_value); // Should be true (opposite of default false)
+        assert_eq!(env_rules[0].serve, Some(true));
     }
 
     #[test]
@@ -860,22 +794,16 @@ environments:
 
         // Verify rule was created with "when" field (not "if")
         // Verify flag was enabled with rule expression in config
-        let unified = unified_config::read_unified_config().unwrap();
-        let env_rules = unified
-            .get("environments")
-            .and_then(|e| e.get("production"))
-            .and_then(|e| e.get("rules"))
-            .and_then(|r| r.get("test_flag"))
-            .and_then(|r| r.as_array())
+        let store = CatalogStore::open_default().unwrap();
+        let env_rules = store
+            .document()
+            .environments
+            .get("production")
+            .and_then(|e| e.rules.get("test_flag"))
             .expect("production rules for test_flag");
 
         let rule = env_rules.last().expect("at least one rule");
-        assert!(rule.get("when").is_some(), "Rule should have 'when' field");
-        assert_eq!(
-            rule.get("when").and_then(|w| w.as_str()),
-            Some("user.role == 'admin'")
-        );
-        assert!(rule.get("if").is_none(), "Rule should not have 'if' field");
+        assert_eq!(rule.when.as_deref(), Some("user.role == 'admin'"));
     }
 
     #[test]
@@ -937,13 +865,12 @@ environments:
         let result = run_new_flag_inner(&options);
         assert!(result.is_ok());
 
-        let unified = unified_config::read_unified_config().unwrap();
-        let env_rules = unified
-            .get("environments")
-            .and_then(|e| e.get("nonexistent"))
-            .and_then(|e| e.get("rules"))
-            .and_then(|r| r.get("test_flag"))
-            .and_then(|r| r.as_array());
+        let store = CatalogStore::open_default().unwrap();
+        let env_rules = store
+            .document()
+            .environments
+            .get("nonexistent")
+            .and_then(|e| e.rules.get("test_flag"));
         assert!(
             env_rules.is_some(),
             "Environment 'nonexistent' should have been created"
