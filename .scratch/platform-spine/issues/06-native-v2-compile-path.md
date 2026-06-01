@@ -1,6 +1,6 @@
 # Native v2 compile path (remove legacy JSON shim)
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -13,10 +13,10 @@ Deliver in **one PR**: delete the shim, update `lib.rs` exports so catalog compi
 
 ## Acceptance criteria
 
-- [ ] `compile_catalog_with_imports` produces `Artifact` via native lowering (rules, segments, import qualification, kill_switch constraints, trailing default serve).
-- [ ] Legacy `compiler::compile` path removed or only used by deleted code; no `defaultValue` / v1 field names in catalog compile module.
-- [ ] Existing catalog compile unit tests and CLI compile integration tests pass without behaviour regression.
-- [ ] `cargo test --workspace`, clippy, and release build pass.
+- [x] `compile_catalog_with_imports` produces `Artifact` via native lowering (rules, segments, import qualification, kill_switch constraints, trailing default serve).
+- [x] Legacy `compiler::compile` path removed or only used by deleted code; no `defaultValue` / v1 field names in catalog compile module.
+- [x] Existing catalog compile unit tests and CLI compile integration tests pass without behaviour regression.
+- [x] `cargo test --workspace`, clippy, and release build pass.
 
 ## Blocked by
 

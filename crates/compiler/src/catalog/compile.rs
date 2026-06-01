@@ -8,12 +8,13 @@
 
 use std::collections::BTreeMap;
 
-use crate::ast::Artifact;
+use crate::ast::{Artifact, Expression, RolloutPayload, RolloutValue, Rule, ServePayload};
 use crate::catalog::{
     validate_catalog, CatalogDocument, CatalogMode, CatalogValidationContext,
-    CatalogValidationResult, Rule as CatalogRule, ValidationMode,
+    CatalogValidationResult, Rule as CatalogRule, Segment, ValidationMode,
 };
-use crate::compiler;
+use crate::compiler::expressions::parse_expression;
+use crate::compiler::string_table::StringTable;
 use crate::error::{CompilationError, CompilerError, ValidationError};
 
 /// Compile a local-mode v2 catalog for the given environment into an AST artifact.
@@ -68,9 +69,7 @@ pub fn compile_catalog_with_imports(
         )));
     }
 
-    let definitions = catalog_to_definitions(catalog, imports);
-    let deployment = catalog_to_deployment(catalog, imports, environment)?;
-    compiler::compile(&deployment, &definitions)
+    lower_catalog_to_artifact(catalog, imports, environment)
 }
 
 /// Validate a catalog, then compile an environment into an AST artifact.
@@ -143,54 +142,65 @@ fn ensure_catalog_valid(result: CatalogValidationResult) -> Result<(), CompilerE
     ))
 }
 
-fn catalog_to_definitions(
-    catalog: &CatalogDocument,
-    imports: &BTreeMap<String, CatalogDocument>,
-) -> serde_json::Value {
-    let mut flags: Vec<serde_json::Value> = catalog
-        .flags
-        .iter()
-        .map(|(name, flag)| {
-            serde_json::json!({
-                "name": name,
-                "type": "boolean",
-                "defaultValue": flag.default,
-            })
-        })
-        .collect();
-
-    for (import_namespace, imported) in imports {
-        for (flag_key, flag) in &imported.flags {
-            flags.push(serde_json::json!({
-                "name": format!("{import_namespace}.{flag_key}"),
-                "type": "boolean",
-                "defaultValue": flag.default,
-            }));
-        }
-    }
-
-    serde_json::json!({ "flags": flags })
+struct FlagEntry<'a> {
+    name: String,
+    default: bool,
+    rules: &'a [CatalogRule],
 }
 
-fn catalog_to_deployment(
+fn lower_catalog_to_artifact(
     catalog: &CatalogDocument,
     imports: &BTreeMap<String, CatalogDocument>,
     environment: &str,
-) -> Result<serde_json::Value, CompilerError> {
-    let mut rules = serde_json::Map::new();
+) -> Result<Artifact, CompilerError> {
+    reject_unknown_env_rule_keys(catalog, imports, environment)?;
+    let merged_segments = merge_segments(catalog, imports)?;
+    let flag_entries = collect_flag_entries(catalog, imports, environment);
 
+    let mut string_table = StringTable::new();
+    let segments = compile_segments(&merged_segments, &mut string_table)?;
+
+    let mut compiled_flags: Vec<Vec<Rule>> = Vec::with_capacity(flag_entries.len());
+    for entry in &flag_entries {
+        let mut rules = compile_flag_rules(&entry.name, entry.rules, &mut string_table)?;
+        append_default_serve_rule(entry.default, &mut rules, &mut string_table)?;
+        compiled_flags.push(rules);
+    }
+
+    let mut flag_names: Vec<u16> = Vec::with_capacity(flag_entries.len());
+    for entry in &flag_entries {
+        flag_names.push(string_table.add(&entry.name)?);
+    }
+
+    Ok(Artifact {
+        version: "1.0".to_string(),
+        environment: environment.to_string(),
+        string_table: string_table.to_vec(),
+        flags: compiled_flags,
+        flag_names,
+        segments: if segments.is_empty() {
+            None
+        } else {
+            Some(segments)
+        },
+        signature: None,
+    })
+}
+
+fn reject_unknown_env_rule_keys(
+    catalog: &CatalogDocument,
+    imports: &BTreeMap<String, CatalogDocument>,
+    environment: &str,
+) -> Result<(), CompilerError> {
     if let Some(env) = catalog.environments.get(environment) {
-        for (flag_name, flag_rules) in &env.rules {
-            if !flag_rules.is_empty() {
-                let legacy_rules: Vec<serde_json::Value> = flag_rules
-                    .iter()
-                    .enumerate()
-                    .map(|(index, rule)| prepare_catalog_rule(rule, flag_name, index))
-                    .collect::<Result<_, _>>()?;
-                rules.insert(
-                    flag_name.clone(),
-                    serde_json::json!({ "rules": legacy_rules }),
-                );
+        for (flag_key, flag_rules) in &env.rules {
+            if flag_rules.is_empty() {
+                continue;
+            }
+            if !catalog.flags.contains_key(flag_key.as_str()) {
+                return Err(CompilerError::Compilation(CompilationError::InvalidRule(
+                    format!("Flag \"{flag_key}\" not found in flag definitions"),
+                )));
             }
         }
     }
@@ -201,28 +211,73 @@ fn catalog_to_deployment(
                 if flag_rules.is_empty() {
                     continue;
                 }
-                let qualified = format!("{import_namespace}.{flag_key}");
-                let legacy_rules: Vec<serde_json::Value> = flag_rules
-                    .iter()
-                    .enumerate()
-                    .map(|(index, rule)| prepare_catalog_rule(rule, &qualified, index))
-                    .collect::<Result<_, _>>()?;
-                rules.insert(qualified, serde_json::json!({ "rules": legacy_rules }));
+                if !imported.flags.contains_key(flag_key.as_str()) {
+                    let qualified = format!("{import_namespace}.{flag_key}");
+                    return Err(CompilerError::Compilation(CompilationError::InvalidRule(
+                        format!("Flag \"{qualified}\" not found in flag definitions"),
+                    )));
+                }
             }
         }
     }
 
-    let mut deployment = serde_json::json!({
-        "environment": environment,
-        "rules": rules,
-    });
+    Ok(())
+}
 
-    let mut segments: serde_json::Map<String, serde_json::Value> = catalog
-        .segments
-        .iter()
-        .map(|(name, segment)| (name.clone(), serde_json::json!({ "when": segment.when })))
-        .collect();
+fn collect_flag_entries<'a>(
+    catalog: &'a CatalogDocument,
+    imports: &'a BTreeMap<String, CatalogDocument>,
+    environment: &str,
+) -> Vec<FlagEntry<'a>> {
+    let mut entries = Vec::new();
 
+    for (name, flag) in &catalog.flags {
+        let rules = catalog
+            .environments
+            .get(environment)
+            .and_then(|env| env.rules.get(name))
+            .map_or(&[] as &[CatalogRule], |r| r.as_slice());
+        entries.push(FlagEntry {
+            name: name.clone(),
+            default: flag.default,
+            rules,
+        });
+    }
+
+    for (import_namespace, imported) in imports {
+        if let Some(env) = imported.environments.get(environment) {
+            for (flag_key, flag) in &imported.flags {
+                let qualified = format!("{import_namespace}.{flag_key}");
+                let rules = env
+                    .rules
+                    .get(flag_key)
+                    .map_or(&[] as &[CatalogRule], |r| r.as_slice());
+                entries.push(FlagEntry {
+                    name: qualified,
+                    default: flag.default,
+                    rules,
+                });
+            }
+        } else {
+            for (flag_key, flag) in &imported.flags {
+                let qualified = format!("{import_namespace}.{flag_key}");
+                entries.push(FlagEntry {
+                    name: qualified,
+                    default: flag.default,
+                    rules: &[],
+                });
+            }
+        }
+    }
+
+    entries
+}
+
+fn merge_segments(
+    catalog: &CatalogDocument,
+    imports: &BTreeMap<String, CatalogDocument>,
+) -> Result<BTreeMap<String, Segment>, CompilerError> {
+    let mut segments: BTreeMap<String, Segment> = catalog.segments.clone();
     let mut segment_sources: BTreeMap<String, String> = catalog
         .segments
         .keys()
@@ -246,22 +301,48 @@ fn catalog_to_deployment(
                 )));
             }
             segment_sources.insert(name.clone(), import_namespace.clone());
-            segments.insert(name.clone(), serde_json::json!({ "when": segment.when }));
+            segments.insert(name.clone(), segment.clone());
         }
     }
 
-    if !segments.is_empty() {
-        deployment["segments"] = serde_json::Value::Object(segments);
-    }
-
-    Ok(deployment)
+    Ok(segments)
 }
 
-fn prepare_catalog_rule(
+fn compile_segments(
+    segments: &BTreeMap<String, Segment>,
+    string_table: &mut StringTable,
+) -> Result<Vec<(u16, Expression)>, CompilerError> {
+    let mut compiled = Vec::new();
+    for (name, segment) in segments {
+        let segment_expr = parse_expression(&segment.when)?;
+        let processed_expr = string_table.process_expression(&segment_expr)?;
+        let name_index = string_table.add(name)?;
+        compiled.push((name_index, processed_expr));
+    }
+    Ok(compiled)
+}
+
+fn compile_flag_rules(
+    flag_name: &str,
+    rules: &[CatalogRule],
+    string_table: &mut StringTable,
+) -> Result<Vec<Rule>, CompilerError> {
+    if rules.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut compiled = Vec::with_capacity(rules.len());
+    for (index, rule) in rules.iter().enumerate() {
+        compiled.push(compile_catalog_rule(rule, flag_name, index, string_table)?);
+    }
+    Ok(compiled)
+}
+
+fn compile_catalog_rule(
     rule: &CatalogRule,
     flag_name: &str,
     rule_index: usize,
-) -> Result<serde_json::Value, CompilerError> {
+    string_table: &mut StringTable,
+) -> Result<Rule, CompilerError> {
     if rule.serve.is_none() && rule.rollout.is_none() {
         return Err(CompilerError::Compilation(CompilationError::InvalidRule(
             format!(
@@ -280,11 +361,56 @@ fn prepare_catalog_rule(
         )));
     }
 
-    if let Some(rollout) = &rule.rollout {
-        validate_rollout_percentage(rollout.percentage, flag_name, rule_index)?;
+    let when_expr = if let Some(when) = &rule.when {
+        let parsed = parse_expression(when)?;
+        Some(string_table.process_expression(&parsed)?)
+    } else {
+        None
+    };
+
+    if let Some(serve) = rule.serve {
+        let value_index = string_table.add(bool_to_serve_value(serve))?;
+        let payload = ServePayload::Number(value_index);
+        return Ok(match when_expr {
+            Some(w) => Rule::ServeWithWhen(w, payload),
+            None => Rule::ServeWithoutWhen(payload),
+        });
     }
 
-    Ok(catalog_rule_to_legacy_json(rule))
+    if let Some(rollout) = &rule.rollout {
+        validate_rollout_percentage(rollout.percentage, flag_name, rule_index)?;
+        let value_index = string_table.add(bool_to_serve_value(rollout.serve))?;
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let percentage = rollout.percentage.round() as u8;
+        let payload = RolloutPayload {
+            value_index: RolloutValue::Number(value_index),
+            percentage,
+        };
+        return Ok(match when_expr {
+            Some(w) => Rule::RolloutWithWhen(w, payload),
+            None => Rule::RolloutWithoutWhen(payload),
+        });
+    }
+
+    unreachable!("serve or rollout presence checked above")
+}
+
+fn append_default_serve_rule(
+    default: bool,
+    rules: &mut Vec<Rule>,
+    string_table: &mut StringTable,
+) -> Result<(), CompilerError> {
+    let default_index = string_table.add(bool_to_serve_value(default))?;
+    rules.push(Rule::ServeWithoutWhen(ServePayload::Number(default_index)));
+    Ok(())
+}
+
+fn bool_to_serve_value(serve: bool) -> &'static str {
+    if serve {
+        "ON"
+    } else {
+        "OFF"
+    }
 }
 
 fn validate_rollout_percentage(
@@ -301,38 +427,6 @@ fn validate_rollout_percentage(
         )));
     }
     Ok(())
-}
-
-fn catalog_rule_to_legacy_json(rule: &CatalogRule) -> serde_json::Value {
-    let mut obj = serde_json::Map::new();
-
-    if let Some(when) = &rule.when {
-        obj.insert("when".to_string(), serde_json::Value::String(when.clone()));
-    }
-
-    if let Some(serve) = rule.serve {
-        obj.insert("serve".to_string(), serde_json::Value::Bool(serve));
-    }
-
-    if let Some(rollout) = &rule.rollout {
-        obj.insert(
-            "rollout".to_string(),
-            serde_json::json!({
-                "percentage": rollout.percentage,
-                "variation": bool_to_rollout_variation(rollout.serve),
-            }),
-        );
-    }
-
-    serde_json::Value::Object(obj)
-}
-
-fn bool_to_rollout_variation(serve: bool) -> &'static str {
-    if serve {
-        "ON"
-    } else {
-        "OFF"
-    }
 }
 
 #[cfg(test)]

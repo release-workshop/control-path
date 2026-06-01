@@ -4,10 +4,11 @@
 //! Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.
 //! See the LICENSE file in the project root for details.
 //!
-//! This library compiles v2 boolean catalogs (and legacy split-file YAML) into compact AST
-//! artifacts. Prefer the v2 catalog API (`load_and_validate_catalog`, `compile_catalog`) for
-//! new integrations. It is designed to be WASM-compatible and works only with in-memory data
-//! (no file I/O).
+//! This library compiles v2 boolean catalogs into compact AST artifacts. Prefer the
+//! catalog API (`load_and_validate_catalog`, `compile_catalog`, `compile_catalog_with_imports`)
+//! for all new integrations — it lowers typed [`CatalogDocument`] values directly without
+//! a v1 JSON shim. Legacy split-file helpers (`parse_definitions`, `parse_deployment`,
+//! [`compile`]) remain for benchmarks and older call sites only.
 //!
 //! # Example (v2 catalog)
 //!
@@ -130,7 +131,9 @@ pub fn parse_unified_config(content: &str) -> Result<serde_json::Value, Compiler
     parser::parse_unified_config(content).map_err(|e| CompilerError::Parse(e.into()))
 }
 
-/// Compile deployment and definitions into an AST artifact
+/// Compile deployment and definitions into an AST artifact (legacy v1 split-file path).
+///
+/// Prefer [`compile_catalog`] or [`compile_catalog_with_imports`] for v2 catalogs.
 ///
 /// # Errors
 ///

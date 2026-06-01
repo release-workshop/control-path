@@ -237,6 +237,89 @@ flags:
 }
 
 #[test]
+fn rejects_unknown_local_rule_key_at_compile_time() {
+    let content = r#"
+catalog:
+  id: svc
+mode: local
+flags:
+  my_flag:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      my_flga:
+        - serve: true
+"#;
+    let catalog = parse_catalog(content, Some("bad.yaml")).unwrap();
+    let err = compile_catalog(&catalog, "production").unwrap_err();
+    assert!(err.to_string().contains("my_flga"));
+    assert!(err.to_string().contains("not found in flag definitions"));
+}
+
+#[test]
+fn ignores_empty_rules_on_unknown_local_rule_key() {
+    let content = r#"
+catalog:
+  id: svc
+mode: local
+flags:
+  my_flag:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      my_flga: []
+"#;
+    let catalog = parse_catalog(content, Some("catalog.yaml")).unwrap();
+    let artifact = compile_catalog(&catalog, "production").unwrap();
+    assert_eq!(flag_rules(&artifact, "my_flag").len(), 1);
+}
+
+#[test]
+fn rejects_unknown_import_rule_key_at_compile_time() {
+    let content = r#"
+catalog:
+  id: svc
+mode: local
+imports:
+  platform:
+    path: platform.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      new_dashboard:
+        - serve: true
+"#;
+    let platform = r#"
+catalog:
+  id: platform
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_killswitch:
+        - serve: false
+"#;
+    let catalog = parse_catalog(content, Some("service.yaml")).unwrap();
+    let imported = parse_catalog(platform, Some("platform.yaml")).unwrap();
+    let mut imports = BTreeMap::new();
+    imports.insert("platform".to_string(), imported);
+    let err = compile_catalog_with_imports(&catalog, &imports, "production").unwrap_err();
+    assert!(err.to_string().contains("platform.emergency_killswitch"));
+    assert!(err.to_string().contains("not found in flag definitions"));
+}
+
+#[test]
 fn rejects_rule_with_both_serve_and_rollout_at_compile_time() {
     let content = r#"
 catalog:
