@@ -1,6 +1,6 @@
 {
   "name": "@controlpath/runtime",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Control Path low-level runtime SDK for AST loading and flag evaluation",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

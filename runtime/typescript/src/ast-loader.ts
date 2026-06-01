@@ -11,9 +11,9 @@
 
 import { unpack, pack } from 'msgpackr';
 import { readFile } from 'fs/promises';
-import { resolve, normalize } from 'path';
 import { verify } from '@noble/ed25519';
 import type { Artifact } from './types';
+import { fetchWithRedirects, validateFilePath } from './loader-utils';
 
 /**
  * Maximum size for AST artifacts (10MB)
@@ -45,9 +45,6 @@ const MAX_STRING_LENGTH = 10000;
  */
 const MAX_FLAGS = 100000;
 
-/**
- * Maximum number of redirects to follow (5)
- */
 const MAX_REDIRECTS = 5;
 
 /** Thrown when the remote compiled artifact has not changed (HTTP 304). */
@@ -62,62 +59,6 @@ export class ArtifactNotModifiedError extends Error {
 export interface ArtifactLoadResult {
   artifact: Artifact;
   etag?: string;
-}
-
-/**
- * Validate and normalize a file path to prevent path traversal attacks
- * @param filePath - The file path to validate
- * @param allowedDirectory - Optional allowed directory to restrict file access (default: current working directory)
- * @returns The normalized absolute path
- * @throws Error if path traversal is detected or path is outside allowed directory
- */
-function validateFilePath(filePath: string, allowedDirectory?: string): string {
-  if (!filePath || typeof filePath !== 'string') {
-    throw new Error('File path is required');
-  }
-
-  // Check for null bytes (potential injection) - check early
-  if (filePath.includes('\0')) {
-    throw new Error('Null byte detected in file path');
-  }
-
-  // Normalize the path to resolve any . or .. components
-  const normalized = normalize(filePath);
-
-  // Check if normalized path still contains .. (shouldn't happen, but be safe)
-  if (normalized.includes('..')) {
-    throw new Error('Path traversal detected in file path');
-  }
-
-  // Resolve to absolute path
-  const resolved = resolve(normalized);
-
-  // Final check: ensure no .. components remain after resolution
-  // This is the key security check - after resolution, there should be no .. components
-  // Split and check each part
-  const pathParts = resolved.split(/[/\\]/);
-  for (const part of pathParts) {
-    if (part === '..') {
-      throw new Error('Path traversal detected in file path');
-    }
-  }
-
-  // Restrict to allowed directory if specified
-  if (allowedDirectory) {
-    const allowedPath = resolve(allowedDirectory);
-    // Ensure resolved path is within allowed directory
-    // Use normalized paths for comparison
-    const resolvedNormalized = resolved.replace(/[/\\]+/g, '/');
-    const allowedNormalized = allowedPath.replace(/[/\\]+/g, '/');
-    if (
-      !resolvedNormalized.startsWith(allowedNormalized + '/') &&
-      resolvedNormalized !== allowedNormalized
-    ) {
-      throw new Error('File path outside allowed directory');
-    }
-  }
-
-  return resolved;
 }
 
 /**
@@ -168,93 +109,28 @@ export async function loadFromURL(
   logger?: { warn: (message: string) => void },
   options?: LoadOptions
 ): Promise<ArtifactLoadResult> {
-  // Basic URL validation
-  try {
-    new URL(url);
-  } catch {
-    throw new Error(`Invalid URL: ${url}`);
-  }
-
-  // Only allow http and https protocols
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    throw new Error(`Unsupported URL protocol. Only http:// and https:// are allowed: ${url}`);
-  }
-
   // Cap timeout at maximum allowed
   const effectiveTimeout = Math.min(timeout, MAX_URL_TIMEOUT);
-
-  // Follow redirects manually with limit
-  let currentUrl = url;
-  let redirectCount = 0;
-  let response: Response | null = null;
-
-  while (redirectCount <= MAX_REDIRECTS) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
-
-    try {
-      const headers: Record<string, string> = {};
-      if (options?.etag) {
-        headers['If-None-Match'] = options.etag;
-      }
-
-      response = await fetch(currentUrl, {
-        signal: controller.signal,
-        redirect: 'manual', // Handle redirects manually
-        headers,
-      });
-      clearTimeout(timeoutId);
-
-      if (response.status === 304) {
-        if (options?.etag) {
-          throw new ArtifactNotModifiedError();
-        }
-        throw new Error(
-          `Failed to load AST from URL ${url}: 304 Not Modified without If-None-Match`
-        );
-      }
-
-      // Handle redirects
-      if (response.status >= 300 && response.status < 400) {
-        // Check if we've exceeded the redirect limit before processing
-        if (redirectCount >= MAX_REDIRECTS) {
-          throw new Error(`Too many redirects (max: ${MAX_REDIRECTS})`);
-        }
-
-        const location = response.headers.get('location');
-        if (!location) {
-          throw new Error(`Redirect without location header: ${response.status}`);
-        }
-
-        // Resolve relative redirects
-        try {
-          currentUrl = new URL(location, currentUrl).toString();
-          redirectCount++;
-          continue;
-        } catch {
-          throw new Error(`Invalid redirect URL: ${location}`);
-        }
-      }
-
-      // Break out of loop if not a redirect
-      break;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`Timeout loading AST from URL ${url} after ${effectiveTimeout}ms`);
-      }
-      if (error instanceof ArtifactNotModifiedError) {
-        throw error;
-      }
-      throw error;
-    }
-  }
-
-  if (!response) {
-    throw new Error(`Failed to load AST from URL ${url}`);
+  const headers: Record<string, string> = {};
+  if (options?.etag) {
+    headers['If-None-Match'] = options.etag;
   }
 
   try {
+    const response = await fetchWithRedirects({
+      url,
+      effectiveTimeoutMs: effectiveTimeout,
+      maxRedirects: MAX_REDIRECTS,
+      headers,
+    });
+
+    if (response.status === 304) {
+      if (options?.etag) {
+        throw new ArtifactNotModifiedError();
+      }
+      throw new Error(`Failed to load AST from URL ${url}: 304 Not Modified without If-None-Match`);
+    }
+
     if (!response.ok) {
       throw new Error(
         `Failed to load AST from URL ${url}: ${response.status} ${response.statusText}`

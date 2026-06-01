@@ -16,6 +16,7 @@ import { readFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+let runtimeBuiltForE2E = false;
 
 function getRustCliPath(): string {
   const releasePath = join(__dirname, '../../../target/release/controlpath');
@@ -105,6 +106,13 @@ async function generateSdk(catalogDir: string, outputDir: string): Promise<void>
 
 async function setupGeneratedSdk(sdkDir: string): Promise<void> {
   const runtimePath = join(__dirname, '../../../runtime/typescript');
+  if (!runtimeBuiltForE2E) {
+    execSync('npm run build', {
+      cwd: runtimePath,
+      stdio: 'pipe',
+    });
+    runtimeBuiltForE2E = true;
+  }
   const sdkNodeModules = join(sdkDir, 'node_modules', '@controlpath');
   await mkdir(sdkNodeModules, { recursive: true });
 
@@ -164,12 +172,16 @@ async function setupGeneratedSdk(sdkDir: string): Promise<void> {
 }
 
 async function loadGeneratedSdk(sdkDir: string, astFile: string) {
-  const sdkPath = `file://${join(sdkDir, 'dist', 'index.js')}`;
-  const sdkModule = await import(sdkPath);
+  const sdkModule = await loadGeneratedSdkModule(sdkDir);
   const { Evaluator } = sdkModule;
   const evaluator = new Evaluator();
   await evaluator.init({ artifact: astFile });
   return evaluator;
+}
+
+async function loadGeneratedSdkModule(sdkDir: string) {
+  const sdkPath = `file://${join(sdkDir, 'dist', 'index.js')}`;
+  return import(sdkPath);
 }
 
 describe.sequential('SDK Generator E2E Tests', () => {
@@ -444,6 +456,29 @@ describe.sequential('SDK Generator E2E Tests', () => {
 
       expect(await evaluator.newDashboard(user)).toBe(true);
       expect(await evaluator.betaUi(user)).toBe(true);
+    });
+
+    it('keeps runtime state isolated across evaluator instances', async () => {
+      await writeCatalog(executionRules, catalogPath);
+      await generateSdk(testDir, sdkDir);
+      await compileAst(testDir, astFile);
+      await setupGeneratedSdk(sdkDir);
+
+      const sdkModule = await loadGeneratedSdkModule(sdkDir);
+      const { Evaluator, evaluator } = sdkModule;
+      const a = new Evaluator();
+      const b = new Evaluator();
+      await a.init({ artifact: astFile });
+      await b.init({ artifact: astFile });
+      await evaluator.init({ artifact: astFile });
+
+      a.setAttributes({ id: 'a-user' });
+      b.clearAttributes();
+      evaluator.setAttributes({ id: 'singleton-user' });
+
+      expect(await a.newDashboard()).toBe(true);
+      expect(await b.newDashboard()).toBe(false);
+      expect(await evaluator.newDashboard()).toBe(true);
     });
   });
 });

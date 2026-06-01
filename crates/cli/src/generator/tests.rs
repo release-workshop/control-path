@@ -68,6 +68,10 @@ fn test_generate_package_json_for_node_modules_output() {
     let package_json_content = fs::read_to_string(output_path.join("package.json")).unwrap();
     let package_json: serde_json::Value = serde_json::from_str(&package_json_content).unwrap();
     assert_eq!(package_json["name"], "@controlpath/generated");
+    assert_eq!(
+        package_json["dependencies"]["@controlpath/runtime"],
+        "^0.3.0"
+    );
 }
 
 #[test]

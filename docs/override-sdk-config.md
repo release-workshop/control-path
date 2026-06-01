@@ -78,7 +78,7 @@ const value = resolveBooleanFlag({
 });
 ```
 
-Use `KillSwitchRefreshCoordinator` / `ArtifactRefreshCoordinator` with `startKillSwitchPoll` or the generic aliases `startJitteredPoll` / `pollInitDelayMs` if you implement polling yourself (same pattern as the generated SDK). Coordinators serialize overlapping fetches and only apply CDN data on successful refresh.
+Generated SDKs use `GeneratedEvaluatorRuntime` from `@controlpath/runtime` (init, polling, and `evaluateBooleanFlag`). For custom integrations without codegen, use `KillSwitchRefreshCoordinator` / `ArtifactRefreshCoordinator` with `startKillSwitchPoll` or the generic aliases `startJitteredPoll` / `pollInitDelayMs`. Coordinators serialize overlapping fetches and only apply CDN data on successful refresh.
 
 ### v0.2 breaking change
 

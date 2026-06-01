@@ -9,8 +9,8 @@
  */
 
 import { readFile } from 'fs/promises';
-import { resolve, normalize } from 'path';
 import type { KillSwitchFile } from './types';
+import { fetchWithRedirects, validateFilePath } from './loader-utils';
 
 /** Thrown when the remote kill switch file has not changed (HTTP 304). */
 export class KillSwitchFileNotModifiedError extends Error {
@@ -24,31 +24,6 @@ const MAX_KILL_SWITCH_FILE_SIZE = 1024 * 1024;
 const DEFAULT_URL_TIMEOUT = 10000;
 const MAX_URL_TIMEOUT = 60 * 1000;
 const MAX_REDIRECTS = 5;
-
-function validateFilePath(filePath: string): string {
-  if (!filePath || typeof filePath !== 'string') {
-    throw new Error('File path is required');
-  }
-
-  if (filePath.includes('\0')) {
-    throw new Error('Null byte detected in file path');
-  }
-
-  const normalized = normalize(filePath);
-  if (normalized.includes('..')) {
-    throw new Error('Path traversal detected in file path');
-  }
-
-  const resolved = resolve(normalized);
-  const pathParts = resolved.split(/[/\\]/);
-  for (const part of pathParts) {
-    if (part === '..') {
-      throw new Error('Path traversal detected in file path');
-    }
-  }
-
-  return resolved;
-}
 
 /** Load a kill switch file from a local path. */
 export async function loadKillSwitchFromFile(filePath: string): Promise<KillSwitchFile> {
@@ -89,107 +64,66 @@ export async function loadKillSwitchFromURL(
     error: (message: string, error?: Error) => void;
   }
 ): Promise<KillSwitchLoadResult> {
-  try {
-    new URL(url);
-  } catch {
-    throw new Error(`Invalid URL: ${url}`);
-  }
-
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    throw new Error(`Unsupported URL protocol. Only http:// and https:// are allowed: ${url}`);
-  }
-
   const effectiveTimeout = Math.min(timeout, MAX_URL_TIMEOUT);
-  let currentUrl = url;
-  let redirectCount = 0;
-  let response: Response | null = null;
+  const headers: Record<string, string> = {};
+  if (etag) {
+    headers['If-None-Match'] = etag;
+  }
 
-  while (redirectCount <= MAX_REDIRECTS) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
+  try {
+    const response = await fetchWithRedirects({
+      url,
+      effectiveTimeoutMs: effectiveTimeout,
+      maxRedirects: MAX_REDIRECTS,
+      headers,
+    });
 
-    try {
-      const headers: Record<string, string> = {};
-      if (etag) {
-        headers['If-None-Match'] = etag;
-      }
+    if (response.status === 304) {
+      throw new KillSwitchFileNotModifiedError();
+    }
 
-      response = await fetch(currentUrl, {
-        signal: controller.signal,
-        redirect: 'manual',
-        headers,
-      });
-      clearTimeout(timeoutId);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to load kill switch file from URL ${url}: ${response.status} ${response.statusText}`
+      );
+    }
 
-      if (response.status === 304) {
-        throw new KillSwitchFileNotModifiedError();
-      }
+    const contentType = response.headers.get('content-type');
+    if (
+      contentType &&
+      !contentType.includes('application/json') &&
+      !contentType.includes('text/json')
+    ) {
+      logger?.warn(
+        `Unexpected Content-Type for kill switch file: ${contentType}. Expected application/json.`
+      );
+    }
 
-      if (response.status >= 300 && response.status < 400) {
-        if (redirectCount >= MAX_REDIRECTS) {
-          throw new Error(`Too many redirects (max: ${MAX_REDIRECTS})`);
-        }
+    const content = await response.text();
+    if (content.length > MAX_KILL_SWITCH_FILE_SIZE) {
+      throw new Error(
+        `Kill switch file too large: ${content.length} bytes (max: ${MAX_KILL_SWITCH_FILE_SIZE} bytes)`
+      );
+    }
 
-        const location = response.headers.get('location');
-        if (!location) {
-          throw new Error(`Redirect without location header: ${response.status}`);
-        }
+    const killSwitchFile = parseKillSwitchFile(content);
+    const responseEtag = response.headers.get('etag') || undefined;
 
-        currentUrl = new URL(location, currentUrl).toString();
-        redirectCount++;
-        continue;
-      }
-
-      break;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(
-          `Timeout loading kill switch file from URL ${url} after ${effectiveTimeout}ms`
-        );
-      }
-      if (error instanceof KillSwitchFileNotModifiedError) {
-        throw error;
-      }
+    return {
+      killSwitchFile,
+      etag: responseEtag,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(
+        `Timeout loading kill switch file from URL ${url} after ${effectiveTimeout}ms`
+      );
+    }
+    if (error instanceof KillSwitchFileNotModifiedError) {
       throw error;
     }
+    throw error;
   }
-
-  if (!response) {
-    throw new Error(`Failed to load kill switch file from URL ${url}`);
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to load kill switch file from URL ${url}: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const contentType = response.headers.get('content-type');
-  if (
-    contentType &&
-    !contentType.includes('application/json') &&
-    !contentType.includes('text/json')
-  ) {
-    logger?.warn(
-      `Unexpected Content-Type for kill switch file: ${contentType}. Expected application/json.`
-    );
-  }
-
-  const content = await response.text();
-  if (content.length > MAX_KILL_SWITCH_FILE_SIZE) {
-    throw new Error(
-      `Kill switch file too large: ${content.length} bytes (max: ${MAX_KILL_SWITCH_FILE_SIZE} bytes)`
-    );
-  }
-
-  const killSwitchFile = parseKillSwitchFile(content);
-  const responseEtag = response.headers.get('etag') || undefined;
-
-  return {
-    killSwitchFile,
-    etag: responseEtag,
-  };
 }
 
 function isKillSwitchFile(value: unknown): value is KillSwitchFile {

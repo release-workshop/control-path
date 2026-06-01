@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.0
+
+### Breaking changes
+
+- Generated SDKs now depend on `^0.3.0` and delegate init, polling, and guardrails to `GeneratedEvaluatorRuntime` instead of inlining coordinators in `index.ts`.
+
+### Added
+
+- `GeneratedEvaluatorRuntime` — catalog-scoped init, independent kill-switch and artifact polling, and `evaluateBooleanFlag` for generated SDK method bodies
+- `DEFAULT_GENERATED_*` poll interval constants shared with generated `index.ts`
+
+### Changed
+
+- Generated `index.ts` is mostly embedded URLs, flag metadata, and thin delegation to the runtime module
+
 ## 0.2.0
 
 ### Breaking changes

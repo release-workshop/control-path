@@ -14,20 +14,13 @@
  */
 
 import {
-  loadFromFile,
-  loadFromURL,
-  buildFlagNameMapFromArtifact,
-  resolveBooleanFlag,
-  KillSwitchRefreshCoordinator,
-  ArtifactRefreshCoordinator,
-  startKillSwitchPoll,
-  killSwitchInitDelayMs,
-  startJitteredPoll,
-  pollInitDelayMs,
-  assertArtifactAccepted,
-  resolveExpectedArtifactEnv,
-  shouldValidateArtifactAtInit,
-  type Artifact,
+  GeneratedEvaluatorRuntime,
+  DEFAULT_GENERATED_KILL_SWITCH_POLL_MS,
+  DEFAULT_GENERATED_KILL_SWITCH_INIT_JITTER_MS,
+  DEFAULT_GENERATED_KILL_SWITCH_POLL_JITTER_MS,
+  DEFAULT_GENERATED_ARTIFACT_POLL_MS,
+  DEFAULT_GENERATED_ARTIFACT_INIT_JITTER_MS,
+  DEFAULT_GENERATED_ARTIFACT_POLL_JITTER_MS,
   type Logger,
 } from '@controlpath/runtime';
 import type { Attributes, FlagName, FlagReturnTypes } from './types.js';
@@ -52,163 +45,37 @@ const SDK_QUALIFIED_FLAG_NAMES = new Set<string>([
 {% endfor %}
 ]);
 
-const DEFAULT_KILL_SWITCH_POLL_MS = 30_000;
-/** Spread deploy-time fetches across pods (0..5s before first background refresh). */
-const DEFAULT_KILL_SWITCH_INIT_JITTER_MS = 5_000;
-/** Added to each poll interval (30s + 0..10s) to avoid aligned CDN requests. */
-const DEFAULT_KILL_SWITCH_POLL_JITTER_MS = 10_000;
-
-const DEFAULT_ARTIFACT_POLL_MS = 60_000;
-const DEFAULT_ARTIFACT_INIT_JITTER_MS = 10_000;
-const DEFAULT_ARTIFACT_POLL_JITTER_MS = 15_000;
-
 export class Evaluator {
-  private artifact: Artifact | null = null;
-  private flagNameMap: Record<string, number> = {};
-  private initialized: boolean = false;
-  private storedAttributes?: Attributes;
-  private killSwitchCoordinator = new KillSwitchRefreshCoordinator();
-  private artifactCoordinator = new ArtifactRefreshCoordinator();
-  private killSwitchLogger?: Logger;
-  private artifactLogger?: Logger;
-  private stopKillSwitchPoll?: () => void;
-  private stopArtifactPoll?: () => void;
-
-  constructor() {
-    // Initialization happens via init().
-  }
+  private readonly runtime = new GeneratedEvaluatorRuntime({
+    killSwitchUrls: KILL_SWITCH_URLS,
+    artifactUrls: ARTIFACT_URLS,
+    sdkQualifiedFlagNames: SDK_QUALIFIED_FLAG_NAMES,
+    killSwitchPollMs: DEFAULT_GENERATED_KILL_SWITCH_POLL_MS,
+    killSwitchInitJitterMs: DEFAULT_GENERATED_KILL_SWITCH_INIT_JITTER_MS,
+    killSwitchPollJitterMs: DEFAULT_GENERATED_KILL_SWITCH_POLL_JITTER_MS,
+    artifactPollMs: DEFAULT_GENERATED_ARTIFACT_POLL_MS,
+    artifactInitJitterMs: DEFAULT_GENERATED_ARTIFACT_INIT_JITTER_MS,
+    artifactPollJitterMs: DEFAULT_GENERATED_ARTIFACT_POLL_JITTER_MS,
+  });
 
   async init(options?: { artifact?: string; logger?: Logger }): Promise<void> {
-    this.stopKillSwitchPolling();
-    this.stopArtifactPolling();
-    this.killSwitchLogger = options?.logger;
-    this.artifactLogger = options?.logger;
-    this.killSwitchCoordinator.reset();
-    this.artifactCoordinator.reset();
-
-    if (options?.artifact) {
-      const artifactSource = options.artifact;
-      if (artifactSource.startsWith('http://') || artifactSource.startsWith('https://')) {
-        const loaded = await loadFromURL(artifactSource, undefined, options?.logger);
-        this.applyInitialArtifact(loaded.artifact, artifactSource, loaded.etag);
-      } else {
-        const artifact = await loadFromFile(artifactSource);
-        this.applyInitialArtifact(artifact, artifactSource);
-      }
-
-      setTimeout(
-        () => void this.refreshKillSwitch(),
-        killSwitchInitDelayMs(DEFAULT_KILL_SWITCH_INIT_JITTER_MS)
-      );
-      this.stopKillSwitchPoll = startKillSwitchPoll(
-        () => this.refreshKillSwitch(),
-        DEFAULT_KILL_SWITCH_POLL_MS,
-        { jitterMs: DEFAULT_KILL_SWITCH_POLL_JITTER_MS }
-      );
-
-      const env = this.artifact.env;
-      if (env && ARTIFACT_URLS[env]) {
-        setTimeout(
-          () => void this.refreshArtifact(),
-          pollInitDelayMs(DEFAULT_ARTIFACT_INIT_JITTER_MS)
-        );
-        this.stopArtifactPoll = startJitteredPoll(
-          () => this.refreshArtifact(),
-          DEFAULT_ARTIFACT_POLL_MS,
-          { jitterMs: DEFAULT_ARTIFACT_POLL_JITTER_MS }
-        );
-      }
-    }
-
-    this.initialized = true;
-  }
-
-  private async ensureInitialized(): Promise<void> {
-    if (!this.initialized) {
-      await this.init();
-    }
+    return this.runtime.init(options);
   }
 
   setAttributes(attributes: Attributes): void {
-    this.storedAttributes = attributes;
+    this.runtime.setAttributes(attributes);
   }
 
   clearAttributes(): void {
-    this.storedAttributes = undefined;
+    this.runtime.clearAttributes();
   }
 
-  /** Stop background kill switch polling (for tests and shutdown). */
   stopKillSwitchPolling(): void {
-    if (this.stopKillSwitchPoll) {
-      this.stopKillSwitchPoll();
-      this.stopKillSwitchPoll = undefined;
-    }
+    this.runtime.stopKillSwitchPolling();
   }
 
-  /** Stop background artifact polling (for tests and shutdown). */
   stopArtifactPolling(): void {
-    if (this.stopArtifactPoll) {
-      this.stopArtifactPoll();
-      this.stopArtifactPoll = undefined;
-    }
-  }
-
-  private async refreshKillSwitch(): Promise<void> {
-    const env = this.artifact?.env;
-    if (!env) {
-      return;
-    }
-    const url = KILL_SWITCH_URLS[env];
-    if (!url) {
-      return;
-    }
-
-    await this.killSwitchCoordinator.refresh(url, undefined, this.killSwitchLogger);
-  }
-
-  /**
-   * Apply first-load artifact with the same env/overlap guardrails as polling when
-   * `ARTIFACT_URLS` has an entry for the resolved environment (local `artifacts.<env>.url`
-   * or SaaS-embedded CDN URLs). Poll-time Ed25519 verification: pass `loadOptions` on the
-   * low-level `ArtifactRefreshCoordinator` if you need it before generated SDK support.
-   */
-  private applyInitialArtifact(artifact: Artifact, artifactSource: string, etag?: string): void {
-    const expectedEnv = resolveExpectedArtifactEnv(artifactSource, artifact, ARTIFACT_URLS);
-    if (shouldValidateArtifactAtInit(ARTIFACT_URLS, expectedEnv)) {
-      assertArtifactAccepted(artifact, expectedEnv, SDK_QUALIFIED_FLAG_NAMES);
-    }
-    this.artifact = artifact;
-    this.flagNameMap = buildFlagNameMapFromArtifact(artifact);
-    this.artifactCoordinator.seed({
-      artifact,
-      etag,
-      flagNameMap: this.flagNameMap,
-    });
-  }
-
-  private async refreshArtifact(): Promise<void> {
-    const env = this.artifact?.env;
-    if (!env) {
-      return;
-    }
-    const url = ARTIFACT_URLS[env];
-    if (!url) {
-      return;
-    }
-
-    const expectedEnv = resolveExpectedArtifactEnv(url, this.artifact!, ARTIFACT_URLS);
-    const result = await this.artifactCoordinator.refresh(
-      url,
-      expectedEnv,
-      SDK_QUALIFIED_FLAG_NAMES,
-      undefined,
-      this.artifactLogger
-      // loadOptions (publicKey, requireSignature): optional; not wired in generated init yet
-    );
-    if (result.status === 'updated') {
-      this.artifact = result.state.artifact;
-      this.flagNameMap = result.state.flagNameMap;
-    }
+    this.runtime.stopArtifactPolling();
   }
 
 {% for flag in flags %}
@@ -220,34 +87,13 @@ export class Evaluator {
   async {{ flag.method_name }}(): Promise<boolean>;
   async {{ flag.method_name }}(attributes: Attributes): Promise<boolean>;
   async {{ flag.method_name }}(attributes?: Attributes): Promise<boolean> {
-    await this.ensureInitialized();
+    await this.runtime.ensureInitialized();
 
-    try {
-      const evalAttributes = this.resolveAttributes(attributes);
-      if (!evalAttributes) {
-        return {{ flag.default_value }};
-      }
-
-      if (!this.artifact) {
-        return {{ flag.default_value }};
-      }
-
-      const flagIndex = this.flagNameMap['{{ flag.qualified_name }}'];
-      if (flagIndex === undefined) {
-        return {{ flag.default_value }};
-      }
-
-      return resolveBooleanFlag({
-        qualifiedName: '{{ flag.qualified_name }}',
-        flagIndex,
-        artifact: this.artifact,
-        catalogDefault: {{ flag.default_value }},
-        killSwitchFile: this.killSwitchCoordinator.getState().file,
-        attributes: evalAttributes,
-      });
-    } catch {
-      return {{ flag.default_value }};
-    }
+    return this.runtime.evaluateBooleanFlag({
+      qualifiedName: '{{ flag.qualified_name }}',
+      catalogDefault: {{ flag.default_value }},
+      attributes,
+    });
   }
 
 {% endfor %}
@@ -257,14 +103,9 @@ export class Evaluator {
   ): Promise<{
     [K in T[number]]: FlagReturnTypes[K]
   }> {
-    await this.ensureInitialized();
+    await this.runtime.ensureInitialized();
 
     try {
-      const evalAttributes = this.resolveAttributes(attributes);
-      if (!evalAttributes) {
-        return this.getDefaults(flagNames) as any;
-      }
-
       const results: Record<string, boolean> = {};
       for (const camelName of flagNames) {
         const flagInfo = this.getFlagInfo(camelName);
@@ -273,29 +114,11 @@ export class Evaluator {
           continue;
         }
 
-        try {
-          if (!this.artifact) {
-            results[camelName] = this.getDefaultForFlag(camelName);
-            continue;
-          }
-
-          const flagIndex = this.flagNameMap[flagInfo.qualifiedName];
-          if (flagIndex === undefined) {
-            results[camelName] = this.getDefaultForFlag(camelName);
-            continue;
-          }
-
-          results[camelName] = resolveBooleanFlag({
-            qualifiedName: flagInfo.qualifiedName,
-            flagIndex,
-            artifact: this.artifact,
-            catalogDefault: flagInfo.defaultValue,
-            killSwitchFile: this.killSwitchCoordinator.getState().file,
-            attributes: evalAttributes,
-          });
-        } catch {
-          results[camelName] = this.getDefaultForFlag(camelName);
-        }
+        results[camelName] = this.runtime.evaluateBooleanFlag({
+          qualifiedName: flagInfo.qualifiedName,
+          catalogDefault: flagInfo.defaultValue,
+          attributes,
+        });
       }
 
       return results as { [K in T[number]]: FlagReturnTypes[K] };
@@ -334,16 +157,6 @@ export class Evaluator {
 {% endfor %}
     };
     return flagInfoMap[flagName] || null;
-  }
-
-  private resolveAttributes(attributes?: Attributes): Attributes | null {
-    const resolvedAttributes = attributes ?? this.storedAttributes;
-
-    if (!resolvedAttributes || !resolvedAttributes.id || (typeof resolvedAttributes.id === 'string' && resolvedAttributes.id.trim() === '')) {
-      return null;
-    }
-
-    return resolvedAttributes;
   }
 }
 

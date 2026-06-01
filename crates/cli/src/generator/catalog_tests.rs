@@ -19,6 +19,21 @@ fn sdk_from_yaml(content: &str, path: &str) -> SdkCatalog {
 }
 
 #[test]
+fn generated_sdk_delegates_orchestration_to_runtime() {
+    let sdk = sdk_from_yaml(LOCAL_ONLY, "local-only.control-path.yaml");
+    let generator = TypeScriptGenerator::new().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    generator.generate(&sdk, temp_dir.path()).unwrap();
+
+    let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
+    assert!(index_content.contains("private readonly runtime = new GeneratedEvaluatorRuntime"));
+    assert!(index_content.contains("this.runtime.evaluateBooleanFlag"));
+    assert!(!index_content.contains("const runtime = new GeneratedEvaluatorRuntime"));
+    assert!(!index_content.contains("private async refreshKillSwitch"));
+    assert!(!index_content.contains("loadFromFile"));
+}
+
+#[test]
 fn generates_boolean_sdk_from_v2_local_catalog() {
     let sdk = sdk_from_yaml(LOCAL_ONLY, "local-only.control-path.yaml");
     let generator = TypeScriptGenerator::new().unwrap();
@@ -104,10 +119,10 @@ fn generates_kill_switch_urls_from_catalog() {
     assert!(index_content.contains("KILL_SWITCH_URLS"));
     assert!(index_content.contains("production"));
     assert!(index_content.contains("kill-switches.json"));
-    assert!(index_content.contains("resolveBooleanFlag"));
-    assert!(index_content.contains("KillSwitchRefreshCoordinator"));
-    assert!(index_content.contains("void this.refreshKillSwitch()"));
-    assert!(!index_content.contains("await this.refreshKillSwitch()"));
+    assert!(index_content.contains("GeneratedEvaluatorRuntime"));
+    assert!(index_content.contains("evaluateBooleanFlag"));
+    assert!(!index_content.contains("KillSwitchRefreshCoordinator"));
+    assert!(!index_content.contains("refreshKillSwitch()"));
 }
 
 #[test]
@@ -122,12 +137,9 @@ fn generates_artifact_urls_from_catalog() {
     let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
     assert!(index_content.contains("ARTIFACT_URLS"));
     assert!(index_content.contains("rules.ast"));
-    assert!(index_content.contains("ArtifactRefreshCoordinator"));
-    assert!(index_content.contains("void this.refreshArtifact()"));
-    assert!(index_content.contains("DEFAULT_ARTIFACT_POLL_MS"));
-    assert!(index_content.contains("60_000"));
-    assert!(index_content.contains("assertArtifactAccepted"));
-    assert!(index_content.contains("startJitteredPoll"));
+    assert!(index_content.contains("DEFAULT_GENERATED_ARTIFACT_POLL_MS"));
+    assert!(!index_content.contains("ArtifactRefreshCoordinator"));
+    assert!(!index_content.contains("assertArtifactAccepted"));
 }
 
 #[test]

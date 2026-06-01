@@ -183,7 +183,7 @@ impl TypeScriptGenerator {
     }
   },
   "dependencies": {
-    "@controlpath/runtime": "^0.1.0"
+    "@controlpath/runtime": "^0.3.0"
   }
 }"#
         .to_string()

@@ -75,7 +75,7 @@ Poll with the returned `etag` on later requests; `KillSwitchFileNotModifiedError
 
 ### Generated SDK
 
-Prefer the generated `@controlpath/generated` evaluator: it embeds `kill_switches.<env>.url` as `KILL_SWITCH_URLS` and `artifacts.<env>.url` as `ARTIFACT_URLS`, polls both in the background after `init()`, and calls `resolveBooleanFlag` for each flag method.
+Prefer the generated `@controlpath/generated` evaluator: it embeds `kill_switches.<env>.url` as `KILL_SWITCH_URLS` and `artifacts.<env>.url` as `ARTIFACT_URLS`, then delegates init, polling, and flag resolution to `GeneratedEvaluatorRuntime` (thin generated `index.ts`).
 
 `init()` does not wait for the first remote fetch. Kill switches poll about every 30s (+ jitter); compiled artifacts poll about every 60s (+ jitter) on an independent timer. Until a refresh succeeds, flags use the last loaded artifact and kill switch state (or AST/catalog defaults on cold start). See [SDK configuration](../docs/override-sdk-config.md).
 
@@ -87,6 +87,11 @@ Pass an optional `logger` to `init({ artifact, logger })` to emit warnings when 
 
 - `loadFromFile`, `loadFromURL`, `loadFromBuffer` — compiled artifacts (`loadFromURL` returns `{ artifact, etag? }`; ETag / 304 when `loadOptions.etag` is set)
 - `loadKillSwitchFromFile`, `loadKillSwitchFromURL` — kill switch JSON (v2 boolean map)
+
+### Generated SDK runtime
+
+- `GeneratedEvaluatorRuntime` — init, independent kill-switch / artifact polling, and `evaluateBooleanFlag` for codegen output
+- `DEFAULT_GENERATED_*` — default poll intervals embedded in generated SDKs
 
 ### Evaluation
 

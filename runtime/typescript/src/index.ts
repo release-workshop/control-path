@@ -48,6 +48,18 @@ export {
   type ArtifactRefreshState,
   type ArtifactRefreshResult,
 } from './artifact-polling';
+export {
+  GeneratedEvaluatorRuntime,
+  DEFAULT_GENERATED_KILL_SWITCH_POLL_MS,
+  DEFAULT_GENERATED_KILL_SWITCH_INIT_JITTER_MS,
+  DEFAULT_GENERATED_KILL_SWITCH_POLL_JITTER_MS,
+  DEFAULT_GENERATED_ARTIFACT_POLL_MS,
+  DEFAULT_GENERATED_ARTIFACT_INIT_JITTER_MS,
+  DEFAULT_GENERATED_ARTIFACT_POLL_JITTER_MS,
+  type GeneratedEvaluatorRuntimeConfig,
+  type GeneratedEvaluatorInitOptions,
+  type EvaluateBooleanFlagOptions,
+} from './generated-evaluator-runtime';
 export { buildFlagNameMap, buildFlagNameMapFromArtifact } from './utils';
 export type { Artifact, Rule, Expression, Attributes, Logger, KillSwitchFile } from './types';
 export {

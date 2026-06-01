@@ -1,6 +1,6 @@
 # Thin generated SDK and deep TypeScript runtime (breaking)
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -13,10 +13,10 @@ Consolidate duplicate poll logic between artifact and **kill switch URL** loader
 
 ## Acceptance criteria
 
-- [ ] Generated `index.ts` is mostly constants (`FLAGS`, `ARTIFACT_URLS`, `KILL_SWITCH_URLS`, intervals) plus delegation to runtime.
-- [ ] `runtime/typescript`: `npm run lint`, `npm run typecheck`, `npm test` pass; version bumped in `package.json`.
-- [ ] CLI generator tests / `integration_saas` reflect new generated shape; ETag / 304 artifact poll behaviour covered in runtime tests.
-- [ ] ADR-0001 consequences still satisfied (separate poll intervals, migration guardrails, signature on new bytes only).
+- [x] Generated `index.ts` is mostly constants (`FLAGS`, `ARTIFACT_URLS`, `KILL_SWITCH_URLS`, intervals) plus delegation to runtime.
+- [x] `runtime/typescript`: `npm run lint`, `npm run typecheck`, `npm test` pass; version bumped in `package.json`.
+- [x] CLI generator tests / `integration_saas` reflect new generated shape; ETag / 304 artifact poll behaviour covered in runtime tests.
+- [x] ADR-0001 consequences still satisfied (separate poll intervals, migration guardrails, signature on new bytes only).
 
 ## Blocked by
 
