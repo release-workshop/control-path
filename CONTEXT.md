@@ -72,6 +72,9 @@ _Avoid_: rules URL, deployment URL
 A runtime JSON file listing boolean values for flags. Skips rule evaluation for listed flags. Evaluation order: kill switch file → compiled artifact → catalog default. In local mode, deploy writes a build artifact and ops uploads to a self-hosted URL. In SaaS mode, the platform CDN serves values; incidents are handled via dashboard toggles (direct write), not CLI deploy.
 _Avoid_: Override file (legacy v1 name)
 
+**Explain trace**:
+Structured output from `controlpath explain` describing which layer matched (kill switch file, environment rule in the **compiled artifact**, or catalog default) and optional per-rule walk. Rule `when` / rollout semantics come from the artifact; declared `reason` and flag metadata come from the **flag catalog** (and **imports** for qualified names). In SaaS mode, `explain` uses a synced `.controlpath/<env>.ast` after `sync` — it does not require local **environment rules** in Git, but still needs the **flag catalog** for names, defaults, and metadata. Without a cached artifact, explain fails like `generate-sdk`.
+
 **Kill switch URL**:
 Where the SDK polls for the **kill switch file**. In local mode, committed per environment in `kill_switches.<env>.url`. In SaaS mode, URLs are derived from the platform CDN contract and embedded when the SDK is generated — not declared in Git. Polled more frequently than the **artifact URL** because incident toggles must propagate faster than **environment rules** deploys.
 _Avoid_: overrideUrl (legacy SDK-only config)

@@ -165,8 +165,11 @@ fn test_explain_command_with_trace() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Trace output should be more detailed
-    assert!(!stdout.is_empty());
+    assert!(
+        stdout.contains("User ID: user-1"),
+        "trace header should show user id for rollout debugging, got: {stdout}"
+    );
+    assert!(stdout.contains("Rule trace:"));
 }
 
 #[test]

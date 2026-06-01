@@ -63,13 +63,15 @@ pub mod validator;
 
 pub use catalog::{
     build_saas_runtime_url_maps, build_saas_runtime_urls, build_sdk_catalog, compile_catalog,
-    compile_catalog_with_imports, effective_catalog_id, environment_from_ast_path,
-    imported_flag_keys_from_imports, is_valid_saas_environment_name, load_and_validate_catalog,
-    load_and_validate_workspace, load_validate_and_compile_catalog, parse_catalog, parse_workspace,
-    resolve_namespace, saas_cdn_base_url, validate_and_compile_catalog, validate_catalog,
-    validate_catalog_value, validate_workspace_value, CatalogDocument, CatalogIdentity,
-    CatalogMode, CatalogValidationContext, CatalogValidationResult, EffectiveCatalogId, FlagKind,
-    FlagLifecycle, SaasRuntimeUrlMaps, SaasRuntimeUrls, SdkCatalog, SdkFlag, ValidationMode,
+    compile_catalog_with_imports, effective_catalog_id, environment_from_ast_path, explain_flag,
+    imported_flag_keys_from_imports, is_compiled_catalog_default, is_valid_saas_environment_name,
+    load_and_validate_catalog, load_and_validate_workspace, load_validate_and_compile_catalog,
+    parse_catalog, parse_workspace, resolve_namespace, saas_cdn_base_url,
+    validate_and_compile_catalog, validate_catalog, validate_catalog_value,
+    validate_workspace_value, CatalogDocument, CatalogIdentity, CatalogMode,
+    CatalogValidationContext, CatalogValidationResult, EffectiveCatalogId, ExplainError,
+    ExplainLayer, ExplainRequest, ExplainRuleTrace, ExplainTrace, FlagKind, FlagLifecycle,
+    KillSwitchOverrides, SaasRuntimeUrlMaps, SaasRuntimeUrls, SdkCatalog, SdkFlag, ValidationMode,
     WorkspaceDocument, DEFAULT_SAAS_CDN_BASE,
 };
 

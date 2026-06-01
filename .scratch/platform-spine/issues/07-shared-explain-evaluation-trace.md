@@ -1,6 +1,6 @@
 # Shared explain evaluation trace
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -15,10 +15,10 @@ Trace order matches production: **kill switch file** â†’ **compiled artifact** â
 
 ## Acceptance criteria
 
-- [ ] Compiler (or `catalog::explain`) exposes trace API covered by unit tests with fixture AST + catalog (no CLI required for core cases).
-- [ ] `explain` command shrinks to orchestration; no duplicate rule-walk logic that diverges from compile.
-- [ ] Tests: local mode with Git rules; SaaS mode with artifact-only rules + catalog metadata; kill switch layer; rollout bucket when applicable.
-- [ ] Document in issue comment or `CONTEXT.md` one paragraph on SaaS `explain` expectations (optional small edit if glossary needs it).
+- [x] Compiler (or `catalog::explain`) exposes trace API covered by unit tests with fixture AST + catalog (no CLI required for core cases).
+- [x] `explain` command shrinks to orchestration; no duplicate rule-walk logic that diverges from compile.
+- [x] Tests: local mode with Git rules; SaaS mode with artifact-only rules + catalog metadata; kill switch layer; rollout bucket when applicable.
+- [x] Document in issue comment or `CONTEXT.md` one paragraph on SaaS `explain` expectations (optional small edit if glossary needs it).
 
 ## Blocked by
 

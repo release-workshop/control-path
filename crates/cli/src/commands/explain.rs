@@ -1,17 +1,15 @@
-//! Minimal `explain` command: boolean evaluation via shared compiler runtime semantics.
+//! Minimal `explain` command: loads inputs and formats shared compiler explain traces.
 
 use crate::error::{CliError, CliResult};
 use crate::utils::{catalog, kill_switch, runtime};
 use controlpath_compiler::ast::Artifact;
-use controlpath_compiler::catalog::model::{
-    CatalogDocument, CatalogMode, FlagLifecycle, Rule as CatalogRule,
-};
+use controlpath_compiler::catalog::model::CatalogMode;
 use controlpath_compiler::{
-    evaluate_flag, evaluate_rule, find_flag_index, rollout_bucket, user_id, EvaluationAttributes,
+    explain_flag, find_flag_index, user_id, ExplainError, ExplainLayer, ExplainRequest,
+    ExplainTrace, KillSwitchOverrides,
 };
 use rmp_serde::from_slice;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -24,34 +22,17 @@ pub struct Options {
     pub ast: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum MatchedLayer {
-    KillSwitch,
-    EnvironmentRule,
-    CatalogDefault,
-}
-
-#[derive(Debug, Clone)]
-struct ExplainOutcome {
-    environment: String,
-    layer: MatchedLayer,
-    value: bool,
-    rule_index: Option<usize>,
-    catalog_rule: Option<CatalogRule>,
-    imported: bool,
-    deprecated: bool,
-    rollout_bucket: Option<u32>,
-    missing_user_id: bool,
-    warnings: Vec<String>,
-}
-
 pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
-        Ok(outcome) => {
+        Ok((trace, user)) => {
             if runtime::is_json_output() {
-                print_json(options, &outcome);
+                print_json(options, &trace);
             } else {
-                print_human(options, &outcome);
+                if options.trace {
+                    print_trace_header(options, &trace, &user);
+                    print_rule_trace(&trace);
+                }
+                print_human(options, &trace);
             }
             0
         }
@@ -76,22 +57,21 @@ pub fn run(options: &Options) -> i32 {
     }
 }
 
-fn run_inner(options: &Options) -> CliResult<ExplainOutcome> {
+fn run_inner(options: &Options) -> CliResult<(ExplainTrace, Value)> {
     let base_dir = std::env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
 
     let environment = resolve_environment(options)?;
     let ast_path = determine_ast_path(options, &environment)?;
     let artifact = load_artifact(&ast_path)?;
-    let mut warnings = env_ast_warnings(options, &environment, &artifact);
 
-    let flag_index = find_flag_index(&artifact, &options.flag).ok_or_else(|| {
-        CliError::Message(format!(
+    if find_flag_index(&artifact, &options.flag).is_none() {
+        return Err(CliError::Message(format!(
             "Flag '{}' not found in artifact {}",
             options.flag,
             ast_path.display()
-        ))
-    })?;
+        )));
+    }
 
     let bundle = catalog::load_for_explain(&base_dir)?;
     let sdk_flag = bundle
@@ -106,13 +86,6 @@ fn run_inner(options: &Options) -> CliResult<ExplainOutcome> {
             ))
         })?;
 
-    let catalog_rules = catalog_rules_for_flag(
-        &bundle.catalog,
-        &bundle.imports,
-        &environment,
-        &options.flag,
-    );
-
     let user_json = if let Some(user_input) = &options.user {
         parse_json_or_file(user_input, "--user")?
     } else {
@@ -126,128 +99,53 @@ fn run_inner(options: &Options) -> CliResult<ExplainOutcome> {
 
     let kill_path = kill_switch::kill_switch_path(&environment);
     let kill_file = kill_switch::read_kill_switch_file(&kill_path)?;
-    if let Some(kill_value) = kill_switch_value(&kill_file, &options.flag) {
-        return Ok(ExplainOutcome {
-            environment: artifact.environment.clone(),
-            layer: MatchedLayer::KillSwitch,
-            value: kill_value,
-            rule_index: None,
-            catalog_rule: None,
-            imported: sdk_flag.is_imported,
-            deprecated: sdk_flag.lifecycle == FlagLifecycle::Deprecated,
-            rollout_bucket: None,
-            missing_user_id: false,
-            warnings,
-        });
-    }
+    let kill_switch = kill_switch_overrides(&kill_file);
 
-    let attrs = EvaluationAttributes {
+    let mut trace = explain_flag(ExplainRequest {
+        artifact: &artifact,
+        flag: &options.flag,
+        environment: &environment,
+        catalog: &bundle.catalog,
+        imports: &bundle.imports,
+        sdk_flag,
         user: &user_json,
         context: context_json.as_ref(),
-    };
-
-    if options.trace && !runtime::is_json_output() {
-        print_trace_header(options, &artifact, &user_json);
-        trace_rules(
-            &artifact,
-            flag_index,
-            &attrs,
-            &catalog_rules,
-            bundle.catalog.mode == CatalogMode::Saas,
-        );
-    }
-
-    let (matched_rule_index, raw_value) = evaluate_flag(&artifact, flag_index, &attrs);
-    let matched_rule_index = matched_rule_index.ok_or_else(|| {
-        CliError::Message(format!(
-            "No rules matched for flag '{}' (artifact may be corrupt)",
-            options.flag
-        ))
-    })?;
-
-    let value = payload_to_bool(&raw_value).unwrap_or(sdk_flag.default);
-    let is_default_rule = is_compiled_catalog_default(&artifact, flag_index, matched_rule_index);
-    let layer = if is_default_rule {
-        MatchedLayer::CatalogDefault
-    } else {
-        MatchedLayer::EnvironmentRule
-    };
-
-    let catalog_rule =
-        catalog_rule_for_ast_index(&catalog_rules, matched_rule_index, is_default_rule);
-
-    if let Some(msg) = catalog_metadata_warning(
-        &catalog_rules,
-        matched_rule_index,
-        is_default_rule,
-        bundle.catalog.mode == CatalogMode::Saas,
-        &environment,
-    ) {
-        warnings.push(msg);
-    }
-
-    let rollout_rule = catalog_rule.as_ref().is_some_and(|r| r.rollout.is_some());
-    let missing_user_id = rollout_rule && user_id(&user_json).is_none();
-
-    Ok(ExplainOutcome {
-        environment: artifact.environment.clone(),
-        layer,
-        value,
-        rule_index: Some(matched_rule_index),
-        catalog_rule,
-        imported: sdk_flag.is_imported,
-        deprecated: sdk_flag.lifecycle == FlagLifecycle::Deprecated,
-        rollout_bucket: if rollout_rule {
-            rollout_bucket(&user_json)
-        } else {
-            None
-        },
-        missing_user_id,
-        warnings,
+        kill_switch: (!kill_switch.is_empty()).then_some(&kill_switch),
+        saas_mode: bundle.catalog.mode == CatalogMode::Saas,
+        include_rule_trace: options.trace && !runtime::is_json_output(),
     })
+    .map_err(|e| map_explain_error(&ast_path, e))?;
+
+    trace
+        .warnings
+        .extend(env_ast_warnings(options, &environment, &artifact));
+
+    Ok((trace, user_json))
 }
 
-/// Map AST rule index → catalog YAML row.
-///
-/// Correct when the artifact was built from the same catalog and `--env` as explain.
-/// Trailing AST rules are compiled defaults (no YAML row). SaaS / stale artifacts may
-/// have no row — see [`catalog_metadata_warning`] and trace `Catalog:` notes.
-fn catalog_rule_for_ast_index(
-    catalog_rules: &[CatalogRule],
-    ast_rule_index: usize,
-    is_compiled_default: bool,
-) -> Option<CatalogRule> {
-    if is_compiled_default {
-        return None;
+fn map_explain_error(ast_path: &Path, err: ExplainError) -> CliError {
+    match err {
+        ExplainError::FlagNotInArtifact { flag } => CliError::Message(format!(
+            "Flag '{flag}' not found in artifact {}",
+            ast_path.display()
+        )),
+        ExplainError::NoRuleMatched { flag } => CliError::Message(format!(
+            "No rules matched for flag '{flag}' in artifact {} (artifact may be corrupt)",
+            ast_path.display()
+        )),
     }
-    catalog_rules.get(ast_rule_index).cloned()
 }
 
-/// Warn when a non-default AST rule has no matching catalog row (stale artifact / wrong env).
-/// SaaS mode with no local `environments.rules` is expected — no warning.
-fn catalog_metadata_warning(
-    catalog_rules: &[CatalogRule],
-    ast_rule_index: usize,
-    is_compiled_default: bool,
-    saas_mode: bool,
-    environment: &str,
-) -> Option<String> {
-    if is_compiled_default || catalog_rules.get(ast_rule_index).is_some() {
-        return None;
+fn kill_switch_overrides(kill_file: &Value) -> KillSwitchOverrides {
+    let mut overrides = KillSwitchOverrides::new();
+    if let Some(flags) = kill_file.get("flags").and_then(Value::as_object) {
+        for (name, value) in flags {
+            if let Some(b) = value.as_bool() {
+                overrides.insert(name.clone(), b);
+            }
+        }
     }
-    if saas_mode && catalog_rules.is_empty() {
-        return None;
-    }
-    if catalog_rules.is_empty() {
-        return Some(format!(
-            "No environment rules for this flag in control-path.yaml for '{environment}'; when/reason/rollout metadata unavailable"
-        ));
-    }
-    Some(format!(
-        "No catalog metadata for AST rule {} (catalog lists {} rule(s) for this flag; recompile or check --env)",
-        ast_rule_index + 1,
-        catalog_rules.len()
-    ))
+    overrides
 }
 
 fn env_ast_warnings(options: &Options, environment: &str, artifact: &Artifact) -> Vec<String> {
@@ -276,28 +174,6 @@ fn env_ast_warnings(options: &Options, environment: &str, artifact: &Artifact) -
     warnings
 }
 
-fn trace_catalog_note(
-    catalog_rules: &[CatalogRule],
-    ast_rule_index: usize,
-    flag_index: usize,
-    artifact: &Artifact,
-    saas_mode: bool,
-) -> Option<&'static str> {
-    if is_compiled_catalog_default(artifact, flag_index, ast_rule_index) {
-        return Some("compiled catalog default (no YAML row)");
-    }
-    if catalog_rules.get(ast_rule_index).is_some() {
-        return None;
-    }
-    if saas_mode && catalog_rules.is_empty() {
-        return Some("no local YAML rules (SaaS / remote AST)");
-    }
-    if catalog_rules.is_empty() {
-        return Some("no local YAML rules for this flag/env");
-    }
-    Some("catalog metadata missing for this AST index")
-}
-
 fn resolve_environment(options: &Options) -> CliResult<String> {
     if let Some(env) = &options.env {
         return kill_switch::resolve_kill_switch_env(Some(env));
@@ -310,14 +186,6 @@ fn resolve_environment(options: &Options) -> CliResult<String> {
         return kill_switch::resolve_kill_switch_env(Some(stem));
     }
     kill_switch::resolve_kill_switch_env(None)
-}
-
-/// The compiler appends a trailing serve rule from catalog `default` (see `compile_catalog`).
-fn is_compiled_catalog_default(artifact: &Artifact, flag_index: usize, rule_index: usize) -> bool {
-    artifact
-        .flags
-        .get(flag_index)
-        .is_some_and(|rules| !rules.is_empty() && rule_index == rules.len() - 1)
 }
 
 fn determine_ast_path(options: &Options, environment: &str) -> CliResult<PathBuf> {
@@ -367,81 +235,41 @@ fn load_artifact(path: &Path) -> CliResult<Artifact> {
     from_slice(&ast_bytes).map_err(|e| CliError::Message(format!("Failed to deserialize AST: {e}")))
 }
 
-fn kill_switch_value(kill_file: &Value, flag: &str) -> Option<bool> {
-    kill_file.get("flags")?.get(flag)?.as_bool()
-}
-
-fn catalog_rules_for_flag(
-    catalog: &CatalogDocument,
-    imports: &BTreeMap<String, CatalogDocument>,
-    environment: &str,
-    qualified_name: &str,
-) -> Vec<CatalogRule> {
-    if let Some((namespace, flag_key)) = qualified_name.split_once('.') {
-        return imports
-            .get(namespace)
-            .and_then(|doc| doc.environments.get(environment))
-            .and_then(|env| env.rules.get(flag_key))
-            .cloned()
-            .unwrap_or_default();
-    }
-
-    catalog
-        .environments
-        .get(environment)
-        .and_then(|env| env.rules.get(qualified_name))
-        .cloned()
-        .unwrap_or_default()
-}
-
-fn payload_to_bool(value: &Option<Value>) -> Option<bool> {
-    match value {
-        Some(Value::Bool(b)) => Some(*b),
-        Some(Value::String(s)) => match s.to_ascii_uppercase().as_str() {
-            "ON" | "TRUE" => Some(true),
-            "OFF" | "FALSE" => Some(false),
-            _ => None,
-        },
-        Some(Value::Number(n)) => n.as_i64().map(|i| i != 0),
-        _ => None,
-    }
-}
-
-fn layer_label(layer: &MatchedLayer) -> &'static str {
+fn layer_label(layer: ExplainLayer) -> &'static str {
     match layer {
-        MatchedLayer::KillSwitch => "kill switch file",
-        MatchedLayer::EnvironmentRule => "environment rule",
-        MatchedLayer::CatalogDefault => "catalog default",
+        ExplainLayer::KillSwitch => "kill switch file",
+        ExplainLayer::EnvironmentRule => "environment rule",
+        ExplainLayer::CatalogDefault => "catalog default",
     }
 }
 
-fn print_human(options: &Options, outcome: &ExplainOutcome) {
+fn print_human(options: &Options, trace: &ExplainTrace) {
     println!("Flag: {}", options.flag);
-    println!("Environment: {}", outcome.environment);
-    if outcome.imported {
+    println!("Environment: {}", trace.environment);
+    if trace.imported {
         println!("Source: imported catalog projection");
     }
-    if outcome.deprecated {
+    if trace.deprecated {
         println!("Warning: flag lifecycle is deprecated");
     }
-    for warning in &outcome.warnings {
+    for warning in &trace.warnings {
         println!("Warning: {warning}");
     }
     println!();
     println!("Result:");
-    println!("  Layer: {}", layer_label(&outcome.layer));
-    println!("  Value: {}", outcome.value);
-    if let Some(idx) = outcome.rule_index {
-        if outcome.layer == MatchedLayer::EnvironmentRule {
+    println!("  Layer: {}", layer_label(trace.layer));
+    println!("  Value: {}", trace.value);
+    if let Some(idx) = trace.rule_index {
+        if trace.layer == ExplainLayer::EnvironmentRule {
             println!("  Rule: {} (1-based in environment)", idx + 1);
-        } else if outcome.layer == MatchedLayer::CatalogDefault {
+        } else if trace.layer == ExplainLayer::CatalogDefault {
             println!(
                 "  Rule: catalog default (compiled trailing rule {})",
                 idx + 1
             );
         }
     }
-    if let Some(rule) = &outcome.catalog_rule {
+    if let Some(rule) = &trace.catalog_rule {
         if let Some(when) = &rule.when {
             println!("  When: {when}");
         }
@@ -450,7 +278,7 @@ fn print_human(options: &Options, outcome: &ExplainOutcome) {
                 "  Rollout: {}% → serve {}",
                 rollout.percentage, rollout.serve
             );
-            if let Some(bucket) = outcome.rollout_bucket {
+            if let Some(bucket) = trace.rollout_bucket {
                 println!("  Rollout bucket: {bucket} (0–99, user id hash)");
             }
         }
@@ -458,38 +286,38 @@ fn print_human(options: &Options, outcome: &ExplainOutcome) {
             println!("  Reason: {reason}");
         }
     }
-    if outcome.missing_user_id {
+    if trace.missing_user_id {
         println!();
         println!("  ⚠ Missing user.id — rollout rules need a stable identity for bucketing");
     }
     println!();
 }
 
-fn print_json(options: &Options, outcome: &ExplainOutcome) {
+fn print_json(options: &Options, trace: &ExplainTrace) {
     let mut body = json!({
         "status": "ok",
         "command": "explain",
         "flag": options.flag,
-        "environment": outcome.environment,
-        "layer": layer_label(&outcome.layer),
-        "value": outcome.value,
-        "imported": outcome.imported,
-        "deprecated": outcome.deprecated,
-        "matchedRule": outcome.rule_index.map(|i| i + 1),
+        "environment": trace.environment,
+        "layer": layer_label(trace.layer),
+        "value": trace.value,
+        "imported": trace.imported,
+        "deprecated": trace.deprecated,
+        "matchedRule": trace.rule_index.map(|i| i + 1),
         "warnings": [],
         "errors": []
     });
     let warnings = body["warnings"].as_array_mut().unwrap();
-    if outcome.deprecated {
+    if trace.deprecated {
         warnings.push(json!("flag lifecycle is deprecated"));
     }
-    for warning in &outcome.warnings {
+    for warning in &trace.warnings {
         warnings.push(json!(warning));
     }
-    if outcome.missing_user_id {
+    if trace.missing_user_id {
         warnings.push(json!("missing user.id for rollout bucketing"));
     }
-    if let Some(rule) = &outcome.catalog_rule {
+    if let Some(rule) = &trace.catalog_rule {
         body["catalogRule"] = json!({
             "when": rule.when,
             "serve": rule.serve,
@@ -497,48 +325,41 @@ fn print_json(options: &Options, outcome: &ExplainOutcome) {
             "reason": rule.reason,
         });
     }
-    if let Some(bucket) = outcome.rollout_bucket {
+    if let Some(bucket) = trace.rollout_bucket {
         body["rolloutBucket"] = json!(bucket);
     }
     println!("{body}");
 }
 
-fn print_trace_header(options: &Options, artifact: &Artifact, user: &Value) {
+/// Line printed under `--trace` when the user has a stable id (object `id` or string user).
+fn trace_user_line(user: &Value) -> Option<String> {
+    user_id(user).map(|id| format!("User ID: {id}"))
+}
+
+fn print_trace_header(options: &Options, trace: &ExplainTrace, user: &Value) {
     println!("Flag: {}", options.flag);
-    println!("Environment: {}", artifact.environment);
-    if let Some(id) = user.get("id") {
-        println!("User ID: {id}");
+    println!("Environment: {}", trace.environment);
+    if let Some(line) = trace_user_line(user) {
+        println!("{line}");
     }
     println!();
     println!("Rule trace:");
 }
 
-fn trace_rules(
-    artifact: &Artifact,
-    flag_index: usize,
-    attrs: &EvaluationAttributes<'_>,
-    catalog_rules: &[CatalogRule],
-    saas_mode: bool,
-) {
-    let context_owned = attrs.context.cloned();
-    let rules = &artifact.flags[flag_index];
-    for (index, rule) in rules.iter().enumerate() {
-        let eval = evaluate_rule(rule, artifact, attrs.user, &context_owned);
-        let catalog_hint = catalog_rules.get(index).and_then(|r| r.reason.as_deref());
+fn print_rule_trace(trace: &ExplainTrace) {
+    for entry in &trace.rule_trace {
         println!(
             "  Rule {}: {}",
-            index + 1,
-            if eval.matched { "matched" } else { "skipped" }
+            entry.rule_index + 1,
+            if entry.matched { "matched" } else { "skipped" }
         );
-        println!("    {}", eval.reason);
-        if let Some(reason) = catalog_hint {
+        println!("    {}", entry.evaluation_reason);
+        if let Some(reason) = &entry.catalog_reason {
             println!("    Catalog reason: {reason}");
-        } else if let Some(note) =
-            trace_catalog_note(catalog_rules, index, flag_index, artifact, saas_mode)
-        {
+        } else if let Some(note) = &entry.catalog_note {
             println!("    Catalog: {note}");
         }
-        if let Some(ref val) = eval.value {
+        if let Some(ref val) = entry.value {
             println!("    Value: {val}");
         }
     }
@@ -584,116 +405,24 @@ mod tests {
     }
 
     #[test]
-    fn kill_switch_value_reads_boolean_map() {
-        let file = json!({ "version": "2.0", "flags": { "my_flag": true } });
-        assert_eq!(kill_switch_value(&file, "my_flag"), Some(true));
-        assert_eq!(kill_switch_value(&file, "other"), None);
-    }
-
-    #[test]
-    fn payload_to_bool_maps_on_off() {
-        assert_eq!(payload_to_bool(&Some(json!("ON"))), Some(true));
-        assert_eq!(payload_to_bool(&Some(json!("OFF"))), Some(false));
-    }
-
-    #[test]
-    fn compiled_catalog_default_is_trailing_ast_rule() {
-        use controlpath_compiler::ast::{Rule, ServePayload};
-
-        let artifact = Artifact {
-            version: "1.0".to_string(),
-            environment: "production".to_string(),
-            string_table: vec!["ON".to_string(), "OFF".to_string()],
-            flags: vec![vec![
-                Rule::ServeWithoutWhen(ServePayload::Number(0)),
-                Rule::ServeWithoutWhen(ServePayload::Number(1)),
-            ]],
-            flag_names: vec![0],
-            segments: None,
-            signature: None,
-        };
-        assert!(!is_compiled_catalog_default(&artifact, 0, 0));
-        assert!(is_compiled_catalog_default(&artifact, 0, 1));
-    }
-
-    #[test]
-    fn catalog_rules_for_imported_flag() {
-        let mut imports = BTreeMap::new();
-        let platform = CatalogDocument {
-            catalog: controlpath_compiler::catalog::model::CatalogIdentity {
-                id: "platform".to_string(),
-                namespace: None,
-            },
-            mode: controlpath_compiler::catalog::model::CatalogMode::Local,
-            saas: None,
-            imports: BTreeMap::new(),
-            flags: BTreeMap::new(),
-            environments: [(
-                "production".to_string(),
-                controlpath_compiler::catalog::model::Environment {
-                    description: None,
-                    rules: [(
-                        "emergency_kill_switch".to_string(),
-                        vec![CatalogRule {
-                            when: None,
-                            serve: Some(false),
-                            rollout: None,
-                            reason: Some("incident default".to_string()),
-                        }],
-                    )]
-                    .into_iter()
-                    .collect(),
-                },
-            )]
-            .into_iter()
-            .collect(),
-            segments: BTreeMap::new(),
-            kill_switches: BTreeMap::new(),
-            artifacts: BTreeMap::new(),
-        };
-        imports.insert("platform".to_string(), platform);
-
-        let service = CatalogDocument {
-            catalog: controlpath_compiler::catalog::model::CatalogIdentity {
-                id: "svc".to_string(),
-                namespace: None,
-            },
-            mode: controlpath_compiler::catalog::model::CatalogMode::Local,
-            saas: None,
-            imports: BTreeMap::new(),
-            flags: BTreeMap::new(),
-            environments: BTreeMap::new(),
-            segments: BTreeMap::new(),
-            kill_switches: BTreeMap::new(),
-            artifacts: BTreeMap::new(),
-        };
-
-        let rules = catalog_rules_for_flag(
-            &service,
-            &imports,
-            "production",
-            "platform.emergency_kill_switch",
+    fn trace_user_line_uses_user_id_semantics() {
+        assert_eq!(
+            trace_user_line(&json!({ "id": "user-1" })).as_deref(),
+            Some("User ID: user-1")
         );
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].reason.as_deref(), Some("incident default"));
+        assert_eq!(
+            trace_user_line(&json!("abc")).as_deref(),
+            Some("User ID: abc")
+        );
+        assert_eq!(trace_user_line(&json!({ "plan": "beta" })), None);
     }
 
     #[test]
-    fn catalog_metadata_warning_when_rules_out_of_sync() {
-        let rules = vec![CatalogRule {
-            when: None,
-            serve: Some(true),
-            rollout: None,
-            reason: None,
-        }];
-        let msg = catalog_metadata_warning(&rules, 1, false, false, "production").unwrap();
-        assert!(msg.contains("AST rule 2"));
-        assert!(msg.contains("1 rule"));
-    }
-
-    #[test]
-    fn catalog_metadata_warning_skipped_for_saas_without_local_rules() {
-        assert!(catalog_metadata_warning(&[], 0, false, true, "production").is_none());
+    fn kill_switch_overrides_reads_boolean_map() {
+        let file = json!({ "version": "2.0", "flags": { "my_flag": true } });
+        let overrides = kill_switch_overrides(&file);
+        assert_eq!(overrides.get("my_flag"), Some(&true));
+        assert_eq!(overrides.get("other"), None);
     }
 
     #[test]

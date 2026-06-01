@@ -8,6 +8,7 @@
 
 mod cdn;
 mod compile;
+mod explain;
 mod saas_environment;
 mod sdk;
 
@@ -29,6 +30,10 @@ pub use cdn::{
 pub use compile::{
     compile_catalog, compile_catalog_with_imports, load_validate_and_compile_catalog,
     validate_and_compile_catalog,
+};
+pub use explain::{
+    explain_flag, is_compiled_catalog_default, ExplainError, ExplainLayer, ExplainRequest,
+    ExplainRuleTrace, ExplainTrace, KillSwitchOverrides,
 };
 pub use model::*;
 pub use namespace::{effective_catalog_id, resolve_namespace};
