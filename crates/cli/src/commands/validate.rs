@@ -35,7 +35,7 @@ fn auto_detect_files() -> Vec<FileToValidate> {
 fn validate_file(file: &FileToValidate) -> CliResult<()> {
     let base_dir = env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
-    catalog::load_sdk_catalog(&base_dir)?;
+    catalog::load_for_explain(&base_dir).map(|_| ())?;
 
     if let FileToValidate::Environment(env) = file {
         let unified = crate::utils::unified_config::read_unified_config()?;

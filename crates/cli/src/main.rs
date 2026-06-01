@@ -561,6 +561,8 @@ enum FlagSubcommand {
         ///
         /// If provided, regenerates the SDK after adding the flag.
         /// If not provided, SDK is not regenerated automatically.
+        /// In SaaS mode, regeneration requires compiled artifacts in `.controlpath/*.ast`
+        /// (from `controlpath ci` or SaaS sync), same as `generate-sdk`.
         #[arg(long)]
         lang: Option<String>,
         /// Sync environment rules for the new flag (default: prompts)

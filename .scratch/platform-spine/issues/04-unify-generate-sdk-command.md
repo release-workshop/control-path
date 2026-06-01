@@ -1,6 +1,6 @@
 # Unify generate-sdk command and ops helper
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -11,9 +11,9 @@ Remove duplicated logic in `commands/generate_sdk.rs` (path defaults, catalog lo
 
 ## Acceptance criteria
 
-- [ ] `commands/generate_sdk` delegates to ops; no duplicate `determine_output_path` / loader branching.
-- [ ] CLI and `ci` / `dev` / `workflow` / `setup` paths that generate SDKs behave identically before/after for existing integration tests.
-- [ ] `integration_saas` and local generate-sdk tests still pass.
+- [x] `commands/generate_sdk` delegates to ops; no duplicate `determine_output_path` / loader branching.
+- [x] CLI and `ci` / `dev` / `workflow` / `setup` paths that generate SDKs behave identically before/after for existing integration tests.
+- [x] `integration_saas` and local generate-sdk tests still pass.
 
 ## Blocked by
 

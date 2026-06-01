@@ -25,6 +25,26 @@ pub fn get_git_branch() -> Option<String> {
     }
 }
 
+/// Resolve environment from branch name and config defaults.
+///
+/// Priority:
+/// 1. Branch mapping when `branch` matches `branchEnvironments`
+/// 2. `defaultEnv`
+pub fn resolve_environment_from_branch(
+    branch: Option<&str>,
+    branch_envs: &Option<std::collections::HashMap<String, String>>,
+    default_env: &Option<String>,
+) -> Option<String> {
+    if let Some(branch) = branch {
+        if let Some(branch_envs) = branch_envs {
+            if let Some(env) = branch_envs.get(branch) {
+                return Some(env.clone());
+            }
+        }
+    }
+    default_env.clone()
+}
+
 /// Determine environment from git branch or default
 ///
 /// Priority:
@@ -34,84 +54,67 @@ pub fn get_git_branch() -> Option<String> {
 ///
 /// This function reads the config file only once for efficiency.
 pub fn determine_environment() -> CliResult<Option<String>> {
-    // Read config once to get both branch mappings and defaultEnv
     let (branch_envs, default_env) = config::read_environment_defaults()?;
-
-    // Try to get git branch and check branch mapping
-    if let Some(branch) = get_git_branch() {
-        if let Some(ref branch_envs) = branch_envs {
-            if let Some(env) = branch_envs.get(&branch) {
-                return Ok(Some(env.clone()));
-            }
-        }
-    }
-
-    // Fallback to defaultEnv
-    Ok(default_env)
+    Ok(resolve_environment_from_branch(
+        get_git_branch().as_deref(),
+        &branch_envs,
+        &default_env,
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serial_test::serial;
+    use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
 
     use crate::test_helpers::DirGuard;
 
     #[test]
-    #[serial]
-    fn test_determine_environment_from_branch_mapping() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path).unwrap();
+    fn resolve_environment_from_branch_mapping_takes_precedence_over_default() {
+        let branch_envs = Some(HashMap::from([
+            ("staging".to_string(), "staging".to_string()),
+            ("main".to_string(), "production".to_string()),
+        ]));
+        let default_env = Some("production".to_string());
 
-        // Initialize git repo
-        let _ = Command::new("git").args(["init"]).output();
+        assert_eq!(
+            resolve_environment_from_branch(Some("staging"), &branch_envs, &default_env,),
+            Some("staging".to_string())
+        );
+        assert_eq!(
+            resolve_environment_from_branch(Some("main"), &branch_envs, &default_env),
+            Some("production".to_string())
+        );
+    }
 
-        // Configure git user (required for commits)
-        let _ = Command::new("git")
-            .args(["config", "user.email", "test@example.com"])
-            .output();
-        let _ = Command::new("git")
-            .args(["config", "user.name", "Test User"])
-            .output();
+    #[test]
+    fn resolve_environment_from_branch_falls_back_to_default_env() {
+        let branch_envs = Some(HashMap::from([(
+            "main".to_string(),
+            "production".to_string(),
+        )]));
+        let default_env = Some("staging".to_string());
 
-        // Create an initial commit (required before checking out branches)
-        fs::write("README.md", "# Test\n").unwrap();
-        let _ = Command::new("git").args(["add", "README.md"]).output();
-        let _ = Command::new("git")
-            .args(["commit", "-m", "Initial commit"])
-            .output();
-
-        // Create and checkout staging branch
-        let _ = Command::new("git")
-            .args(["checkout", "-b", "staging"])
-            .output();
-
-        // Create config with branch mapping
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/config.yaml",
-            r"branchEnvironments:
-  staging: staging
-  main: production
-defaultEnv: production
-",
-        )
-        .unwrap();
-
-        let result = determine_environment().unwrap();
-        assert_eq!(result, Some("staging".to_string()));
+        assert_eq!(
+            resolve_environment_from_branch(Some("feature-x"), &branch_envs, &default_env),
+            Some("staging".to_string())
+        );
+        assert_eq!(
+            resolve_environment_from_branch(None, &branch_envs, &default_env),
+            Some("staging".to_string())
+        );
     }
 
     #[test]
     #[serial]
-    fn test_determine_environment_from_default_env() {
+    fn test_determine_environment_reads_config_from_disk() {
         let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path).unwrap();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
 
+        // defaultEnv only (no branchEnvironments): result must not depend on git branch.
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(".controlpath/config.yaml", "defaultEnv: staging\n").unwrap();
 

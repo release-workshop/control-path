@@ -243,7 +243,7 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
             output: None,
         };
         match ops_generate_sdk::generate_sdk_helper(&generate_opts) {
-            Ok(()) => {
+            Ok(_) => {
                 if !runtime::is_json_output() {
                     println!("✓ Regenerated SDK");
                 }

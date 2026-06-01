@@ -43,12 +43,8 @@ impl DirGuard {
     /// - The directory can't be changed to
     #[allow(dead_code)] // May be used by integration tests
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
-        let _lock = CWD_TEST_MUTEX.lock().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("cwd test mutex poisoned: {e}"),
-            )
-        })?;
+        // Recover poisoned lock so later integration tests can run; see `test_helpers::DirGuard`.
+        let _lock = CWD_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let path = path.as_ref();
         fs::create_dir_all(path)?;
         let original_dir = std::env::current_dir()?;

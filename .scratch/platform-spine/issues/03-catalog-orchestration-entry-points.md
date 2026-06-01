@@ -1,6 +1,6 @@
 # Catalog orchestration: three load entry points
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -17,10 +17,10 @@ Optional: accept `&CatalogStore` from issue 02 when the caller already has an in
 
 ## Acceptance criteria
 
-- [ ] Public CLI catalog API is three entry points (names may differ); old `load_sdk_catalog_unchecked*` variants removed or made `pub(crate)` with no external callers.
-- [ ] `saas/sync` uses shared import resolution and validation context building.
-- [ ] Table-driven unit tests: local vs SaaS mode, with/without imports, expected errors for missing import path.
-- [ ] `compile_catalog_envs` behaviour unchanged for valid fixtures; tests from salvage era still pass.
+- [x] Public CLI catalog API is three entry points (names may differ); old `load_sdk_catalog_unchecked*` variants removed or made `pub(crate)` with no external callers.
+- [x] `saas/sync` uses shared import resolution and validation context building.
+- [x] Table-driven unit tests: local vs SaaS mode, with/without imports, expected errors for missing import path.
+- [x] `compile_catalog_envs` behaviour unchanged for valid fixtures; tests from salvage era still pass.
 
 ## Blocked by
 

@@ -125,7 +125,7 @@ fn run_unified(options: &Options) -> CliResult<()> {
             let base_dir = env::current_dir().map_err(|e| {
                 CliError::Message(format!("Failed to resolve working directory: {e}"))
             })?;
-            let bundle = catalog::load_catalog_bundle(&base_dir)?;
+            let bundle = catalog::load_for_explain(&base_dir)?;
             let envs = if let Some(one) = env {
                 vec![one.clone()]
             } else {

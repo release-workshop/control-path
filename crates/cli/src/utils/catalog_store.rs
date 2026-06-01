@@ -5,11 +5,14 @@
 //! - Top-level extension keys (e.g. `sdk`) are preserved across save; unknown **flag** fields are
 //!   not round-tripped (see `.scratch/platform-spine/migration-02-catalog-document-store.md`).
 //! - After [`CatalogStore::save`], call [`CatalogStore::validate_sdk_generate`] when the catalog
-//!   has imports or you need the same post-edit check as `load_sdk_catalog`.
+//!   has imports or you need the same post-edit check as `load_for_explain`.
 
 use crate::error::{CliError, CliResult};
 use crate::utils::atomic_write::atomic_write_string;
-use crate::utils::catalog::{discover_workspace, load_sdk_catalog, CATALOG_FILE};
+use crate::utils::catalog::{
+    discover_workspace, load_for_explain_with_document, load_for_sdk_generate_with_document,
+    CATALOG_FILE,
+};
 use controlpath_compiler::catalog::parse_catalog_value;
 use controlpath_compiler::catalog::{Environment, FlagDefinition, Rule};
 use controlpath_compiler::{
@@ -291,16 +294,36 @@ impl CatalogStore {
             .map_err(|e| CliError::Message(format!("Failed to write {}: {e}", self.path.display())))
     }
 
-    /// Re-read the on-disk catalog with import resolution and [`ValidationMode::SdkGenerate`].
+    /// Run SdkGenerate validation (including import resolution) on the in-memory document.
     ///
-    /// Call after [`Self::save`] when a command previously relied on `catalog::load_sdk_catalog`
-    /// as a post-edit gate (e.g. `flag add` without `--lang`). Other mutators (`flag remove`,
-    /// `env add`, …) only run Authoring on save unless they call this or
+    /// Uses [`catalog::load_for_explain_with_document`]; the service catalog YAML on disk is not
+    /// re-parsed. Call after [`Self::save`] when a command needs the same post-edit gate as
+    /// [`catalog::load_for_explain`] (e.g. `flag add` without `--lang`). Other mutators
+    /// (`flag remove`, `env add`, …) only run Authoring on save unless they call this or
     /// [`Self::validate_sdk_generate_if_imported`].
     pub fn validate_sdk_generate(&self) -> CliResult<()> {
         let base_dir = self.path.parent().unwrap_or_else(|| Path::new("."));
-        load_sdk_catalog(base_dir)?;
+        load_for_explain_with_document(
+            base_dir,
+            &self.path,
+            &self.document,
+            self.workspace.clone(),
+        )?;
         Ok(())
+    }
+
+    /// Build an SDK catalog from the in-memory document (SdkGenerate + SaaS CDN URLs when applicable).
+    ///
+    /// Prefer this over [`catalog::load_for_sdk_generate`] immediately after [`Self::save`] so regen
+    /// uses the same document as [`Self::validate_sdk_generate`].
+    pub fn sdk_for_generate(&self) -> CliResult<controlpath_compiler::SdkCatalog> {
+        let base_dir = self.path.parent().unwrap_or_else(|| Path::new("."));
+        load_for_sdk_generate_with_document(
+            base_dir,
+            &self.path,
+            &self.document,
+            self.workspace.clone(),
+        )
     }
 
     /// SdkGenerate post-check only when `imports` is non-empty (e.g. workflow enable/new-flag).
@@ -408,6 +431,43 @@ environments:
             "path: platform/control-path.yaml",
         );
         fs::write(temp_dir.path().join(CATALOG_FILE), imported).unwrap();
+    }
+
+    fn write_saas_fixture(temp_dir: &TempDir) {
+        let content = r"catalog:
+  namespace: acme
+  id: checkout-service
+mode: saas
+saas:
+  project: acme/checkout
+flags:
+  feature_a:
+    kind: release
+    default: false
+    owner: team-a
+";
+        fs::write(temp_dir.path().join(CATALOG_FILE), content).unwrap();
+    }
+
+    fn write_saas_ast_cache(temp_dir: &TempDir) {
+        use controlpath_compiler::ast::Artifact;
+        use controlpath_compiler::serialize;
+
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "production".to_string(),
+            string_table: vec!["feature_a".to_string()],
+            flags: vec![vec![]],
+            flag_names: vec![0],
+            segments: None,
+            signature: None,
+        };
+        fs::create_dir_all(temp_dir.path().join(".controlpath")).unwrap();
+        fs::write(
+            temp_dir.path().join(".controlpath/production.ast"),
+            serialize(&artifact).unwrap(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -577,6 +637,19 @@ environments:
 
     #[test]
     #[serial]
+    fn validate_sdk_generate_uses_in_memory_document_after_save() {
+        let temp_dir = TempDir::new().unwrap();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
+        write_import_fixture(&temp_dir);
+
+        let store = CatalogStore::open_default().unwrap();
+        store.save().unwrap();
+        fs::write(temp_dir.path().join(CATALOG_FILE), "not: valid: yaml: [\n").unwrap();
+        store.validate_sdk_generate().unwrap();
+    }
+
+    #[test]
+    #[serial]
     fn validate_sdk_generate_after_save_with_imports() {
         let temp_dir = TempDir::new().unwrap();
         let _guard = DirGuard::new(temp_dir.path()).unwrap();
@@ -586,5 +659,66 @@ environments:
         assert!(!store.document().imports.is_empty());
         store.save().unwrap();
         store.validate_sdk_generate().unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn sdk_for_generate_uses_in_memory_document_after_save() {
+        use crate::utils::catalog::load_for_sdk_generate;
+
+        let temp_dir = TempDir::new().unwrap();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
+        write_import_fixture(&temp_dir);
+
+        let store = CatalogStore::open_default().unwrap();
+        store.save().unwrap();
+        fs::write(temp_dir.path().join(CATALOG_FILE), "not: valid: yaml: [\n").unwrap();
+
+        let sdk = store.sdk_for_generate().unwrap();
+        assert!(sdk
+            .flags
+            .iter()
+            .any(|f| f.qualified_name == "platform.emergency_kill_switch"));
+        assert!(load_for_sdk_generate(temp_dir.path()).is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn sdk_for_generate_embeds_saas_urls_from_memory_after_save() {
+        use crate::utils::catalog::load_for_sdk_generate;
+        use controlpath_compiler::build_saas_runtime_urls;
+
+        let temp_dir = TempDir::new().unwrap();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
+        write_saas_fixture(&temp_dir);
+        write_saas_ast_cache(&temp_dir);
+
+        let store = CatalogStore::open_default().unwrap();
+        store.save().unwrap();
+        fs::write(temp_dir.path().join(CATALOG_FILE), "not: valid: yaml: [\n").unwrap();
+
+        let sdk = store.sdk_for_generate().unwrap();
+        let catalog_id = controlpath_compiler::effective_catalog_id(
+            &controlpath_compiler::CatalogIdentity {
+                id: "checkout-service".to_string(),
+                namespace: Some("acme".to_string()),
+            },
+            None,
+        );
+        let expected = build_saas_runtime_urls(
+            "https://cdn.controlpath.dev",
+            "acme/checkout",
+            &catalog_id,
+            "production",
+        );
+        assert_eq!(
+            sdk.artifact_urls.get("production"),
+            Some(&expected.artifact_url)
+        );
+        assert_eq!(
+            sdk.kill_switch_urls.get("production"),
+            Some(&expected.kill_switch_url)
+        );
+        assert!(load_for_sdk_generate(temp_dir.path()).is_err());
     }
 }

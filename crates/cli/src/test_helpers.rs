@@ -49,12 +49,11 @@ impl DirGuard {
     /// - The current directory can't be determined
     /// - The directory can't be changed to
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
-        let _lock = CWD_TEST_MUTEX.lock().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("cwd test mutex poisoned: {e}"),
-            )
-        })?;
+        // If a prior cwd test panicked while holding the lock, recover so the suite can finish.
+        // Tradeoff: the panicking test may have left the process cwd wrong; this test then
+        // captures that cwd as `original_dir` and restores to it on drop. Fix the panicking test;
+        // do not rely on poison recovery to hide cwd bugs.
+        let _lock = CWD_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let path = path.as_ref();
         fs::create_dir_all(path)?;
         let original_dir = std::env::current_dir()?;

@@ -35,7 +35,9 @@ fn regenerate_sdk(options: &Options) -> CliResult<()> {
     let output_path = determine_output_path_for_sdk();
     let base_dir = std::env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
-    let sdk_catalog = catalog::load_sdk_catalog(&base_dir)?;
+    // SdkGenerate validation only; no SaaS CDN embedding (unlike load_for_sdk_generate).
+    // Follow-up: delegate to ops::generate_sdk_helper (issue 04 watch slice / issue 05).
+    let sdk_catalog = catalog::load_for_explain(&base_dir)?.sdk;
 
     let language = options
         .lang

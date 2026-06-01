@@ -1,4 +1,18 @@
 //! Load and validate v2 catalogs for CLI operations.
+//!
+//! Primary entry points:
+//! - [`load_for_explain`] — explain/audit (`CatalogBundle`, SdkGenerate validation)
+//! - [`load_for_sdk_generate`] — SDK generation (`SdkCatalog` + SaaS CDN URLs when applicable)
+//! - [`compile_catalog_envs`] — local compile to `.controlpath/*.ast`
+//!
+//! Store helper (after authoring via [`crate::utils::catalog_store::CatalogStore`]):
+//! - [`load_for_explain_with_document`] / [`load_for_sdk_generate_with_document`] — same as above
+//!   but use an in-memory service catalog (imports still resolved from disk).
+//!
+//! SaaS CDN URLs: only [`load_for_sdk_generate`] and [`load_for_sdk_generate_with_document`]
+//! (including [`crate::utils::catalog_store::CatalogStore::sdk_for_generate`]) embed
+//! `artifact_urls` / `kill_switch_urls` from `.controlpath/*.ast`. Watch and validate use
+//! explain; `flag add --lang` and `generate-sdk` use generate. Issue 05 may unify watch.
 
 use crate::error::{CliError, CliResult};
 use crate::utils::atomic_write::{atomic_write, atomic_write_string};
@@ -16,6 +30,7 @@ pub(crate) const CATALOG_FILE: &str = "control-path.yaml";
 const WORKSPACE_FILE: &str = "control-path.workspace.yaml";
 
 /// Validated service catalog, imports, and SDK projection (single read/validate path).
+#[derive(Debug)]
 pub struct CatalogBundle {
     pub catalog: CatalogDocument,
     pub imports: BTreeMap<String, CatalogDocument>,
@@ -62,6 +77,22 @@ fn load_validated_catalog_bundle(
         )));
     }
 
+    build_validated_bundle(
+        base_dir,
+        &catalog_path,
+        catalog,
+        workspace,
+        import_validation_mode,
+    )
+}
+
+fn build_validated_bundle(
+    base_dir: &Path,
+    catalog_path: &Path,
+    catalog: CatalogDocument,
+    workspace: Option<WorkspaceDocument>,
+    import_validation_mode: ValidationMode,
+) -> CliResult<CatalogBundle> {
     let imports = resolve_imports(base_dir, &catalog, workspace.as_ref())?;
     let validation = validate_catalog(
         catalog_path.to_string_lossy().as_ref(),
@@ -93,24 +124,48 @@ fn load_validated_catalog_bundle(
     })
 }
 
-/// Load catalog, imports, and SDK projection with post-import validation for SDK generation.
-pub fn load_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
+/// Validated service catalog, imports, and SDK projection for explain/audit workflows.
+///
+/// Post-import validation uses [`ValidationMode::SdkGenerate`].
+pub fn load_for_explain(base_dir: &Path) -> CliResult<CatalogBundle> {
     load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)
 }
 
-/// Same as [`load_catalog_bundle`] but post-import validation uses [`ValidationMode::Compile`].
-pub fn load_catalog_bundle_for_compile(base_dir: &Path) -> CliResult<CatalogBundle> {
-    load_validated_catalog_bundle(base_dir, ValidationMode::Compile)
+/// Like [`load_for_explain`] but uses an already-loaded service catalog (e.g. after
+/// [`crate::utils::catalog_store::CatalogStore::save`]).
+pub fn load_for_explain_with_document(
+    base_dir: &Path,
+    catalog_path: &Path,
+    catalog: &CatalogDocument,
+    workspace: Option<WorkspaceDocument>,
+) -> CliResult<CatalogBundle> {
+    build_validated_bundle(
+        base_dir,
+        catalog_path,
+        catalog.clone(),
+        workspace,
+        ValidationMode::SdkGenerate,
+    )
 }
 
-/// Load the SDK catalog projection from `control-path.yaml` and resolved imports.
-pub fn load_sdk_catalog(base_dir: &Path) -> CliResult<SdkCatalog> {
-    Ok(load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)?.sdk)
+/// Validated flag catalog and imports for SDK generation, with SaaS CDN URLs when applicable.
+pub fn load_for_sdk_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
+    let bundle = load_for_explain(base_dir)?;
+    sdk_from_bundle(base_dir, bundle)
 }
 
-/// Load SDK catalog and embed SaaS CDN runtime URLs (requires `.controlpath/*.ast` on disk).
-pub fn load_sdk_catalog_for_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
-    let bundle = load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)?;
+/// Like [`load_for_sdk_generate`] but uses an already-loaded service catalog.
+pub fn load_for_sdk_generate_with_document(
+    base_dir: &Path,
+    catalog_path: &Path,
+    catalog: &CatalogDocument,
+    workspace: Option<WorkspaceDocument>,
+) -> CliResult<SdkCatalog> {
+    let bundle = load_for_explain_with_document(base_dir, catalog_path, catalog, workspace)?;
+    sdk_from_bundle(base_dir, bundle)
+}
+
+fn sdk_from_bundle(base_dir: &Path, bundle: CatalogBundle) -> CliResult<SdkCatalog> {
     let mut sdk = bundle.sdk;
     apply_saas_runtime_urls(
         base_dir,
@@ -119,15 +174,6 @@ pub fn load_sdk_catalog_for_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
         &mut sdk,
     )?;
     Ok(sdk)
-}
-
-/// Load validated service catalog and resolved import documents.
-#[allow(dead_code)]
-pub fn load_catalog_documents(
-    base_dir: &Path,
-) -> CliResult<(CatalogDocument, BTreeMap<String, CatalogDocument>)> {
-    let bundle = load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)?;
-    Ok((bundle.catalog, bundle.imports))
 }
 
 pub(crate) fn discover_workspace(base_dir: &Path) -> CliResult<Option<WorkspaceDocument>> {
@@ -315,7 +361,7 @@ fn resolve_import_path(base_dir: &Path, import_path: &str) -> CliResult<PathBuf>
 
 /// Compile AST artifacts for one or more environments from a v2 catalog.
 pub fn compile_catalog_envs(base_dir: &Path, envs: Option<Vec<String>>) -> CliResult<Vec<String>> {
-    let bundle = load_catalog_bundle_for_compile(base_dir)?;
+    let bundle = load_validated_catalog_bundle(base_dir, ValidationMode::Compile)?;
     let catalog = bundle.catalog;
     let imports = bundle.imports;
 
@@ -382,6 +428,169 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn load_for_explain_local_catalog_without_imports() {
+        let temp_dir = TempDir::new().unwrap();
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+        let catalog =
+            fs::read_to_string(fixture_root.join("local-only.control-path.yaml")).unwrap();
+        fs::write(temp_dir.path().join(CATALOG_FILE), catalog).unwrap();
+        fs::write(
+            temp_dir.path().join(WORKSPACE_FILE),
+            include_str!("../../../../schemas/examples/control-path.workspace.yaml"),
+        )
+        .unwrap();
+
+        let bundle = load_for_explain(temp_dir.path()).unwrap();
+        assert_eq!(bundle.sdk.flags.len(), 2);
+        assert!(bundle
+            .sdk
+            .flags
+            .iter()
+            .any(|f| f.qualified_name == "new_dashboard"));
+    }
+
+    struct LoadMatrixCase {
+        name: &'static str,
+        setup: fn(&Path),
+        entry: fn(&Path) -> CliResult<()>,
+        expect_ok: bool,
+        error_contains: Option<&'static str>,
+    }
+
+    fn setup_local_with_imports(dir: &Path) {
+        let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
+        let platform_dir = dir.join("platform");
+        fs::create_dir_all(&platform_dir).unwrap();
+        fs::copy(
+            fixture_root.join("shared-platform.control-path.yaml"),
+            platform_dir.join(CATALOG_FILE),
+        )
+        .unwrap();
+        let mut imported =
+            fs::read_to_string(fixture_root.join("imported-global.control-path.yaml")).unwrap();
+        imported = imported.replace(
+            "path: ../../platform/control-path.yaml",
+            "path: platform/control-path.yaml",
+        );
+        fs::write(dir.join(CATALOG_FILE), imported).unwrap();
+    }
+
+    fn setup_missing_import_path(dir: &Path) {
+        let content = r"catalog:
+  id: checkout-service
+mode: local
+imports:
+  platform:
+    path: platform/does-not-exist.control-path.yaml
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+    owner: team-web
+environments:
+  staging:
+    rules:
+      new_dashboard:
+        - serve: true
+";
+        fs::write(dir.join(CATALOG_FILE), content).unwrap();
+    }
+
+    fn setup_saas_without_ast_cache(dir: &Path) {
+        write_saas_catalog_fixture(
+            dir,
+            "  feature_a:\n    kind: release\n    default: false\n    owner: team-a\n",
+        );
+    }
+
+    fn run_explain(dir: &Path) -> CliResult<()> {
+        load_for_explain(dir).map(|_| ())
+    }
+
+    fn run_sdk_generate(dir: &Path) -> CliResult<()> {
+        load_for_sdk_generate(dir).map(|_| ())
+    }
+
+    fn run_compile(dir: &Path) -> CliResult<()> {
+        compile_catalog_envs(dir, Some(vec!["staging".to_string()])).map(|_| ())
+    }
+
+    #[test]
+    fn catalog_load_entry_points_matrix() {
+        let cases = [
+            LoadMatrixCase {
+                name: "local with imports via explain",
+                setup: setup_local_with_imports,
+                entry: run_explain,
+                expect_ok: true,
+                error_contains: None,
+            },
+            LoadMatrixCase {
+                name: "local with imports via sdk generate",
+                setup: setup_local_with_imports,
+                entry: run_sdk_generate,
+                expect_ok: true,
+                error_contains: None,
+            },
+            LoadMatrixCase {
+                name: "missing import path via explain",
+                setup: setup_missing_import_path,
+                entry: run_explain,
+                expect_ok: false,
+                error_contains: Some("Import path does not exist"),
+            },
+            LoadMatrixCase {
+                name: "missing import path via sdk generate",
+                setup: setup_missing_import_path,
+                entry: run_sdk_generate,
+                expect_ok: false,
+                error_contains: Some("Import path does not exist"),
+            },
+            LoadMatrixCase {
+                name: "missing import path via compile",
+                setup: setup_missing_import_path,
+                entry: run_compile,
+                expect_ok: false,
+                error_contains: Some("Import path does not exist"),
+            },
+            LoadMatrixCase {
+                name: "saas without ast cache via explain",
+                setup: setup_saas_without_ast_cache,
+                entry: run_explain,
+                expect_ok: true,
+                error_contains: None,
+            },
+            LoadMatrixCase {
+                name: "saas without ast cache via sdk generate",
+                setup: setup_saas_without_ast_cache,
+                entry: run_sdk_generate,
+                expect_ok: false,
+                error_contains: Some("no compiled artifacts"),
+            },
+        ];
+
+        for case in cases {
+            let temp_dir = TempDir::new().unwrap();
+            (case.setup)(temp_dir.path());
+            let result = (case.entry)(temp_dir.path());
+            if case.expect_ok {
+                assert!(result.is_ok(), "{}: expected Ok, got {result:?}", case.name);
+            } else {
+                let err = result.expect_err(&format!("{}: expected Err", case.name));
+                if let Some(needle) = case.error_contains {
+                    assert!(
+                        err.to_string().contains(needle),
+                        "{}: error {:?} should contain {:?}",
+                        case.name,
+                        err,
+                        needle
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn apply_saas_runtime_urls_embeds_cdn_urls_for_sync_cached_envs() {
         use controlpath_compiler::ast::Artifact;
         use controlpath_compiler::build_saas_runtime_urls;
@@ -418,7 +627,7 @@ mod tests {
         )
         .unwrap();
 
-        let sdk = load_sdk_catalog_for_generate(temp_dir.path()).unwrap();
+        let sdk = load_for_sdk_generate(temp_dir.path()).unwrap();
         let catalog_id = controlpath_compiler::effective_catalog_id(
             &controlpath_compiler::CatalogIdentity {
                 id: "checkout-service".to_string(),
@@ -460,7 +669,7 @@ flags:
     }
 
     #[test]
-    fn load_sdk_catalog_from_local_only_fixture() {
+    fn load_for_explain_from_local_only_fixture() {
         let temp_dir = TempDir::new().unwrap();
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
         let catalog =
@@ -472,7 +681,7 @@ flags:
         )
         .unwrap();
 
-        let sdk = load_sdk_catalog(temp_dir.path()).unwrap();
+        let sdk = load_for_explain(temp_dir.path()).unwrap().sdk;
         assert_eq!(sdk.flags.len(), 2);
         assert!(sdk
             .flags
@@ -510,7 +719,7 @@ flags:
     }
 
     #[test]
-    fn load_sdk_catalog_resolves_imports() {
+    fn load_for_explain_resolves_imports() {
         let temp_dir = TempDir::new().unwrap();
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
 
@@ -530,7 +739,7 @@ flags:
         );
         fs::write(temp_dir.path().join(CATALOG_FILE), imported).unwrap();
 
-        let sdk = load_sdk_catalog(temp_dir.path()).unwrap();
+        let sdk = load_for_explain(temp_dir.path()).unwrap().sdk;
         assert!(sdk
             .flags
             .iter()
@@ -538,7 +747,7 @@ flags:
     }
 
     #[test]
-    fn load_sdk_catalog_rejects_imported_flag_environment_rules() {
+    fn load_for_explain_rejects_imported_flag_environment_rules() {
         let temp_dir = TempDir::new().unwrap();
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
 
@@ -562,7 +771,8 @@ flags:
         );
         fs::write(temp_dir.path().join(CATALOG_FILE), imported).unwrap();
 
-        let err = load_sdk_catalog(temp_dir.path()).unwrap_err();
+        let err = load_for_explain(temp_dir.path())
+            .expect_err("expected imported flag environment rule rejection");
         assert!(err.to_string().contains("imported flag"));
     }
 

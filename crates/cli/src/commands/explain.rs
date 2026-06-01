@@ -93,7 +93,7 @@ fn run_inner(options: &Options) -> CliResult<ExplainOutcome> {
         ))
     })?;
 
-    let bundle = catalog::load_catalog_bundle(&base_dir)?;
+    let bundle = catalog::load_for_explain(&base_dir)?;
     let sdk_flag = bundle
         .sdk
         .flags

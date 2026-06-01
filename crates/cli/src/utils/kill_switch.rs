@@ -121,7 +121,7 @@ fn parse_bool_value(value: &str) -> CliResult<bool> {
 pub fn set_kill_switch_flag(path: &Path, flag: &str, value: &str) -> CliResult<()> {
     let base_dir = std::env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
-    let sdk = catalog::load_sdk_catalog(&base_dir)?;
+    let sdk = catalog::load_for_explain(&base_dir)?.sdk;
     if !sdk.flags.iter().any(|f| f.qualified_name == flag) {
         return Err(CliError::Message(format!(
             "Flag '{flag}' not found in control-path.yaml catalog"

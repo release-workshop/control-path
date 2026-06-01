@@ -10,7 +10,6 @@ use crate::saas::{
     remote_ast_options_from_catalog, sync_saas_catalog_with_catalog, warn_on_rot_findings,
     FakeSaasClient,
 };
-use crate::utils::catalog;
 use crate::utils::language;
 use crate::utils::runtime;
 use crate::utils::unified_config;
@@ -159,8 +158,8 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
     if !runtime::is_json_output() {
         println!("Validating catalog...");
     }
-    let (catalog, workspace) = load_saas_catalog_for_ci(&base_dir)?;
-    let ast_options = remote_ast_options_from_catalog(&catalog)?;
+    let bundle = load_saas_catalog_for_ci(&base_dir)?;
+    let ast_options = remote_ast_options_from_catalog(&bundle.catalog)?;
     if !runtime::is_json_output() {
         println!("  ✓ Catalog is valid");
         println!("Syncing catalog to SaaS...");
@@ -168,8 +167,8 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
     let mut client = FakeSaasClient::open(&base_dir)?;
     let outcome = sync_saas_catalog_with_catalog(
         &base_dir,
-        &catalog,
-        workspace.as_ref(),
+        &bundle.catalog,
+        bundle.workspace.as_ref(),
         &mut client,
         &ast_options,
     )?;
@@ -202,9 +201,10 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
     }
 
     if !runtime::is_json_output() {
-        let sdk_catalog = catalog::load_sdk_catalog(&base_dir)?;
-        let catalog_id = effective_catalog_id(&catalog.catalog, workspace.as_ref());
-        let project = catalog
+        let sdk_catalog = &bundle.sdk;
+        let catalog_id = effective_catalog_id(&bundle.catalog.catalog, bundle.workspace.as_ref());
+        let project = bundle
+            .catalog
             .saas
             .as_ref()
             .map(|s| s.project.as_str())
@@ -214,7 +214,7 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
                 )
             })?;
         let telemetry = fetch_saas_telemetry(&client, &catalog_id, project)?;
-        let entries = build_flag_rot_report(&sdk_catalog, &telemetry);
+        let entries = build_flag_rot_report(sdk_catalog, &telemetry);
         warn_on_rot_findings(&entries);
     }
 

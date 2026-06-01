@@ -314,7 +314,7 @@ fn run_unified(options: &Options) -> CliResult<()> {
                 &existing_envs_for_sync,
             )?;
             store.save()?;
-            // Without --lang: hard-fail if SdkGenerate/import rules break (old load_sdk_catalog gate).
+            // Without --lang: hard-fail if SdkGenerate/import rules break.
             // With --lang: SdkGenerate runs inside regen (warnings only on failure).
             if lang.is_none() {
                 store.validate_sdk_generate()?;
@@ -326,10 +326,8 @@ fn run_unified(options: &Options) -> CliResult<()> {
                     .sdk_output_path()
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("node_modules/@controlpath/generated"));
-                let base_dir = std::env::current_dir().map_err(|e| {
-                    CliError::Message(format!("Failed to resolve working directory: {e}"))
-                })?;
-                match catalog::load_sdk_catalog(&base_dir)
+                match store
+                    .sdk_for_generate()
                     .and_then(|sdk| generate_sdk(language, &sdk, &output_path))
                 {
                     Ok(()) => println!("  Regenerated SDK ({language})"),
@@ -391,7 +389,7 @@ fn run_flag_report() -> CliResult<()> {
         .and_then(|m| m.as_str())
         .unwrap_or("local");
 
-    let sdk_catalog = catalog::load_sdk_catalog(&base_dir)?;
+    let sdk_catalog = catalog::load_for_explain(&base_dir)?.sdk;
     let telemetry = if mode == "saas" {
         let (saas_catalog, workspace) = parse_saas_catalog_document(&base_dir)?;
         let catalog_id = effective_catalog_id(&saas_catalog.catalog, workspace.as_ref());
