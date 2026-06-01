@@ -1,6 +1,6 @@
 # SaaS runtime URL seam (disk-only environments)
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## What to build
@@ -14,9 +14,9 @@ Preserve ADR-0001 behaviour: no `.ast` → fail `generate-sdk` with actionable e
 
 ## Acceptance criteria
 
-- [ ] `SdkCatalog` URL fields filled inside compiler SDK build when SaaS inputs provided, or via a single compiler helper called from one CLI place — not `apply_saas_runtime_urls` post-mutation pattern.
-- [ ] `fake.rs` and `integration_saas.rs` use the same adapter contract; no drift between hard-coded paths and `build_saas_runtime_urls`.
-- [ ] Unit tests in `cdn_tests.rs` unchanged or extended; CLI test proves multi-env sync → expected embedded URLs.
+- [x] `SdkCatalog` URL fields filled inside compiler SDK build when SaaS inputs provided, or via a single compiler helper called from one CLI place — not `apply_saas_runtime_urls` post-mutation pattern.
+- [x] `fake.rs` and `integration_saas.rs` use the same adapter contract; no drift between hard-coded paths and `build_saas_runtime_urls`.
+- [x] Unit tests in `cdn_tests.rs` unchanged or extended; CLI test proves multi-env sync → expected embedded URLs.
 
 ## Blocked by
 

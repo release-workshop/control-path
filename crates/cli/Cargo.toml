@@ -12,6 +12,10 @@ rust-version = "1.70"
 name = "controlpath"
 path = "src/main.rs"
 
+[lib]
+name = "controlpath_cli"
+path = "src/lib.rs"
+
 [dependencies]
 controlpath-compiler = { path = "../compiler" }
 clap = { version = "4.4", features = ["derive"] }

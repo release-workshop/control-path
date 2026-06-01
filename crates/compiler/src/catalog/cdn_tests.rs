@@ -59,6 +59,60 @@ fn saas_config_deserializes_legacy_url_as_api_url_not_cdn() {
 }
 
 #[test]
+fn build_saas_runtime_url_maps_embeds_all_environments() {
+    let catalog_id = catalog_id(Some("acme"), "checkout-service");
+    let maps = build_saas_runtime_url_maps(
+        saas_cdn_base_url(None),
+        "acme/checkout",
+        &catalog_id,
+        &["production", "staging"],
+    );
+
+    let production = build_saas_runtime_urls(
+        saas_cdn_base_url(None),
+        "acme/checkout",
+        &catalog_id,
+        "production",
+    );
+    let staging = build_saas_runtime_urls(
+        saas_cdn_base_url(None),
+        "acme/checkout",
+        &catalog_id,
+        "staging",
+    );
+
+    assert_eq!(
+        maps.artifact_urls.get("production"),
+        Some(&production.artifact_url)
+    );
+    assert_eq!(
+        maps.kill_switch_urls.get("production"),
+        Some(&production.kill_switch_url)
+    );
+    assert_eq!(
+        maps.artifact_urls.get("staging"),
+        Some(&staging.artifact_url)
+    );
+    assert_eq!(
+        maps.kill_switch_urls.get("staging"),
+        Some(&staging.kill_switch_url)
+    );
+}
+
+#[test]
+fn build_saas_runtime_url_maps_with_empty_environments_returns_empty_maps() {
+    let catalog_id = catalog_id(Some("acme"), "checkout-service");
+    let maps = build_saas_runtime_url_maps(
+        saas_cdn_base_url(None),
+        "acme/checkout",
+        &catalog_id,
+        &[] as &[&str],
+    );
+    assert!(maps.artifact_urls.is_empty());
+    assert!(maps.kill_switch_urls.is_empty());
+}
+
+#[test]
 fn build_saas_runtime_urls_percent_encodes_special_characters() {
     let urls = build_saas_runtime_urls(
         DEFAULT_SAAS_CDN_BASE,

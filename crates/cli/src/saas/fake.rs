@@ -1,10 +1,10 @@
 //! In-memory SaaS client for tests and offline SaaS-mode workflows.
 //!
 //! Remote AST bytes in [`PersistedState::remote_asts`] are written to `.controlpath/<env>.ast`
-//! on sync. `controlpath generate-sdk` embeds CDN poll URLs for those environments using the
-//! platform path contract in [`controlpath_compiler::build_saas_runtime_urls`] (see
-//! `crates/compiler/src/catalog/cdn.rs`). Tests should assert embedded URLs match that builder,
-//! not hard-code divergent paths.
+//! on sync. `controlpath generate-sdk` discovers those environments via
+//! [`crate::saas::ast_cache::FilesystemAstCache`] and embeds CDN poll URLs using
+//! [`controlpath_compiler::build_saas_runtime_url_maps`]. Tests should assert embedded URLs
+//! match that builder, not hard-code divergent paths.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

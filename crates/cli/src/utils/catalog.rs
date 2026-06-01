@@ -11,16 +11,18 @@
 //!
 //! SaaS CDN URLs: only [`load_for_sdk_generate`] and [`load_for_sdk_generate_with_document`]
 //! (including [`crate::utils::catalog_store::CatalogStore::sdk_for_generate`]) embed
-//! `artifact_urls` / `kill_switch_urls` from `.controlpath/*.ast`. Watch and validate use
-//! explain; `flag add --lang` and `generate-sdk` use generate. Issue 05 may unify watch.
+//! `artifact_urls` / `kill_switch_urls` via [`crate::saas::ast_cache::FilesystemAstCache`]
+//! and [`controlpath_compiler::build_saas_runtime_url_maps`]. Watch intentionally skips SaaS
+//! URL embedding ([`crate::commands::watch`]); validate and explain use the explain entry point.
 
 use crate::error::{CliError, CliResult};
+use crate::saas::FilesystemAstCache;
 use crate::utils::atomic_write::{atomic_write, atomic_write_string};
 use controlpath_compiler::{
-    build_saas_runtime_urls, build_sdk_catalog, compile_catalog_with_imports, effective_catalog_id,
-    load_and_validate_catalog, load_and_validate_workspace, parse_workspace, saas_cdn_base_url,
-    serialize, validate_catalog, CatalogDocument, CatalogMode, CatalogValidationContext,
-    SdkCatalog, ValidationMode, WorkspaceDocument,
+    build_saas_runtime_url_maps, build_sdk_catalog, compile_catalog_with_imports,
+    effective_catalog_id, load_and_validate_catalog, load_and_validate_workspace, parse_workspace,
+    saas_cdn_base_url, serialize, validate_catalog, CatalogDocument, CatalogMode,
+    CatalogValidationContext, SdkCatalog, ValidationMode, WorkspaceDocument,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -166,14 +168,23 @@ pub fn load_for_sdk_generate_with_document(
 }
 
 fn sdk_from_bundle(base_dir: &Path, bundle: CatalogBundle) -> CliResult<SdkCatalog> {
-    let mut sdk = bundle.sdk;
-    apply_saas_runtime_urls(
-        base_dir,
-        &bundle.catalog,
-        bundle.workspace.as_ref(),
-        &mut sdk,
-    )?;
-    Ok(sdk)
+    if bundle.catalog.mode != CatalogMode::Saas {
+        return Ok(bundle.sdk);
+    }
+
+    let saas = bundle.catalog.saas.as_ref().ok_or_else(|| {
+        CliError::Message("SaaS mode requires saas.project in control-path.yaml".to_string())
+    })?;
+    let environments = FilesystemAstCache::discover_environments(base_dir)?;
+    let cdn_base = saas_cdn_base_url(saas.cdn_url.as_deref());
+    let catalog_id = effective_catalog_id(&bundle.catalog.catalog, bundle.workspace.as_ref());
+    let url_maps = build_saas_runtime_url_maps(cdn_base, &saas.project, &catalog_id, &environments);
+
+    Ok(SdkCatalog {
+        flags: bundle.sdk.flags,
+        artifact_urls: url_maps.artifact_urls,
+        kill_switch_urls: url_maps.kill_switch_urls,
+    })
 }
 
 pub(crate) fn discover_workspace(base_dir: &Path) -> CliResult<Option<WorkspaceDocument>> {
@@ -265,80 +276,6 @@ fn resolve_imports(
     }
 
     Ok(imports)
-}
-
-/// Embed SaaS CDN artifact and kill switch URLs for every `.controlpath/<env>.ast` on disk.
-///
-/// Stale files are removed only when SaaS sync downloads ASTs (`write_remote_asts`);
-/// manually added `*.ast` files are embedded until deleted or the next sync prunes them.
-fn apply_saas_runtime_urls(
-    base_dir: &Path,
-    catalog: &CatalogDocument,
-    workspace: Option<&WorkspaceDocument>,
-    sdk: &mut SdkCatalog,
-) -> CliResult<()> {
-    if catalog.mode != CatalogMode::Saas {
-        return Ok(());
-    }
-
-    let saas = catalog.saas.as_ref().ok_or_else(|| {
-        CliError::Message("SaaS mode requires saas.project in control-path.yaml".to_string())
-    })?;
-    let cdn_base = saas_cdn_base_url(saas.cdn_url.as_deref());
-    let catalog_id = effective_catalog_id(&catalog.catalog, workspace);
-
-    let cache_dir = base_dir.join(".controlpath");
-    if !cache_dir.is_dir() {
-        return Err(no_saas_sync_cache_error());
-    }
-
-    let mut embedded = 0usize;
-    for entry in fs::read_dir(&cache_dir)
-        .map_err(|e| CliError::Message(format!("Failed to read {}: {e}", cache_dir.display())))?
-    {
-        let entry = entry.map_err(|e| {
-            CliError::Message(format!("Failed to read {} entry: {e}", cache_dir.display()))
-        })?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
-        let Some(environment) = file_name.strip_suffix(".ast") else {
-            continue;
-        };
-        if environment.is_empty()
-            || environment.contains('/')
-            || environment.contains('\\')
-            || environment.contains("..")
-        {
-            continue;
-        }
-
-        let urls = build_saas_runtime_urls(cdn_base, &saas.project, &catalog_id, environment);
-        sdk.artifact_urls
-            .insert(environment.to_string(), urls.artifact_url);
-        sdk.kill_switch_urls
-            .insert(environment.to_string(), urls.kill_switch_url);
-        embedded += 1;
-    }
-
-    if embedded == 0 {
-        return Err(no_saas_sync_cache_error());
-    }
-
-    Ok(())
-}
-
-fn no_saas_sync_cache_error() -> CliError {
-    CliError::Message(
-        "SaaS mode: no compiled artifacts in .controlpath/*.ast. \
-         Run `controlpath ci` (or sync with the SaaS client) before `generate-sdk`. \
-         Remove stray *.ast files you did not intend to embed (sync prunes only on download)."
-            .to_string(),
-    )
 }
 
 fn resolve_import_path(base_dir: &Path, import_path: &str) -> CliResult<PathBuf> {
@@ -591,9 +528,9 @@ environments:
     }
 
     #[test]
-    fn apply_saas_runtime_urls_embeds_cdn_urls_for_sync_cached_envs() {
+    fn load_for_sdk_generate_embeds_saas_cdn_urls_for_sync_cached_envs() {
         use controlpath_compiler::ast::Artifact;
-        use controlpath_compiler::build_saas_runtime_urls;
+        use controlpath_compiler::build_saas_runtime_url_maps;
         use controlpath_compiler::serialize;
 
         let temp_dir = TempDir::new().unwrap();
@@ -635,22 +572,28 @@ environments:
             },
             None,
         );
-        let expected_production = build_saas_runtime_urls(
+        let expected = build_saas_runtime_url_maps(
             "https://cdn.controlpath.dev",
             "acme/checkout",
             &catalog_id,
-            "production",
+            &["production", "staging"],
         );
         assert_eq!(
             sdk.artifact_urls.get("production"),
-            Some(&expected_production.artifact_url)
+            expected.artifact_urls.get("production")
         );
         assert_eq!(
             sdk.kill_switch_urls.get("production"),
-            Some(&expected_production.kill_switch_url)
+            expected.kill_switch_urls.get("production")
         );
-        assert!(sdk.artifact_urls.contains_key("staging"));
-        assert!(sdk.kill_switch_urls.contains_key("staging"));
+        assert_eq!(
+            sdk.artifact_urls.get("staging"),
+            expected.artifact_urls.get("staging")
+        );
+        assert_eq!(
+            sdk.kill_switch_urls.get("staging"),
+            expected.kill_switch_urls.get("staging")
+        );
         assert!(!sdk.artifact_urls.contains_key("saas-fake-state"));
     }
 

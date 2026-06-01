@@ -374,7 +374,9 @@ flags:
 fn saas_generate_sdk_embeds_cdn_urls_for_sync_cached_environments() {
     use controlpath_compiler::ast::Artifact;
     use controlpath_compiler::CatalogIdentity;
-    use controlpath_compiler::{build_saas_runtime_urls, effective_catalog_id, serialize};
+    use controlpath_compiler::{effective_catalog_id, serialize};
+
+    use integration_test_helpers::expected_saas_runtime_url_maps;
 
     let project = TestProject::new();
     project.write_file(
@@ -421,23 +423,27 @@ fn saas_generate_sdk_embeds_cdn_urls_for_sync_cached_environments() {
         },
         None,
     );
-    let production = build_saas_runtime_urls(
+    let url_maps = expected_saas_runtime_url_maps(
+        &project.path("."),
         "https://cdn.controlpath.dev",
         "acme/checkout",
         &catalog_id,
-        "production",
-    );
-    let staging = build_saas_runtime_urls(
-        "https://cdn.controlpath.dev",
-        "acme/checkout",
-        &catalog_id,
-        "staging",
     );
 
-    assert!(index.contains(&production.artifact_url));
-    assert!(index.contains(&production.kill_switch_url));
-    assert!(index.contains(&staging.artifact_url));
-    assert!(index.contains(&staging.kill_switch_url));
+    for env in ["production", "staging"] {
+        assert!(index.contains(
+            url_maps
+                .artifact_urls
+                .get(env)
+                .expect("artifact URL for synced env")
+        ));
+        assert!(index.contains(
+            url_maps
+                .kill_switch_urls
+                .get(env)
+                .expect("kill switch URL for synced env")
+        ));
+    }
     assert!(index.contains("ARTIFACT_URLS"));
     assert!(index.contains("KILL_SWITCH_URLS"));
 }
@@ -461,7 +467,9 @@ flags:
 fn saas_generate_sdk_uses_custom_cdn_url() {
     use controlpath_compiler::ast::Artifact;
     use controlpath_compiler::CatalogIdentity;
-    use controlpath_compiler::{build_saas_runtime_urls, effective_catalog_id, serialize};
+    use controlpath_compiler::{effective_catalog_id, serialize};
+
+    use integration_test_helpers::expected_saas_runtime_url_maps;
 
     let cdn = "https://cdn.mycompany.com";
     let project = TestProject::new();
@@ -502,9 +510,20 @@ fn saas_generate_sdk_uses_custom_cdn_url() {
         },
         None,
     );
-    let urls = build_saas_runtime_urls(cdn, "acme/checkout", &catalog_id, "production");
-    assert!(index.contains(&urls.artifact_url));
-    assert!(index.contains(&urls.kill_switch_url));
+    let url_maps =
+        expected_saas_runtime_url_maps(&project.path("."), cdn, "acme/checkout", &catalog_id);
+    assert!(index.contains(
+        url_maps
+            .artifact_urls
+            .get("production")
+            .expect("production artifact URL")
+    ));
+    assert!(index.contains(
+        url_maps
+            .kill_switch_urls
+            .get("production")
+            .expect("production kill switch URL")
+    ));
     assert!(!index.contains("https://cdn.controlpath.dev"));
 }
 

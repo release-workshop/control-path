@@ -14,6 +14,8 @@
  * `saas.api_url` is for catalog sync only and must not be used here.
  */
 
+use std::collections::BTreeMap;
+
 use crate::catalog::model::EffectiveCatalogId;
 
 /// Default platform CDN origin when `saas.cdn_url` is omitted.
@@ -53,6 +55,40 @@ pub fn build_saas_runtime_urls(
     SaasRuntimeUrls {
         artifact_url: format!("{prefix}/rules.ast"),
         kill_switch_url: format!("{prefix}/kill-switches.json"),
+    }
+}
+
+/// Per-environment artifact and kill switch CDN URLs for SaaS SDK embedding.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SaasRuntimeUrlMaps {
+    pub artifact_urls: BTreeMap<String, String>,
+    pub kill_switch_urls: BTreeMap<String, String>,
+}
+
+/// Build artifact and kill switch CDN URLs for each SaaS environment name.
+///
+/// Callers must pass a non-empty `environments` slice (typically from disk discovery
+/// after SaaS sync). An empty slice yields empty maps with no error.
+#[must_use]
+pub fn build_saas_runtime_url_maps(
+    cdn_base: &str,
+    project: &str,
+    catalog_id: &EffectiveCatalogId,
+    environments: &[impl AsRef<str>],
+) -> SaasRuntimeUrlMaps {
+    let mut artifact_urls = BTreeMap::new();
+    let mut kill_switch_urls = BTreeMap::new();
+
+    for environment in environments {
+        let env = environment.as_ref();
+        let urls = build_saas_runtime_urls(cdn_base, project, catalog_id, env);
+        artifact_urls.insert(env.to_string(), urls.artifact_url);
+        kill_switch_urls.insert(env.to_string(), urls.kill_switch_url);
+    }
+
+    SaasRuntimeUrlMaps {
+        artifact_urls,
+        kill_switch_urls,
     }
 }
 

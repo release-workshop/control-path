@@ -10,16 +10,17 @@ use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use crate::error::{CliError, CliResult};
 use crate::saas::client::RemoteAstArtifact;
 use crate::utils::atomic_write::atomic_write;
+use controlpath_compiler::{environment_from_ast_path, is_valid_saas_environment_name};
+
+fn invalid_environment_name_error(environment: &str) -> CliError {
+    CliError::Message(format!(
+        "Invalid environment name for remote AST: '{environment}'"
+    ))
+}
 
 fn remote_ast_output_path(base_dir: &Path, environment: &str) -> CliResult<PathBuf> {
-    if environment.is_empty()
-        || environment.contains('/')
-        || environment.contains('\\')
-        || environment.contains("..")
-    {
-        return Err(CliError::Message(format!(
-            "Invalid environment name for remote AST: '{environment}'"
-        )));
+    if !is_valid_saas_environment_name(environment) {
+        return Err(invalid_environment_name_error(environment));
     }
 
     Ok(base_dir.join(format!(".controlpath/{environment}.ast")))
@@ -142,13 +143,11 @@ fn prune_stale_remote_asts(base_dir: &Path, active_envs: &[String]) -> CliResult
         let entry =
             entry.map_err(|e| CliError::Message(format!("Failed to read directory entry: {e}")))?;
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("ast") {
-            continue;
-        }
-        let Some(env) = path.file_stem().and_then(|stem| stem.to_str()) else {
+        // Skip invalid `*.ast` junk (e.g. `..ast`); discovery also ignores them — manual cleanup only.
+        let Some(env) = environment_from_ast_path(&path) else {
             continue;
         };
-        if !active.contains(env) {
+        if !active.contains(env.as_str()) {
             std::fs::remove_file(&path).map_err(|e| {
                 CliError::Message(format!("Failed to remove stale remote AST {env}: {e}"))
             })?;
@@ -369,17 +368,22 @@ mod tests {
     #[test]
     fn rejects_unsafe_environment_names() {
         let bytes = serialize(&sample_artifact()).unwrap();
-        let err = write_remote_asts(
-            Path::new("/tmp/test"),
-            &[RemoteAstArtifact {
-                environment: "../outside".to_string(),
-                bytes,
-            }],
-            &RemoteAstOptions::default(),
-        )
-        .unwrap_err();
+        for environment in ["../outside", ".", ".."] {
+            let err = write_remote_asts(
+                Path::new("/tmp/test"),
+                &[RemoteAstArtifact {
+                    environment: environment.to_string(),
+                    bytes: bytes.clone(),
+                }],
+                &RemoteAstOptions::default(),
+            )
+            .unwrap_err();
 
-        assert!(err.to_string().contains("Invalid environment name"));
+            assert!(
+                err.to_string().contains("Invalid environment name"),
+                "expected rejection for {environment:?}, got {err}"
+            );
+        }
     }
 
     #[test]

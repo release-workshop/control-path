@@ -8,6 +8,7 @@
 
 mod cdn;
 mod compile;
+mod saas_environment;
 mod sdk;
 
 pub mod model;
@@ -21,7 +22,10 @@ mod tests;
 #[cfg(test)]
 mod validation_mode_tests;
 
-pub use cdn::{build_saas_runtime_urls, saas_cdn_base_url, SaasRuntimeUrls, DEFAULT_SAAS_CDN_BASE};
+pub use cdn::{
+    build_saas_runtime_url_maps, build_saas_runtime_urls, saas_cdn_base_url, SaasRuntimeUrlMaps,
+    SaasRuntimeUrls, DEFAULT_SAAS_CDN_BASE,
+};
 pub use compile::{
     compile_catalog, compile_catalog_with_imports, load_validate_and_compile_catalog,
     validate_and_compile_catalog,
@@ -29,6 +33,7 @@ pub use compile::{
 pub use model::*;
 pub use namespace::{effective_catalog_id, resolve_namespace};
 pub use parse::{parse_catalog, parse_catalog_value, parse_workspace, parse_workspace_value};
+pub use saas_environment::{environment_from_ast_path, is_valid_saas_environment_name};
 pub use sdk::{build_sdk_catalog, SdkCatalog, SdkFlag};
 pub use validate::{
     imported_flag_keys_from_imports, load_and_validate_catalog, load_and_validate_workspace,

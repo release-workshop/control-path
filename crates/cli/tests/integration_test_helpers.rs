@@ -375,3 +375,28 @@ rules:
         env, flag_name, when, serve
     )
 }
+
+/// Discover SaaS environment names from `.controlpath/*.ast` via the CLI adapter.
+#[allow(dead_code)]
+pub fn discover_saas_ast_environments(project_dir: &Path) -> Vec<String> {
+    controlpath_cli::discover_environments_in_dir(&project_dir.join(".controlpath"))
+        .expect("read .controlpath after SaaS sync")
+}
+
+/// Expected embedded SaaS poll URLs after sync: disk discovery + [`build_saas_runtime_url_maps`].
+#[allow(dead_code)]
+pub fn expected_saas_runtime_url_maps(
+    project_dir: &Path,
+    cdn_base: &str,
+    saas_project: &str,
+    catalog_id: &controlpath_compiler::EffectiveCatalogId,
+) -> controlpath_compiler::SaasRuntimeUrlMaps {
+    use controlpath_compiler::build_saas_runtime_url_maps;
+
+    let envs = discover_saas_ast_environments(project_dir);
+    assert!(
+        !envs.is_empty(),
+        "expected .controlpath/*.ast after SaaS sync before asserting embedded URLs"
+    );
+    build_saas_runtime_url_maps(cdn_base, saas_project, catalog_id, &envs)
+}
