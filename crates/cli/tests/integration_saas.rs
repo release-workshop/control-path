@@ -344,7 +344,7 @@ flags:
 
 #[test]
 #[serial]
-fn saas_ci_no_validate_skips_import_resolution() {
+fn saas_ci_rejects_unresolved_import_path() {
     let project = TestProject::new();
     project.write_file(
         "control-path.yaml",
@@ -366,7 +366,7 @@ flags:
     );
 
     project.run_command_failure(&["validate"]);
-    project.run_command_success(&["ci", "--no-validate", "--no-sdk"]);
+    project.run_command_failure(&["ci", "--no-sdk"]);
 }
 
 #[test]

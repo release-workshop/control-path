@@ -83,15 +83,42 @@ pub fn imported_flag_keys_from_imports(
     keys
 }
 
-/// Validate a catalog `Value` (JSON Schema + semantic rules).
+/// Which validation phases run for a catalog document.
+///
+/// Used by [`validate_catalog_value`] and [`load_and_validate_catalog`]:
+///
+/// - [`ValidationMode::Authoring`] — JSON Schema and semantic rules on the document alone.
+///   Import cross-catalog rules (environment rules for imported flags) are skipped until
+///   imports are resolved.
+/// - [`ValidationMode::SdkGenerate`] — full validation for SDK generation, including import semantics
+///   when [`CatalogValidationContext::imported_flag_keys`] is populated.
+/// - [`ValidationMode::Compile`] — same checks as [`ValidationMode::SdkGenerate`] for compilation.
+///
+/// User-facing compile and SDK paths use `SdkGenerate` or `Compile`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ValidationMode {
+    Authoring,
+    #[default]
+    SdkGenerate,
+    Compile,
+}
+
+impl ValidationMode {
+    fn runs_import_semantics(self) -> bool {
+        matches!(self, ValidationMode::SdkGenerate | ValidationMode::Compile)
+    }
+}
+
+/// Validate a catalog `Value` (JSON Schema + semantic rules; import semantics depend on [`ValidationMode`]).
 pub fn validate_catalog_value(
     file_path: &str,
     data: &Value,
     ctx: &CatalogValidationContext,
+    mode: ValidationMode,
 ) -> CatalogValidationResult {
     let schema = schemas::load_catalog_schema();
     let base = validate_with_schema(&schema, file_path, data, |path, value| {
-        semantic_errors(path, value, ctx)
+        semantic_errors(path, value, ctx, mode)
     });
 
     let warnings = semantic_warnings(file_path, data);
@@ -112,9 +139,10 @@ pub fn validate_catalog(
     file_path: &str,
     doc: &CatalogDocument,
     ctx: &CatalogValidationContext,
+    mode: ValidationMode,
 ) -> CatalogValidationResult {
     let value = serde_json::to_value(doc).expect("catalog document must serialize to JSON");
-    validate_catalog_value(file_path, &value, ctx)
+    validate_catalog_value(file_path, &value, ctx, mode)
 }
 
 /// Validate workspace YAML/JSON.
@@ -133,9 +161,10 @@ pub fn load_and_validate_catalog(
     content: &str,
     file_path: &str,
     ctx: &CatalogValidationContext,
+    mode: ValidationMode,
 ) -> Result<(CatalogDocument, CatalogValidationResult), crate::parser::error::ParseError> {
     let value = parse_catalog_value(content, Some(file_path))?;
-    let validation = validate_catalog_value(file_path, &value, ctx);
+    let validation = validate_catalog_value(file_path, &value, ctx, mode);
     let doc = deserialize_catalog_document(value, validation.valid)?;
     Ok((doc, validation))
 }
@@ -232,6 +261,7 @@ fn semantic_errors(
     file_path: &str,
     data: &Value,
     ctx: &CatalogValidationContext,
+    mode: ValidationMode,
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     let Some(obj) = data.as_object() else {
@@ -264,9 +294,9 @@ fn semantic_errors(
         }
     }
 
-    let mode = obj.get("mode").and_then(|m| m.as_str()).unwrap_or("local");
+    let catalog_mode = obj.get("mode").and_then(|m| m.as_str()).unwrap_or("local");
 
-    if mode == "saas" {
+    if catalog_mode == "saas" {
         for forbidden in ["environments", "segments", "kill_switches", "artifacts"] {
             if obj.contains_key(forbidden) {
                 errors.push(validation_error(
@@ -323,8 +353,8 @@ fn semantic_errors(
         }
     }
 
-    // Environment rules for imported flags
-    if !ctx.imported_flag_keys.is_empty() {
+    // Environment rules for imported flags (requires resolved imports; SdkGenerate / Compile only)
+    if mode.runs_import_semantics() && !ctx.imported_flag_keys.is_empty() {
         if let Some(envs) = obj.get("environments").and_then(|e| e.as_object()) {
             for (env_name, env_val) in envs {
                 if let Some(rules) = env_val
@@ -550,7 +580,12 @@ mod tests {
             "flags": { "f": { "default": false, "kind": "release" } },
             "environments": { "prod": { "rules": {} } }
         });
-        let errors = semantic_errors("test.yaml", &data, &CatalogValidationContext::default());
+        let errors = semantic_errors(
+            "test.yaml",
+            &data,
+            &CatalogValidationContext::default(),
+            ValidationMode::Compile,
+        );
         assert!(errors.iter().any(|e| e.message.contains("environments")));
     }
 
@@ -565,7 +600,12 @@ mod tests {
             },
             "flags": { "f": { "default": false, "kind": "release" } }
         });
-        let errors = semantic_errors("test.yaml", &data, &CatalogValidationContext::default());
+        let errors = semantic_errors(
+            "test.yaml",
+            &data,
+            &CatalogValidationContext::default(),
+            ValidationMode::Compile,
+        );
         assert!(errors
             .iter()
             .any(|e| e.message.contains("saas.ast_public_key is required")));

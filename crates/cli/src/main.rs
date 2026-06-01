@@ -289,9 +289,6 @@ enum Commands {
     ///
     ///   # Skip SDK regeneration
     ///   controlpath ci --no-sdk
-    ///
-    ///   # Skip validation (faster, but less safe)
-    ///   controlpath ci --no-validate
     Ci {
         /// Environment names to validate/compile (if not provided, processes all)
         ///
@@ -302,9 +299,6 @@ enum Commands {
         /// Skip SDK regeneration
         #[arg(long)]
         no_sdk: bool,
-        /// Skip validation
-        #[arg(long)]
-        no_validate: bool,
     },
     /// Explain flag evaluation with user/context
     ///
@@ -504,9 +498,6 @@ enum Commands {
         /// Validate and compile but show what would happen
         #[arg(long)]
         dry_run: bool,
-        /// Skip validation step
-        #[arg(long)]
-        skip_validation: bool,
     },
     /// Manage kill switch files
     ///
@@ -903,17 +894,9 @@ fn main() {
             let opts = dev::Options { lang };
             dev::run(&opts)
         }
-        Commands::Ci {
-            env,
-            no_sdk,
-            no_validate,
-        } => {
+        Commands::Ci { env, no_sdk } => {
             let envs = if env.is_empty() { None } else { Some(env) };
-            let opts = ci::Options {
-                envs,
-                no_sdk,
-                no_validate,
-            };
+            let opts = ci::Options { envs, no_sdk };
             ci::run(&opts)
         }
         Commands::Explain {
@@ -1112,21 +1095,13 @@ fn main() {
             };
             workflow::run_new_flag(&opts)
         }
-        Commands::Deploy {
-            env,
-            dry_run,
-            skip_validation,
-        } => {
+        Commands::Deploy { env, dry_run } => {
             let env = if env.is_empty() {
                 None
             } else {
                 Some(env.join(","))
             };
-            let opts = workflow::DeployOptions {
-                env,
-                dry_run,
-                skip_validation,
-            };
+            let opts = workflow::DeployOptions { env, dry_run };
             workflow::run_deploy(&opts)
         }
         Commands::Override { subcommand } => {

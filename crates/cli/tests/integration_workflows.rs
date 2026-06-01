@@ -859,22 +859,6 @@ fn test_ci_respects_no_sdk() {
 
 #[test]
 #[serial]
-fn test_ci_respects_no_validate() {
-    let project = TestProject::with_deployment(
-        &simple_flag_definition("test_flag"),
-        "production",
-        &simple_deployment("production", "test_flag", true),
-    );
-
-    // Run CI with --no-validate
-    project.run_command_success(&["ci", "--no-validate", "--no-sdk"]);
-
-    // Verify AST was created even without validation
-    assert!(project.ast_exists("production"));
-}
-
-#[test]
-#[serial]
 fn test_ci_fails_on_invalid_catalog() {
     let project = TestProject::new();
 

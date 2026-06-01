@@ -33,7 +33,6 @@ jobs:
 |-------|-------------|----------|---------|
 | `environment` | Environment name from `control-path.yaml` | No | - |
 | `version` | Control Path CLI version | No | `latest` |
-| `skip-validation` | Skip validation | No | `false` |
 | `skip-compilation` | Skip compilation | No | `false` |
 
 ## Outputs

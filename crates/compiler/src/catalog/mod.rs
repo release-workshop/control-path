@@ -18,6 +18,9 @@ pub mod validate;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod validation_mode_tests;
+
 pub use cdn::{build_saas_runtime_urls, saas_cdn_base_url, SaasRuntimeUrls, DEFAULT_SAAS_CDN_BASE};
 pub use compile::{
     compile_catalog, compile_catalog_with_imports, load_validate_and_compile_catalog,
@@ -30,5 +33,5 @@ pub use sdk::{build_sdk_catalog, SdkCatalog, SdkFlag};
 pub use validate::{
     imported_flag_keys_from_imports, load_and_validate_catalog, load_and_validate_workspace,
     validate_catalog, validate_catalog_value, validate_workspace_value, CatalogValidationContext,
-    CatalogValidationResult,
+    CatalogValidationResult, ValidationMode,
 };

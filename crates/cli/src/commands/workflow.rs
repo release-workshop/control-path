@@ -246,7 +246,6 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
             }
             let compile_opts = ops_compile::CompileOptions {
                 envs: Some(enabled_envs.clone()),
-                skip_validation: false,
             };
             match ops_compile::compile_envs(&compile_opts) {
                 Ok(compiled) => {
@@ -280,9 +279,8 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
             println!("Regenerating SDK...");
         }
         let generate_opts = ops_generate_sdk::GenerateOptions {
-            lang: None, // Auto-detect from config or project files
+            lang: None,
             output: None,
-            skip_validation: false,
         };
         match ops_generate_sdk::generate_sdk_helper(&generate_opts) {
             Ok(()) => {
@@ -532,7 +530,6 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
         }
         let compile_opts = ops_compile::CompileOptions {
             envs: Some(updated_envs.clone()),
-            skip_validation: false,
         };
         match ops_compile::compile_envs(&compile_opts) {
             Ok(compiled) => {
@@ -583,7 +580,6 @@ fn find_envs_for_enable_unified(
 pub struct DeployOptions {
     pub env: Option<String>, // Comma-separated environments
     pub dry_run: bool,
-    pub skip_validation: bool,
 }
 
 pub fn run_deploy(options: &DeployOptions) -> i32 {
@@ -669,22 +665,19 @@ fn run_deploy_inner(options: &DeployOptions) -> CliResult<Vec<String>> {
         }
     };
 
-    // Validate (unless skipped)
-    if !options.skip_validation {
-        if !runtime::is_json_output() {
-            println!("Validating catalog and environments...");
-        }
-        let validate_opts = validate::Options {
-            env: None,
-            all: true,
-        };
-        let exit_code = validate::run(&validate_opts);
-        if exit_code != 0 {
-            return Err(CliError::Message("Validation failed".to_string()));
-        }
-        if !runtime::is_json_output() {
-            println!("✓ Validation passed");
-        }
+    if !runtime::is_json_output() {
+        println!("Validating catalog and environments...");
+    }
+    let validate_opts = validate::Options {
+        env: None,
+        all: true,
+    };
+    let exit_code = validate::run(&validate_opts);
+    if exit_code != 0 {
+        return Err(CliError::Message("Validation failed".to_string()));
+    }
+    if !runtime::is_json_output() {
+        println!("✓ Validation passed");
     }
 
     // Compile each environment
@@ -824,7 +817,6 @@ environments:
         let options = DeployOptions {
             env: Some("production".to_string()),
             dry_run: true,
-            skip_validation: false,
         };
 
         let result = run_deploy_inner(&options);
@@ -1037,24 +1029,6 @@ environments:
         let options = DeployOptions {
             env: None,
             dry_run: true,
-            skip_validation: false,
-        };
-
-        let result = run_deploy_inner(&options);
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    #[serial]
-    fn test_deploy_skip_validation() {
-        let temp_dir = setup_test_project();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path).unwrap();
-
-        let options = DeployOptions {
-            env: None,
-            dry_run: false,
-            skip_validation: true,
         };
 
         let result = run_deploy_inner(&options);
@@ -1071,7 +1045,6 @@ environments:
         let options = DeployOptions {
             env: Some("production".to_string()),
             dry_run: false,
-            skip_validation: false,
         };
 
         let result = run_deploy_inner(&options);
@@ -1105,7 +1078,6 @@ flags:
         let options = DeployOptions {
             env: None,
             dry_run: false,
-            skip_validation: false,
         };
 
         let result = run_deploy_inner(&options);

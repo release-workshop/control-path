@@ -2,40 +2,18 @@
 
 use crate::error::{CliError, CliResult};
 use crate::utils::atomic_write::{atomic_write, atomic_write_string};
-use crate::utils::unified_config;
 use controlpath_compiler::{
     build_saas_runtime_urls, build_sdk_catalog, compile_catalog_with_imports, effective_catalog_id,
     load_and_validate_catalog, load_and_validate_workspace, parse_workspace, saas_cdn_base_url,
     serialize, validate_catalog, CatalogDocument, CatalogMode, CatalogValidationContext,
-    SdkCatalog, WorkspaceDocument,
+    SdkCatalog, ValidationMode, WorkspaceDocument,
 };
-use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) const CATALOG_FILE: &str = "control-path.yaml";
 const WORKSPACE_FILE: &str = "control-path.workspace.yaml";
-
-/// Parse catalog and imports without semantic/schema validation.
-#[allow(dead_code)] // Used by tooling/tests; generate-sdk uses `load_sdk_catalog_unchecked_for_generate`.
-pub fn load_sdk_catalog_unchecked(base_dir: &Path) -> CliResult<SdkCatalog> {
-    let catalog_path = base_dir.join(CATALOG_FILE);
-    let content = fs::read_to_string(&catalog_path).map_err(|e| {
-        CliError::Message(format!("Failed to read {}: {e}", catalog_path.display()))
-    })?;
-
-    let catalog = controlpath_compiler::parse_catalog(
-        &content,
-        Some(catalog_path.to_string_lossy().as_ref()),
-    )
-    .map_err(|e| CliError::Message(format!("Failed to parse {}: {e}", catalog_path.display())))?;
-
-    let workspace = discover_workspace(base_dir)?;
-    let imports = resolve_imports_unchecked(base_dir, &catalog, workspace.as_ref())?;
-    build_sdk_catalog(&catalog, &imports)
-        .map_err(|e| CliError::Message(format!("Failed to build SDK catalog: {e}")))
-}
 
 /// Validated service catalog, imports, and SDK projection (single read/validate path).
 pub struct CatalogBundle {
@@ -64,6 +42,7 @@ fn load_validated_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
             workspace: workspace.clone(),
             ..Default::default()
         },
+        ValidationMode::Authoring,
     )
     .map_err(|e| CliError::Message(format!("Failed to parse {}: {e}", catalog_path.display())))?;
 
@@ -84,6 +63,7 @@ fn load_validated_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
         catalog_path.to_string_lossy().as_ref(),
         &catalog,
         &CatalogValidationContext::with_imports(workspace.clone(), &imports),
+        ValidationMode::SdkGenerate,
     );
 
     if !validation.is_ok() {
@@ -124,25 +104,6 @@ pub fn load_sdk_catalog_for_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
     let workspace = discover_workspace(base_dir)?;
     let mut sdk = bundle.sdk;
     apply_saas_runtime_urls(base_dir, &bundle.catalog, workspace.as_ref(), &mut sdk)?;
-    Ok(sdk)
-}
-
-/// Unchecked parse path for `generate-sdk` with `--skip-validation`; still requires `.controlpath/*.ast`.
-pub fn load_sdk_catalog_unchecked_for_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
-    let catalog_path = base_dir.join(CATALOG_FILE);
-    let content = fs::read_to_string(&catalog_path).map_err(|e| {
-        CliError::Message(format!("Failed to read {}: {e}", catalog_path.display()))
-    })?;
-    let catalog = controlpath_compiler::parse_catalog(
-        &content,
-        Some(catalog_path.to_string_lossy().as_ref()),
-    )
-    .map_err(|e| CliError::Message(format!("Failed to parse {}: {e}", catalog_path.display())))?;
-    let workspace = discover_workspace(base_dir)?;
-    let imports = resolve_imports_unchecked(base_dir, &catalog, workspace.as_ref())?;
-    let mut sdk = build_sdk_catalog(&catalog, &imports)
-        .map_err(|e| CliError::Message(format!("Failed to build SDK catalog: {e}")))?;
-    apply_saas_runtime_urls(base_dir, &catalog, workspace.as_ref(), &mut sdk)?;
     Ok(sdk)
 }
 
@@ -194,42 +155,6 @@ pub(crate) fn discover_workspace(base_dir: &Path) -> CliResult<Option<WorkspaceD
     }
 }
 
-fn resolve_imports_unchecked(
-    base_dir: &Path,
-    catalog: &CatalogDocument,
-    workspace: Option<&WorkspaceDocument>,
-) -> CliResult<BTreeMap<String, CatalogDocument>> {
-    let _ = workspace;
-    let mut imports = BTreeMap::new();
-
-    for (namespace, import_ref) in &catalog.imports {
-        let import_path = resolve_import_path(base_dir, &import_ref.path)?;
-        let content = fs::read_to_string(&import_path).map_err(|e| {
-            CliError::Message(format!(
-                "Failed to read import {} at {}: {e}",
-                namespace,
-                import_path.display()
-            ))
-        })?;
-
-        let imported = controlpath_compiler::parse_catalog(
-            &content,
-            Some(import_path.to_string_lossy().as_ref()),
-        )
-        .map_err(|e| {
-            CliError::Message(format!(
-                "Failed to parse import {} at {}: {e}",
-                namespace,
-                import_path.display()
-            ))
-        })?;
-
-        imports.insert(namespace.clone(), imported);
-    }
-
-    Ok(imports)
-}
-
 fn resolve_imports(
     base_dir: &Path,
     catalog: &CatalogDocument,
@@ -254,6 +179,7 @@ fn resolve_imports(
                 workspace: workspace.cloned(),
                 ..Default::default()
             },
+            ValidationMode::Authoring,
         )
         .map_err(|e| {
             CliError::Message(format!(
@@ -374,70 +300,13 @@ fn resolve_import_path(base_dir: &Path, import_path: &str) -> CliResult<PathBuf>
 }
 
 /// Compile AST artifacts for one or more environments from a v2 catalog.
-pub fn compile_catalog_envs(
-    base_dir: &Path,
-    envs: Option<Vec<String>>,
-    skip_validation: bool,
-) -> CliResult<Vec<String>> {
-    let catalog_path = base_dir.join(CATALOG_FILE);
-    let content = fs::read_to_string(&catalog_path).map_err(|e| {
-        CliError::Message(format!("Failed to read {}: {e}", catalog_path.display()))
-    })?;
+pub fn compile_catalog_envs(base_dir: &Path, envs: Option<Vec<String>>) -> CliResult<Vec<String>> {
+    let bundle = load_validated_catalog_bundle(base_dir)?;
+    let catalog = bundle.catalog;
+    let imports = bundle.imports;
 
-    let workspace = discover_workspace(base_dir)?;
-    let ctx = CatalogValidationContext {
-        workspace: workspace.clone(),
-        ..Default::default()
-    };
-
-    let (catalog, validation) =
-        load_and_validate_catalog(&content, catalog_path.to_string_lossy().as_ref(), &ctx)
-            .map_err(|e| CliError::Message(format!("Failed to parse catalog: {e}")))?;
-
-    if !skip_validation && !validation.is_ok() {
-        let messages: Vec<String> = validation
-            .errors
-            .iter()
-            .map(|e| e.message.clone())
-            .collect();
-        return Err(CliError::Message(format!(
-            "Config is invalid: {}",
-            messages.join("; ")
-        )));
-    }
-
-    let imports = if skip_validation {
-        // Skip-validation still parses import YAML unchecked; semantic import rules are enforced below.
-        resolve_imports_unchecked(base_dir, &catalog, workspace.as_ref())?
-    } else {
-        resolve_imports(base_dir, &catalog, workspace.as_ref())?
-    };
-
-    // Import-aware semantics (including "no rules for imported flags") always apply when
-    // the catalog declares imports, even with skip_validation.
-    let run_semantic_validation = !skip_validation || !catalog.imports.is_empty();
-    if run_semantic_validation {
-        let validation = validate_catalog(
-            catalog_path.to_string_lossy().as_ref(),
-            &catalog,
-            &CatalogValidationContext::with_imports(workspace, &imports),
-        );
-        if !validation.is_ok() {
-            let messages: Vec<String> = validation
-                .errors
-                .iter()
-                .map(|e| e.message.clone())
-                .collect();
-            return Err(CliError::Message(format!(
-                "Config is invalid: {}",
-                messages.join("; ")
-            )));
-        }
-    }
-
-    let unified: Value = serde_yaml::from_str(&content)
-        .map_err(|e| CliError::Message(format!("Failed to parse catalog YAML: {e}")))?;
-    let target_envs = envs.unwrap_or_else(|| unified_config::get_environments(&unified));
+    let target_envs =
+        envs.unwrap_or_else(|| catalog.environments.keys().cloned().collect::<Vec<_>>());
 
     if target_envs.is_empty() {
         return Err(CliError::Message(
@@ -618,7 +487,7 @@ flags:
         );
         fs::write(temp_dir.path().join(CATALOG_FILE), imported).unwrap();
 
-        compile_catalog_envs(temp_dir.path(), Some(vec!["production".to_string()]), false).unwrap();
+        compile_catalog_envs(temp_dir.path(), Some(vec!["production".to_string()])).unwrap();
 
         let ast_bytes = fs::read(temp_dir.path().join(".controlpath/production.ast")).unwrap();
         let ast_text = String::from_utf8_lossy(&ast_bytes);
@@ -684,7 +553,7 @@ flags:
     }
 
     #[test]
-    fn compile_catalog_envs_skip_validation_still_rejects_imported_flag_rules() {
+    fn compile_catalog_envs_rejects_imported_flag_environment_rules() {
         let temp_dir = TempDir::new().unwrap();
         let fixture_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../schemas/examples");
 
@@ -708,8 +577,8 @@ flags:
         );
         fs::write(temp_dir.path().join(CATALOG_FILE), imported).unwrap();
 
-        let err = compile_catalog_envs(temp_dir.path(), Some(vec!["staging".to_string()]), true)
-            .unwrap_err();
+        let err =
+            compile_catalog_envs(temp_dir.path(), Some(vec!["staging".to_string()])).unwrap_err();
         assert!(err.to_string().contains("imported flag"));
     }
 }

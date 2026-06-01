@@ -20,7 +20,6 @@ Compile v2 `control-path.yaml` catalogs to AST artifacts. Optionally validates b
 |-------|-------------|----------|---------|
 | `environment` | Environment name from `control-path.yaml` | Yes (for compile) | - |
 | `version` | Control Path CLI version | No | `latest` |
-| `skip-validation` | Skip validation | No | `false` |
 | `skip-compilation` | Skip compilation | No | `false` |
 | `working-directory` | Monorepo subdirectory containing `control-path.yaml` | No | - |
 

@@ -14,8 +14,6 @@ pub struct GenerateOptions {
     pub lang: Option<String>,
     /// Output directory (if None, uses config sdk.output or default node_modules/@controlpath/generated)
     pub output: Option<String>,
-    /// Skip validation before generation
-    pub skip_validation: bool,
 }
 
 /// Generate SDK from v2 catalog flag definitions and imports.
@@ -26,11 +24,7 @@ pub fn generate_sdk_helper(options: &GenerateOptions) -> CliResult<()> {
         crate::error::CliError::Message(format!("Failed to resolve working directory: {e}"))
     })?;
 
-    let sdk_catalog = if options.skip_validation {
-        catalog::load_sdk_catalog_unchecked_for_generate(&base_dir)?
-    } else {
-        catalog::load_sdk_catalog_for_generate(&base_dir)?
-    };
+    let sdk_catalog = catalog::load_sdk_catalog_for_generate(&base_dir)?;
 
     let output_path = if let Some(ref output) = options.output {
         PathBuf::from(output)

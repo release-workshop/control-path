@@ -7,7 +7,7 @@
 use crate::catalog::{
     effective_catalog_id, load_and_validate_catalog, load_and_validate_workspace, parse_catalog,
     parse_workspace, validate_catalog, validate_catalog_value, CatalogMode,
-    CatalogValidationContext, FlagLifecycle, WorkspaceDocument,
+    CatalogValidationContext, FlagLifecycle, ValidationMode, WorkspaceDocument,
 };
 
 const LOCAL_ONLY: &str = include_str!("../../../../schemas/examples/local-only.control-path.yaml");
@@ -19,8 +19,8 @@ const IMPORTED_GLOBAL: &str =
 const WORKSPACE: &str = include_str!("../../../../schemas/examples/control-path.workspace.yaml");
 
 fn assert_valid_catalog(content: &str, file: &str, ctx: &CatalogValidationContext) {
-    let (doc, result) =
-        load_and_validate_catalog(content, file, ctx).expect("catalog should parse");
+    let (doc, result) = load_and_validate_catalog(content, file, ctx, ValidationMode::Compile)
+        .expect("catalog should parse");
     assert!(result.is_ok(), "validation failed: {:?}", result.errors);
     let _ = doc;
 }
@@ -67,7 +67,12 @@ flags:
     kind: release
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
 }
 
@@ -85,7 +90,12 @@ flags:
     kind: release
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
 }
 
@@ -176,8 +186,12 @@ flags:
             )
         };
         let value = crate::catalog::parse_catalog_value(&content, Some("bad.yaml")).unwrap();
-        let result =
-            validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+        let result = validate_catalog_value(
+            "bad.yaml",
+            &value,
+            &CatalogValidationContext::default(),
+            ValidationMode::Compile,
+        );
         assert!(!result.valid, "expected {block} to be rejected");
         assert!(
             result.errors.iter().any(|e| e.message.contains(block)),
@@ -204,7 +218,12 @@ environments:
     rules: {}
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
     assert!(result
         .errors
@@ -238,9 +257,13 @@ flags:
     default: false
     kind: release
 "#;
-    let (doc, result) =
-        load_and_validate_catalog(content, "v1.yaml", &CatalogValidationContext::default())
-            .expect("parse succeeds; check validation separately");
+    let (doc, result) = load_and_validate_catalog(
+        content,
+        "v1.yaml",
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    )
+    .expect("parse succeeds; check validation separately");
     assert!(
         !result.is_ok(),
         "expected validation failure, got {:?}",
@@ -267,7 +290,12 @@ flags:
     kind: release
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("v1.yaml")).unwrap();
-    let result = validate_catalog_value("v1.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "v1.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
     assert!(result.errors.iter().any(|e| e.message.contains("type")));
 }
@@ -291,7 +319,7 @@ environments:
         - serve: true
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &ctx);
+    let result = validate_catalog_value("bad.yaml", &value, &ctx, ValidationMode::Compile);
     assert!(!result.valid);
     assert!(result
         .errors
@@ -316,7 +344,12 @@ environments:
           serve: false
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
     assert!(result.errors.iter().any(|e| e.message.contains("when")));
 }
@@ -339,7 +372,12 @@ environments:
             serve: false
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
     assert!(result.errors.iter().any(|e| e.message.contains("rollout")));
 }
@@ -357,7 +395,12 @@ flags:
       lastEvaluated: "2026-01-01"
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
     assert!(result
         .errors
@@ -376,7 +419,12 @@ flags:
     kind: release
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("warn.yaml")).unwrap();
-    let result = validate_catalog_value("warn.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "warn.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(result.valid);
     assert!(result.warnings.iter().any(|w| w.message.contains("owner")));
 }
@@ -393,7 +441,12 @@ flags:
     owner: team-a
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("warn.yaml")).unwrap();
-    let result = validate_catalog_value("warn.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "warn.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(result.valid);
     assert!(result
         .warnings
@@ -415,7 +468,12 @@ flags:
     kind: release
 "#;
     let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
-    let result = validate_catalog_value("bad.yaml", &value, &CatalogValidationContext::default());
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
     assert!(!result.valid);
     assert!(result
         .errors
@@ -431,6 +489,7 @@ fn shared_platform_kill_switch_serve_only_is_valid() {
         "shared-platform.control-path.yaml",
         &doc,
         &CatalogValidationContext::default(),
+        ValidationMode::Compile,
     );
     assert!(result.is_ok(), "{:?}", result.errors);
 }

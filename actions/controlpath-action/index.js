@@ -10,7 +10,6 @@ async function run() {
   try {
     const environment = core.getInput('environment');
     const version = core.getInput('version') || 'latest';
-    const skipValidation = core.getInput('skip-validation') === 'true';
     const skipCompilation = core.getInput('skip-compilation') === 'true';
 
     const arch = os.arch();
@@ -130,18 +129,14 @@ async function run() {
     core.info(`Control Path CLI installed at: ${cliPath}`);
     core.addPath(path.dirname(cliPath));
 
-    if (!skipValidation) {
-      core.info('Validating catalog...');
-      const validateArgs = environment ? ['--env', environment] : ['--all'];
-      const validateExitCode = await exec.exec(cliPath, ['validate', ...validateArgs]);
-      if (validateExitCode !== 0) {
-        core.setFailed('Validation failed');
-        return;
-      }
-      core.info('✓ Validation passed');
-    } else {
-      core.info('Skipping validation (skip-validation=true)');
+    core.info('Validating catalog...');
+    const validateArgs = environment ? ['--env', environment] : ['--all'];
+    const validateExitCode = await exec.exec(cliPath, ['validate', ...validateArgs]);
+    if (validateExitCode !== 0) {
+      core.setFailed('Validation failed');
+      return;
     }
+    core.info('✓ Validation passed');
 
     if (!skipCompilation) {
       if (!environment) {

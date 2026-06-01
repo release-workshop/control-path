@@ -131,6 +131,7 @@ pub fn validate_catalog_wasm(content: &str) -> Result<(), JsValue> {
         content,
         "input",
         &CatalogValidationContext::default(),
+        ValidationMode::Compile,
     )
     .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 
@@ -148,6 +149,7 @@ pub fn compile_catalog_wasm(content: &str, env: &str) -> Result<Vec<u8>, JsValue
         content,
         "input",
         &CatalogValidationContext::default(),
+        ValidationMode::Compile,
     )
     .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 

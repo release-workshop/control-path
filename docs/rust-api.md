@@ -36,32 +36,48 @@ pub fn load_and_validate_catalog(
     content: &str,
     file_path: &str,
     ctx: &CatalogValidationContext,
+    mode: ValidationMode,
 ) -> Result<(CatalogDocument, CatalogValidationResult), ParseError>
 ```
 
+#### `ValidationMode`
+
+Controls which validation phases run (`Authoring`, `SdkGenerate`, `Compile`). User-facing compile and SDK paths use `Compile` or `SdkGenerate`.
+
 #### `validate_catalog`
 
-Semantically validate an already-parsed catalog (including imports when provided in context).
+Semantically validate an already-parsed catalog (including imports when provided in context and mode).
 
 ```rust
 pub fn validate_catalog(
     file_path: &str,
     catalog: &CatalogDocument,
     ctx: &CatalogValidationContext,
+    mode: ValidationMode,
 ) -> CatalogValidationResult
 ```
 
 **Example:**
 ```rust
 use controlpath_compiler::{
-    load_and_validate_catalog, validate_catalog, CatalogValidationContext,
+    load_and_validate_catalog, validate_catalog, CatalogValidationContext, ValidationMode,
 };
 
-let (catalog, initial) = load_and_validate_catalog(yaml, "control-path.yaml", &CatalogValidationContext::default())?;
+let (catalog, initial) = load_and_validate_catalog(
+    yaml,
+    "control-path.yaml",
+    &CatalogValidationContext::default(),
+    ValidationMode::Compile,
+)?;
 if !initial.is_ok() {
     return Err(/* handle validation errors */);
 }
-let result = validate_catalog("control-path.yaml", &catalog, &CatalogValidationContext::default());
+let result = validate_catalog(
+    "control-path.yaml",
+    &catalog,
+    &CatalogValidationContext::default(),
+    ValidationMode::Compile,
+);
 if !result.is_ok() {
     return Err(/* handle semantic errors */);
 }
@@ -149,7 +165,7 @@ let bytes = serialize(&artifact)?;
 ```rust
 use controlpath_compiler::{
     compile_catalog, load_and_validate_catalog, serialize, CatalogValidationContext,
-    CompilerError,
+    CompilerError, ValidationMode,
 };
 
 fn compile_catalog_yaml(catalog_yaml: &str, env: &str) -> Result<Vec<u8>, CompilerError> {
@@ -157,6 +173,7 @@ fn compile_catalog_yaml(catalog_yaml: &str, env: &str) -> Result<Vec<u8>, Compil
         catalog_yaml,
         "control-path.yaml",
         &CatalogValidationContext::default(),
+        ValidationMode::Compile,
     )
     .map_err(|e| CompilerError::Parse(e.into()))?;
 

@@ -50,7 +50,6 @@ fn regenerate_sdk(options: &Options) -> CliResult<()> {
     let generate_opts = GenerateOptions {
         lang: Some(language.clone()),
         output: None,
-        skip_validation: false,
     };
 
     ops_generate_sdk::generate_sdk_helper(&generate_opts)?;
@@ -60,10 +59,7 @@ fn regenerate_sdk(options: &Options) -> CliResult<()> {
 }
 
 fn recompile_all_asts() -> CliResult<()> {
-    let compile_opts = CompileOptions {
-        envs: None,
-        skip_validation: false,
-    };
+    let compile_opts = CompileOptions { envs: None };
 
     let compiled = ops_compile::compile_envs(&compile_opts)?;
     println!(

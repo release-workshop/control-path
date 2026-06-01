@@ -128,7 +128,6 @@ controlpath explain --flag my_feature --user '{"id":"123"}' --context context.js
 controlpath ci
 controlpath ci --env production --env staging
 controlpath ci --env=production,staging --no-sdk
-controlpath ci --no-validate
 ```
 
 ## Option Name Notes (Common Migrations)

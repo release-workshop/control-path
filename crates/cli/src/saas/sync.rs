@@ -39,14 +39,11 @@ pub fn parse_saas_catalog_document(
     Ok((catalog, workspace))
 }
 
-/// Load a SaaS catalog for CI, optionally validating imports and semantics.
+/// Load a SaaS catalog for CI after full schema, semantic, and import validation.
 pub fn load_saas_catalog_for_ci(
     base_dir: &Path,
-    validate: bool,
 ) -> CliResult<(CatalogDocument, Option<WorkspaceDocument>)> {
-    if validate {
-        crate::utils::catalog::load_sdk_catalog(base_dir)?;
-    }
+    crate::utils::catalog::load_sdk_catalog(base_dir)?;
     parse_saas_catalog_document(base_dir)
 }
 
@@ -65,9 +62,13 @@ pub fn load_validated_saas_catalog(
         ..Default::default()
     };
 
-    let (catalog, validation) =
-        load_and_validate_catalog(&content, catalog_path.to_string_lossy().as_ref(), &ctx)
-            .map_err(|e| CliError::Message(format!("Failed to parse catalog: {e}")))?;
+    let (catalog, validation) = load_and_validate_catalog(
+        &content,
+        catalog_path.to_string_lossy().as_ref(),
+        &ctx,
+        controlpath_compiler::ValidationMode::SdkGenerate,
+    )
+    .map_err(|e| CliError::Message(format!("Failed to parse catalog: {e}")))?;
 
     if !validation.is_ok() {
         let messages: Vec<String> = validation

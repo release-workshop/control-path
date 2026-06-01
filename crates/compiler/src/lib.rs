@@ -14,7 +14,7 @@
 //! ```rust,no_run
 //! use controlpath_compiler::{
 //!     compile_catalog, load_and_validate_catalog, serialize, CatalogValidationContext,
-//!     CompilerError,
+//!     CompilerError, ValidationMode,
 //! };
 //!
 //! let catalog_yaml = r#"
@@ -36,6 +36,7 @@
 //!     catalog_yaml,
 //!     "control-path.yaml",
 //!     &CatalogValidationContext::default(),
+//!     ValidationMode::Compile,
 //! )
 //! .map_err(|e| CompilerError::Parse(e.into()))?;
 //! if !initial.is_ok() {
@@ -66,7 +67,8 @@ pub use catalog::{
     resolve_namespace, saas_cdn_base_url, validate_and_compile_catalog, validate_catalog,
     validate_catalog_value, validate_workspace_value, CatalogDocument, CatalogIdentity,
     CatalogMode, CatalogValidationContext, CatalogValidationResult, EffectiveCatalogId, FlagKind,
-    FlagLifecycle, SaasRuntimeUrls, SdkCatalog, SdkFlag, WorkspaceDocument, DEFAULT_SAAS_CDN_BASE,
+    FlagLifecycle, SaasRuntimeUrls, SdkCatalog, SdkFlag, ValidationMode, WorkspaceDocument,
+    DEFAULT_SAAS_CDN_BASE,
 };
 
 use ast::Artifact;

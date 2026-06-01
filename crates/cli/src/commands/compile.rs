@@ -53,7 +53,6 @@ fn run_inner(options: &Options) -> CliResult<PathBuf> {
 
     compile::compile_envs(&CompileOptions {
         envs: Some(vec![env.to_string()]),
-        skip_validation: false,
     })?;
 
     let default_output = PathBuf::from(format!(".controlpath/{env}.ast"));

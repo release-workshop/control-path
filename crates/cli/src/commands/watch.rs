@@ -52,7 +52,7 @@ fn regenerate_sdk(options: &Options) -> CliResult<()> {
 fn recompile_all_catalog() -> CliResult<()> {
     let base_dir = std::env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
-    let compiled = catalog::compile_catalog_envs(&base_dir, None, false)?;
+    let compiled = catalog::compile_catalog_envs(&base_dir, None)?;
     println!(
         "✓ Compiled {} environment(s): {}",
         compiled.len(),

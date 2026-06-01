@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use crate::ast::Artifact;
 use crate::catalog::{
     validate_catalog, CatalogDocument, CatalogMode, CatalogValidationContext,
-    CatalogValidationResult, Rule as CatalogRule,
+    CatalogValidationResult, Rule as CatalogRule, ValidationMode,
 };
 use crate::compiler;
 use crate::error::{CompilationError, CompilerError, ValidationError};
@@ -89,6 +89,7 @@ pub fn validate_and_compile_catalog(
         file_path,
         catalog,
         &effective_validation_context(ctx, imports),
+        ValidationMode::Compile,
     );
     ensure_catalog_valid(validation)?;
     compile_catalog_with_imports(catalog, imports, environment)
@@ -107,9 +108,13 @@ pub fn load_validate_and_compile_catalog(
     ctx: &CatalogValidationContext,
 ) -> Result<Artifact, CompilerError> {
     let effective_ctx = effective_validation_context(ctx, imports);
-    let (catalog, validation) =
-        super::load_and_validate_catalog(content, file_path, &effective_ctx)
-            .map_err(|e| CompilerError::Parse(e.into()))?;
+    let (catalog, validation) = super::load_and_validate_catalog(
+        content,
+        file_path,
+        &effective_ctx,
+        ValidationMode::Compile,
+    )
+    .map_err(|e| CompilerError::Parse(e.into()))?;
     ensure_catalog_valid(validation)?;
     compile_catalog_with_imports(&catalog, imports, environment)
 }

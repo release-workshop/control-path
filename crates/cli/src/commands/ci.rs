@@ -22,8 +22,6 @@ pub struct Options {
     pub envs: Option<Vec<String>>,
     /// Skip SDK generation
     pub no_sdk: bool,
-    /// Skip validation
-    pub no_validate: bool,
 }
 
 /// Validate catalog from control-path.yaml.
@@ -117,34 +115,25 @@ fn run_inner(options: &Options) -> CliResult<()> {
     // CI strict mode: process all environments unless explicitly filtered.
     let envs_to_process = options.envs.clone();
 
-    // Step 1: Validate (unless --no-validate)
-    if !options.no_validate {
-        if !runtime::is_json_output() {
-            println!("Validating files...");
-        }
-
-        // Validate catalog
-        validate_definitions_file()?;
-        if !runtime::is_json_output() {
-            println!("  ✓ Catalog is valid");
-        }
-
-        // Confirm requested environments exist
-        let validated_count = validate_deployment_files(envs_to_process.as_deref())?;
-        if !runtime::is_json_output() {
-            println!("  ✓ Validated {} environment(s)", validated_count);
-        }
-    } else if !runtime::is_json_output() {
-        println!("Skipping validation (--no-validate)");
+    if !runtime::is_json_output() {
+        println!("Validating files...");
     }
 
-    // Step 2: Compile ASTs
+    validate_definitions_file()?;
+    if !runtime::is_json_output() {
+        println!("  ✓ Catalog is valid");
+    }
+
+    let validated_count = validate_deployment_files(envs_to_process.as_deref())?;
+    if !runtime::is_json_output() {
+        println!("  ✓ Validated {} environment(s)", validated_count);
+    }
+
     if !runtime::is_json_output() {
         println!("Compiling ASTs...");
     }
     let compile_opts = CompileOptions {
         envs: envs_to_process.clone(),
-        skip_validation: options.no_validate,
     };
 
     let compiled = ops_compile::compile_envs(&compile_opts)?;
@@ -156,19 +145,16 @@ fn run_inner(options: &Options) -> CliResult<()> {
         );
     }
 
-    // Step 3: Regenerate SDK (unless --no-sdk)
     if !options.no_sdk {
         if !runtime::is_json_output() {
             println!("Regenerating SDK...");
         }
 
-        // Determine language (will use config/cached if available)
         let language = language::determine_language(None)?;
 
         let generate_opts = GenerateOptions {
             lang: Some(language),
             output: None,
-            skip_validation: options.no_validate,
         };
 
         ops_generate_sdk::generate_sdk_helper(&generate_opts)?;
@@ -186,23 +172,17 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
     let base_dir = env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
 
-    let validate = !options.no_validate;
-    let (catalog, workspace) = load_saas_catalog_for_ci(&base_dir, validate)?;
+    let (catalog, workspace) = load_saas_catalog_for_ci(&base_dir)?;
     let ast_options = remote_ast_options_from_catalog(&catalog)?;
 
-    if validate {
-        if !runtime::is_json_output() {
-            println!("Validating catalog...");
-            println!("  ✓ Catalog is valid");
-        }
-    } else if !runtime::is_json_output() {
-        println!("Skipping validation (--no-validate)");
+    if !runtime::is_json_output() {
+        println!("Validating catalog...");
+        println!("  ✓ Catalog is valid");
     }
 
     if !runtime::is_json_output() {
         println!("Syncing catalog to SaaS...");
     }
-    // Offline fake boundary for issue 06; swap for an HTTP SaasClient when the backend exists.
     let mut client = FakeSaasClient::open(&base_dir)?;
     let outcome = sync_saas_catalog_with_catalog(
         &base_dir,
@@ -239,7 +219,7 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
         }
     }
 
-    if validate && !runtime::is_json_output() {
+    if !runtime::is_json_output() {
         let sdk_catalog = catalog::load_sdk_catalog(&base_dir)?;
         let catalog_id = effective_catalog_id(&catalog.catalog, workspace.as_ref());
         let project = catalog
@@ -264,7 +244,6 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
         let generate_opts = GenerateOptions {
             lang: Some(language),
             output: None,
-            skip_validation: options.no_validate,
         };
         ops_generate_sdk::generate_sdk_helper(&generate_opts)?;
         if !runtime::is_json_output() {
@@ -293,21 +272,18 @@ mod tests {
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create .controlpath directory for AST output
         fs::create_dir_all(".controlpath").unwrap();
 
         fs::write("control-path.yaml", v2_test_catalog("test_flag", true)).unwrap();
 
         let options = Options {
-            envs: Some(vec!["production".to_string()]), // Explicitly specify environment
-            no_sdk: true,                               // Skip SDK for this test
-            no_validate: false,
+            envs: Some(vec!["production".to_string()]),
+            no_sdk: true,
         };
 
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
 
-        // Verify AST was created
         assert!(PathBuf::from(".controlpath/production.ast").exists());
     }
 
@@ -343,40 +319,13 @@ environments:
         let options = Options {
             envs: Some(vec!["production".to_string()]),
             no_sdk: true,
-            no_validate: false,
         };
 
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
 
-        // Verify only production AST was created
         assert!(PathBuf::from(".controlpath/production.ast").exists());
         assert!(!PathBuf::from(".controlpath/staging.ast").exists());
-    }
-
-    #[test]
-    #[serial]
-    fn test_ci_respects_no_validate() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path).unwrap();
-
-        // Create .controlpath directory for AST output
-        fs::create_dir_all(".controlpath").unwrap();
-
-        fs::write("control-path.yaml", v2_test_catalog("test_flag", true)).unwrap();
-
-        let options = Options {
-            envs: Some(vec!["production".to_string()]), // Explicitly specify environment
-            no_sdk: true,
-            no_validate: true,
-        };
-
-        let exit_code = run(&options);
-        assert_eq!(exit_code, 0);
-
-        // Verify AST was created even without validation
-        assert!(PathBuf::from(".controlpath/production.ast").exists());
     }
 
     #[test]
@@ -386,7 +335,6 @@ environments:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Invalid v2 catalog: missing required catalog block
         fs::write(
             "control-path.yaml",
             r"mode: local
@@ -401,7 +349,6 @@ flags:
         let options = Options {
             envs: None,
             no_sdk: true,
-            no_validate: false,
         };
 
         let exit_code = run(&options);

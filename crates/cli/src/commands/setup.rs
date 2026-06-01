@@ -297,8 +297,7 @@ fn run_inner(options: &Options) -> CliResult<String> {
         println!("Step 3/6: Generating SDK...");
         let generate_options = ops_generate_sdk::GenerateOptions {
             lang: Some(lang.clone()),
-            output: None, // Use default (node_modules/@controlpath/generated) or config
-            skip_validation: false,
+            output: None,
         };
         ops_generate_sdk::generate_sdk_helper(&generate_options).map_err(|e| {
             CliError::Message(format!(
@@ -318,7 +317,6 @@ fn run_inner(options: &Options) -> CliResult<String> {
     println!("Step 4/6: Compiling ASTs for initial environments...");
     let compile_options = ops_compile::CompileOptions {
         envs: Some(initial_envs.clone()),
-        skip_validation: false,
     };
     let compiled_envs = ops_compile::compile_envs(&compile_options).map_err(|e| {
         CliError::Message(format!(
