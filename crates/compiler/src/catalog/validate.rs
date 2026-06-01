@@ -92,9 +92,16 @@ pub fn imported_flag_keys_from_imports(
 ///   imports are resolved.
 /// - [`ValidationMode::SdkGenerate`] — full validation for SDK generation, including import semantics
 ///   when [`CatalogValidationContext::imported_flag_keys`] is populated.
-/// - [`ValidationMode::Compile`] — same checks as [`ValidationMode::SdkGenerate`] for compilation.
+/// - [`ValidationMode::Compile`] — full validation for compilation. Today runs the same phases as
+///   [`ValidationMode::SdkGenerate`]; reserved so issue 06+ can add compile-only checks without
+///   changing SDK callers.
 ///
-/// User-facing compile and SDK paths use `SdkGenerate` or `Compile`.
+/// User-facing compile paths must pass [`ValidationMode::Compile`] on the post-import pass;
+/// SDK paths use [`ValidationMode::SdkGenerate`].
+///
+/// [`ValidationMode::Authoring`] still runs import *namespace collision* checks using inline
+/// `imports` keys (not resolved documents). Cross-catalog environment rules for imported flags
+/// require `SdkGenerate` or `Compile`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ValidationMode {
     Authoring,
@@ -105,7 +112,11 @@ pub enum ValidationMode {
 
 impl ValidationMode {
     fn runs_import_semantics(self) -> bool {
-        matches!(self, ValidationMode::SdkGenerate | ValidationMode::Compile)
+        match self {
+            ValidationMode::Authoring => false,
+            // Identical today; keep separate variants for future compile-only rules.
+            ValidationMode::SdkGenerate | ValidationMode::Compile => true,
+        }
     }
 }
 

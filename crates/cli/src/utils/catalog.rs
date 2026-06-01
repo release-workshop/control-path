@@ -20,9 +20,13 @@ pub struct CatalogBundle {
     pub catalog: CatalogDocument,
     pub imports: BTreeMap<String, CatalogDocument>,
     pub sdk: SdkCatalog,
+    pub workspace: Option<WorkspaceDocument>,
 }
 
-fn load_validated_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
+fn load_validated_catalog_bundle(
+    base_dir: &Path,
+    import_validation_mode: ValidationMode,
+) -> CliResult<CatalogBundle> {
     let catalog_path = base_dir.join(CATALOG_FILE);
     if !catalog_path.exists() {
         return Err(CliError::Message(format!(
@@ -63,7 +67,7 @@ fn load_validated_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
         catalog_path.to_string_lossy().as_ref(),
         &catalog,
         &CatalogValidationContext::with_imports(workspace.clone(), &imports),
-        ValidationMode::SdkGenerate,
+        import_validation_mode,
     );
 
     if !validation.is_ok() {
@@ -85,25 +89,35 @@ fn load_validated_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
         catalog,
         imports,
         sdk,
+        workspace,
     })
 }
 
-/// Load catalog, imports, and SDK projection in one validated pass.
+/// Load catalog, imports, and SDK projection with post-import validation for SDK generation.
 pub fn load_catalog_bundle(base_dir: &Path) -> CliResult<CatalogBundle> {
-    load_validated_catalog_bundle(base_dir)
+    load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)
+}
+
+/// Same as [`load_catalog_bundle`] but post-import validation uses [`ValidationMode::Compile`].
+pub fn load_catalog_bundle_for_compile(base_dir: &Path) -> CliResult<CatalogBundle> {
+    load_validated_catalog_bundle(base_dir, ValidationMode::Compile)
 }
 
 /// Load the SDK catalog projection from `control-path.yaml` and resolved imports.
 pub fn load_sdk_catalog(base_dir: &Path) -> CliResult<SdkCatalog> {
-    Ok(load_validated_catalog_bundle(base_dir)?.sdk)
+    Ok(load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)?.sdk)
 }
 
 /// Load SDK catalog and embed SaaS CDN runtime URLs (requires `.controlpath/*.ast` on disk).
 pub fn load_sdk_catalog_for_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
-    let bundle = load_validated_catalog_bundle(base_dir)?;
-    let workspace = discover_workspace(base_dir)?;
+    let bundle = load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)?;
     let mut sdk = bundle.sdk;
-    apply_saas_runtime_urls(base_dir, &bundle.catalog, workspace.as_ref(), &mut sdk)?;
+    apply_saas_runtime_urls(
+        base_dir,
+        &bundle.catalog,
+        bundle.workspace.as_ref(),
+        &mut sdk,
+    )?;
     Ok(sdk)
 }
 
@@ -112,7 +126,7 @@ pub fn load_sdk_catalog_for_generate(base_dir: &Path) -> CliResult<SdkCatalog> {
 pub fn load_catalog_documents(
     base_dir: &Path,
 ) -> CliResult<(CatalogDocument, BTreeMap<String, CatalogDocument>)> {
-    let bundle = load_validated_catalog_bundle(base_dir)?;
+    let bundle = load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)?;
     Ok((bundle.catalog, bundle.imports))
 }
 
@@ -301,7 +315,7 @@ fn resolve_import_path(base_dir: &Path, import_path: &str) -> CliResult<PathBuf>
 
 /// Compile AST artifacts for one or more environments from a v2 catalog.
 pub fn compile_catalog_envs(base_dir: &Path, envs: Option<Vec<String>>) -> CliResult<Vec<String>> {
-    let bundle = load_validated_catalog_bundle(base_dir)?;
+    let bundle = load_catalog_bundle_for_compile(base_dir)?;
     let catalog = bundle.catalog;
     let imports = bundle.imports;
 

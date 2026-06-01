@@ -7,7 +7,9 @@ Branch: `platform-spine/01-validation-modes`
 - Added `ValidationMode` (`Authoring`, `SdkGenerate`, `Compile`) in `crates/compiler/src/catalog/validate.rs` with docs on `validate_catalog_value` / `load_and_validate_catalog`.
 - Import cross-catalog rules (environment rules for imported flags) run only in `SdkGenerate` and `Compile`; `Authoring` validates schema + semantics on the document alone.
 - Removed `skip_validation` / `no_validate` from CLI ops, `compile_catalog_envs`, unchecked SDK load paths, deploy flag, and GitHub Actions `skip-validation` inputs.
-- `compile_catalog_envs` now uses `load_validated_catalog_bundle` (full validation) and derives target envs from the parsed catalog.
+- `compile_catalog_envs` uses `load_catalog_bundle_for_compile` (`ValidationMode::Compile` on the post-import pass); SDK paths use `SdkGenerate`.
+- SaaS CI returns the validated bundle from `load_catalog_bundle` (no unchecked re-parse).
+- Local `ci` validates the catalog once via compile (`ValidationMode::Compile`), not a separate SdkGenerate load.
 
 ## Tests run
 
@@ -31,5 +33,6 @@ All passed.
 
 ## Known gaps
 
-- GitHub Actions dropping `skip-validation` is a breaking change for workflow YAML that set it (intentional per PRD).
-- `load_sdk_catalog_unchecked` removed; issue 03 may further consolidate catalog entry points.
+- `SdkGenerate` and `Compile` run identical checks until issue 06; modes are split so compile-only rules can land without touching SDK callers.
+- See `.scratch/platform-spine/migration-01-validation-modes.md` for consumer-facing breaking changes.
+- Issue 03 may further consolidate catalog entry points.

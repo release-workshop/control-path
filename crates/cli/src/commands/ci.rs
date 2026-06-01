@@ -24,14 +24,6 @@ pub struct Options {
     pub no_sdk: bool,
 }
 
-/// Validate catalog from control-path.yaml.
-fn validate_definitions_file() -> CliResult<()> {
-    let base_dir = env::current_dir()
-        .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
-    catalog::load_sdk_catalog(&base_dir)?;
-    Ok(())
-}
-
 /// Validate deployment environments from unified config.
 fn validate_deployment_files(envs: Option<&[String]>) -> CliResult<usize> {
     let unified = unified_config::read_unified_config()?;
@@ -116,22 +108,14 @@ fn run_inner(options: &Options) -> CliResult<()> {
     let envs_to_process = options.envs.clone();
 
     if !runtime::is_json_output() {
-        println!("Validating files...");
-    }
-
-    validate_definitions_file()?;
-    if !runtime::is_json_output() {
-        println!("  ✓ Catalog is valid");
+        println!("Validating and compiling...");
     }
 
     let validated_count = validate_deployment_files(envs_to_process.as_deref())?;
     if !runtime::is_json_output() {
-        println!("  ✓ Validated {} environment(s)", validated_count);
+        println!("  ✓ {} environment(s) in catalog", validated_count);
     }
 
-    if !runtime::is_json_output() {
-        println!("Compiling ASTs...");
-    }
     let compile_opts = CompileOptions {
         envs: envs_to_process.clone(),
     };
@@ -172,15 +156,13 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
     let base_dir = env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
 
-    let (catalog, workspace) = load_saas_catalog_for_ci(&base_dir)?;
-    let ast_options = remote_ast_options_from_catalog(&catalog)?;
-
     if !runtime::is_json_output() {
         println!("Validating catalog...");
-        println!("  ✓ Catalog is valid");
     }
-
+    let (catalog, workspace) = load_saas_catalog_for_ci(&base_dir)?;
+    let ast_options = remote_ast_options_from_catalog(&catalog)?;
     if !runtime::is_json_output() {
+        println!("  ✓ Catalog is valid");
         println!("Syncing catalog to SaaS...");
     }
     let mut client = FakeSaasClient::open(&base_dir)?;

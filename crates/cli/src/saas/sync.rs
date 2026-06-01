@@ -17,6 +17,10 @@ use crate::saas::client::{
 use crate::utils::catalog::{discover_workspace, CATALOG_FILE};
 
 /// Parse a SaaS-mode catalog document without schema/semantic validation.
+///
+/// Used by rot/telemetry paths that only need catalog identity and flag keys. Prefer
+/// [`load_saas_catalog_for_ci`] or [`load_catalog_bundle`] for CI and sync (issue 03 may
+/// route all SaaS reads through validated loaders).
 pub fn parse_saas_catalog_document(
     base_dir: &Path,
 ) -> CliResult<(CatalogDocument, Option<WorkspaceDocument>)> {
@@ -43,8 +47,11 @@ pub fn parse_saas_catalog_document(
 pub fn load_saas_catalog_for_ci(
     base_dir: &Path,
 ) -> CliResult<(CatalogDocument, Option<WorkspaceDocument>)> {
-    crate::utils::catalog::load_sdk_catalog(base_dir)?;
-    parse_saas_catalog_document(base_dir)
+    let bundle = crate::utils::catalog::load_catalog_bundle(base_dir)?;
+    if bundle.catalog.mode != CatalogMode::Saas {
+        return Err(CliError::Message("Expected SaaS mode catalog".to_string()));
+    }
+    Ok((bundle.catalog, bundle.workspace))
 }
 
 /// Load and validate a SaaS-mode catalog document.
