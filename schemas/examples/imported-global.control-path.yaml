@@ -1,0 +1,24 @@
+# Service catalog importing a shared platform catalog.
+# SDK includes platform.emergency_kill_switch; service must NOT add rules for it.
+
+catalog:
+  id: checkout-service
+
+mode: local
+
+imports:
+  platform:
+    path: ../../platform/control-path.yaml
+
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+    owner: team-web
+
+environments:
+  staging:
+    rules:
+      new_dashboard:
+        - serve: true
+      # platform.emergency_kill_switch — NOT allowed here (validation error)

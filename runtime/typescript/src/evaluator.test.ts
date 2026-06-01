@@ -45,13 +45,13 @@ describe('Evaluator', () => {
     it('should evaluate flag with simple serve rule', () => {
       const result = evaluate(0, mockArtifact, mockAttributes);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should evaluate flag with when clause', () => {
       const result = evaluate(1, mockArtifact, mockAttributes);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should return undefined for invalid flag index', () => {
@@ -63,7 +63,7 @@ describe('Evaluator', () => {
     it('should handle missing context', () => {
       const result = evaluate(0, mockArtifact);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
   });
 
@@ -72,7 +72,7 @@ describe('Evaluator', () => {
       const rule: Rule = [RuleType.SERVE, undefined, 0];
       const result = evaluateRule(rule, mockArtifact, mockAttributes);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should evaluate serve rule with matching when clause', () => {
@@ -88,7 +88,7 @@ describe('Evaluator', () => {
       ];
       const result = evaluateRule(rule, mockArtifact, mockAttributes);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should return undefined when when clause does not match', () => {
@@ -111,34 +111,13 @@ describe('Evaluator', () => {
       const rule: Rule = [RuleType.SERVE, undefined, 0];
       const result = evaluateRule(rule, mockArtifact, mockAttributes);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
-    it('should evaluate variations rule', () => {
-      const artifact: Artifact = {
-        v: '1.0',
-        env: 'test',
-        strs: ['variant_a', 'variant_b', 'variant_c'],
-        flags: [],
-      };
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        undefined,
-        [
-          [0, 50], // variant_a: 50%
-          [1, 30], // variant_b: 30%
-          [2, 20], // variant_c: 20%
-        ],
-      ];
-
-      // Test with consistent user ID for deterministic results
-      const user1: Attributes = { id: 'user1' };
-      const result1 = evaluateRule(rule, artifact, user1);
-      expect(['variant_a', 'variant_b', 'variant_c']).toContain(result1);
-
-      // Same user should get same variation
-      const result2 = evaluateRule(rule, artifact, user1);
-      expect(result2).toBe(result1);
+    it('should ignore legacy multivariate rule type 1 in artifacts', () => {
+      const rule = [1, undefined, [[0, 100]]] as unknown as Rule;
+      const result = evaluateRule(rule, mockArtifact, mockAttributes);
+      expect(result).toBeUndefined();
     });
 
     it('should evaluate rollout rule', () => {
@@ -155,51 +134,14 @@ describe('Evaluator', () => {
       const user1: Attributes = { id: 'user1' };
       const result1 = evaluateRule(rule, artifact, user1);
 
-      // Should be either 'ON' or undefined (depending on hash)
-      expect(result1 === 'ON' || result1 === undefined).toBe(true);
+      // Should be either true or undefined (depending on hash)
+      expect(result1 === true || result1 === undefined).toBe(true);
 
       // Same user should get consistent result
       const result2 = evaluateRule(rule, artifact, user1);
       expect(result2).toBe(result1);
     });
 
-    it('should return undefined for variations with invalid string indices', () => {
-      const artifact: Artifact = {
-        v: '1.0',
-        env: 'test',
-        strs: ['variant_a'],
-        flags: [],
-      };
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        undefined,
-        [
-          [999, 100], // Invalid string index
-        ],
-      ];
-
-      const result = evaluateRule(rule, artifact, mockAttributes);
-      expect(result).toBeUndefined();
-    });
-
-    it('should handle variations with zero total percentage', () => {
-      const artifact: Artifact = {
-        v: '1.0',
-        env: 'test',
-        strs: ['variant_a'],
-        flags: [],
-      };
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        undefined,
-        [
-          [0, 0], // 0% - should return first variation
-        ],
-      ];
-
-      const result = evaluateRule(rule, artifact, mockAttributes);
-      expect(result).toBe('variant_a');
-    });
   });
 
   describe('complex expressions', () => {
@@ -235,7 +177,7 @@ describe('Evaluator', () => {
       const user: Attributes = { id: 'user1', role: 'admin', email: 'test@example.com' };
       const result = evaluateRule(rule, artifact, user);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should evaluate OR logical operator', () => {
@@ -270,7 +212,7 @@ describe('Evaluator', () => {
       const user: Attributes = { id: 'user1', role: 'user' };
       const result = evaluateRule(rule, artifact, user);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should evaluate NOT logical operator', () => {
@@ -299,7 +241,7 @@ describe('Evaluator', () => {
       const user: Attributes = { id: 'user1', role: 'user' };
       const result = evaluateRule(rule, artifact, user);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should evaluate nested logical operators', () => {
@@ -339,7 +281,7 @@ describe('Evaluator', () => {
       const user: Attributes = { id: 'user1', role: 'admin', email: 'test@example.com' };
       const result = evaluateRule(rule, artifact, user);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should evaluate comparison operators', () => {
@@ -361,7 +303,7 @@ describe('Evaluator', () => {
         ],
         0,
       ];
-      expect(evaluateRule(ruleGT, artifact, mockAttributes)).toBe('ON');
+      expect(evaluateRule(ruleGT, artifact, mockAttributes)).toBe(true);
 
       // Test LT (less than)
       const ruleLT: Rule = [
@@ -374,7 +316,7 @@ describe('Evaluator', () => {
         ],
         0,
       ];
-      expect(evaluateRule(ruleLT, artifact, mockAttributes)).toBe('ON');
+      expect(evaluateRule(ruleLT, artifact, mockAttributes)).toBe(true);
 
       // Test GTE (greater than or equal)
       const ruleGTE: Rule = [
@@ -387,7 +329,7 @@ describe('Evaluator', () => {
         ],
         0,
       ];
-      expect(evaluateRule(ruleGTE, artifact, mockAttributes)).toBe('ON');
+      expect(evaluateRule(ruleGTE, artifact, mockAttributes)).toBe(true);
 
       // Test LTE (less than or equal)
       const ruleLTE: Rule = [
@@ -400,7 +342,7 @@ describe('Evaluator', () => {
         ],
         0,
       ];
-      expect(evaluateRule(ruleLTE, artifact, mockAttributes)).toBe('ON');
+      expect(evaluateRule(ruleLTE, artifact, mockAttributes)).toBe(true);
 
       // Test NE (not equal)
       const ruleNE: Rule = [
@@ -413,7 +355,7 @@ describe('Evaluator', () => {
         ],
         0,
       ];
-      expect(evaluateRule(ruleNE, artifact, mockAttributes)).toBe('ON');
+      expect(evaluateRule(ruleNE, artifact, mockAttributes)).toBe(true);
     });
   });
 
@@ -471,7 +413,7 @@ describe('Evaluator', () => {
       };
 
       const result = evaluateRule(rule, artifact, user);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should handle multiple rules with precedence', () => {
@@ -498,25 +440,11 @@ describe('Evaluator', () => {
 
       const adminAttributes: Attributes = { id: 'user1', role: 'admin' };
       const result1 = evaluate(0, artifact, adminAttributes);
-      expect(result1).toBe('ON'); // First rule matches
+      expect(result1).toBe(true); // First rule matches
 
       const regularAttributes: Attributes = { id: 'user2', role: 'user' };
       const result2 = evaluate(0, artifact, regularAttributes);
-      expect(result2).toBe('OFF'); // First rule doesn't match, second rule matches
-    });
-
-    it('should handle empty variations array', () => {
-      const artifact: Artifact = {
-        v: '1.0',
-        env: 'test',
-        strs: [],
-        flags: [],
-      };
-
-      const rule: Rule = [RuleType.VARIATIONS, undefined, []];
-      const result = evaluateRule(rule, artifact, mockAttributes);
-
-      expect(result).toBeUndefined();
+      expect(result2).toBe(false); // First rule doesn't match, second rule matches
     });
 
     it('should handle rollout with 0%', () => {
@@ -544,7 +472,7 @@ describe('Evaluator', () => {
       const rule: Rule = [RuleType.ROLLOUT, undefined, [0, 100]];
       const result = evaluateRule(rule, artifact, mockAttributes);
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should handle rollout with string valueIndex', () => {
@@ -692,7 +620,7 @@ describe('Evaluator', () => {
       const result = evaluateRule(rule, artifact, user);
 
       // Should work normally for valid paths
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
   });
 
@@ -830,7 +758,7 @@ describe('Evaluator', () => {
       };
 
       const result = evaluateRule(rule, artifact, attributes);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should handle property access with non-user, non-context root', () => {
@@ -860,7 +788,7 @@ describe('Evaluator', () => {
       };
 
       const result = evaluateRule(rule, artifact, user);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
   });
 
@@ -1150,59 +1078,6 @@ describe('Evaluator', () => {
     });
   });
 
-  describe('variation selection edge cases', () => {
-    it('should handle variation where getString returns undefined and fallback to last', () => {
-      const artifact: Artifact = {
-        v: '1.0',
-        env: 'test',
-        strs: ['variant_a'], // Only one string, but variation uses invalid index
-        flags: [],
-      };
-
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        undefined,
-        [
-          [999, 50], // Invalid string index
-          [0, 50], // Valid string index
-        ],
-      ];
-
-      // Use a user ID that will hash to bucket 0-49 (first variation)
-      const user: Attributes = { id: 'user-consistent-hash-0' };
-      const result = evaluateRule(rule, artifact, user);
-
-      // Should fallback to last variation when first returns undefined
-      expect(result).toBe('variant_a');
-    });
-
-    it('should handle variation where intermediate getString returns undefined', () => {
-      const artifact: Artifact = {
-        v: '1.0',
-        env: 'test',
-        strs: ['variant_a', 'variant_b'],
-        flags: [],
-      };
-
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        undefined,
-        [
-          [999, 30], // Invalid string index - will return undefined
-          [1, 70], // Valid string index
-        ],
-      ];
-
-      // Use a user ID that will hash to bucket 0-29 (first variation)
-      // But first variation returns undefined, so should continue to second
-      const user: Attributes = { id: 'user-consistent-hash-early' };
-      const result = evaluateRule(rule, artifact, user);
-
-      // Should continue to next variation when first returns undefined
-      expect(result).toBe('variant_b');
-    });
-  });
-
   describe('String functions', () => {
     const artifact: Artifact = {
       v: '1.0',
@@ -1226,7 +1101,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when string does not start with prefix', () => {
@@ -1279,7 +1154,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when string does not end with suffix', () => {
@@ -1315,7 +1190,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return true when array contains value', () => {
@@ -1332,7 +1207,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when array does not contain value', () => {
@@ -1368,7 +1243,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when string does not match regex', () => {
@@ -1423,7 +1298,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1444,7 +1319,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1465,7 +1340,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return array length', () => {
@@ -1518,7 +1393,7 @@ describe('Evaluator', () => {
           4,
         ];
         const result2 = evaluateRule(rule2, testArtifact, mockAttributes);
-        expect(result2).toBe('ON');
+        expect(result2).toBe(true);
       });
     });
   });
@@ -1546,7 +1421,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when value is not in array', () => {
@@ -1582,7 +1457,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when arrays do not intersect', () => {
@@ -1627,7 +1502,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1646,7 +1521,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1665,7 +1540,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1684,7 +1559,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1703,7 +1578,7 @@ describe('Evaluator', () => {
           3,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
   });
@@ -1781,7 +1656,7 @@ describe('Evaluator', () => {
         ];
         const result = evaluateRule(rule2, artifact, { id: 'user1' });
         // Should match if bucket < 1000 (always true for 999 buckets)
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
   });
@@ -1813,7 +1688,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1831,7 +1706,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1849,7 +1724,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1871,7 +1746,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1894,7 +1769,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1916,7 +1791,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1938,7 +1813,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
 
@@ -1959,7 +1834,7 @@ describe('Evaluator', () => {
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
   });
@@ -1992,7 +1867,7 @@ describe('Evaluator', () => {
           1,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
     });
   });
@@ -2032,7 +1907,7 @@ describe('Evaluator', () => {
         ];
         const user: Attributes = { id: 'user1', role: 'beta' };
         const result = evaluateRule(rule, artifact, user);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when user is not in segment', () => {
@@ -2099,7 +1974,7 @@ describe('Evaluator', () => {
         ];
         const user: Attributes = { id: 'user1', role: 'beta' };
         const result = evaluateRule(rule, artifact, user);
-        expect(result).toBe('ON');
+        expect(result).toBe(true);
       });
 
       it('should return false when segmentName is not string or valid number', () => {
@@ -2189,7 +2064,7 @@ describe('Evaluator', () => {
         0,
       ];
       const result = evaluateRule(rule, artifact, mockAttributes);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should handle null inequality', () => {
@@ -2204,7 +2079,7 @@ describe('Evaluator', () => {
         0,
       ];
       const result = evaluateRule(rule, artifact, mockAttributes);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should coerce string to number for comparison', () => {
@@ -2219,7 +2094,7 @@ describe('Evaluator', () => {
         0,
       ];
       const result = evaluateRule(rule, artifact, mockAttributes);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
 
     it('should coerce string to boolean for comparison', () => {
@@ -2234,7 +2109,7 @@ describe('Evaluator', () => {
         0,
       ];
       const result = evaluateRule(rule, artifact, mockAttributes);
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
     });
   });
 });

@@ -10,20 +10,16 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 import { loadFromBuffer, loadFromFile } from './ast-loader';
-import { evaluate } from './evaluator';
-import type { Attributes } from './types';
+import { evaluateBoolean } from './evaluator';
+import { resolveBooleanFlag } from './resolve-flag';
+import type { Attributes, KillSwitchFile } from './types';
 
-/**
- * Get the path to the Rust CLI binary
- */
 function getRustCliPath(): string {
-  // Try release build first (faster for repeated runs)
   const releasePath = join(__dirname, '../../../target/release/controlpath');
   try {
     require('fs').readFileSync(releasePath);
     return releasePath;
   } catch {
-    // Fall back to debug build
     const debugPath = join(__dirname, '../../../target/debug/controlpath');
     try {
       require('fs').readFileSync(debugPath);
@@ -36,134 +32,83 @@ function getRustCliPath(): string {
   }
 }
 
-/**
- * Compile using Rust CLI
- */
-async function compileWithRustCli(
-  definitionsFile: string,
-  deploymentFile: string,
-  outputFile: string
-): Promise<Buffer> {
+async function compileV2Catalog(catalogDir: string, astFile: string): Promise<Buffer> {
   const rustCli = getRustCliPath();
+  const catalog = `catalog:
+  id: test-service
+mode: local
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+  enable_analytics:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      new_dashboard:
+        - when: "user.role == 'admin'"
+          serve: true
+        - serve: false
+      enable_analytics:
+        - serve: true
+`;
+
+  await writeFile(join(catalogDir, 'control-path.yaml'), catalog);
+
   const result = spawnSync(
     rustCli,
-    [
-      'compile',
-      '--definitions',
-      definitionsFile,
-      '--deployment',
-      deploymentFile,
-      '--output',
-      outputFile,
-    ],
+    ['compile', '--env', 'production', '--output', astFile],
     {
       encoding: 'utf-8',
       stdio: 'pipe',
+      cwd: catalogDir,
     }
   );
 
-  if (result.error) {
-    throw new Error(`Failed to run Rust CLI: ${result.error.message}`);
-  }
-
   if (result.status !== 0) {
     const errorMsg = result.stderr?.toString() || result.stdout?.toString() || 'Unknown error';
-    throw new Error(`Rust CLI failed with exit code ${result.status}: ${errorMsg}`);
+    throw new Error(`Rust CLI failed: ${errorMsg}`);
   }
 
-  // Read the output file
-  const buffer = await readFile(outputFile);
-  return buffer;
+  return readFile(astFile);
 }
 
-describe('Integration Tests with Real AST Artifacts', () => {
-  // Use OS temp directory for better isolation and reliability
-  // This avoids race conditions when tests run in parallel
+describe('Integration Tests with v2 AST Artifacts', () => {
   const testDir = join(
     tmpdir(),
     'controlpath-test',
     `integration-${Date.now()}-${Math.random().toString(36).substring(7)}`
   );
-  const definitionsFile = join(testDir, 'flags.definitions.yaml');
-  const deploymentFile = join(testDir, 'production.deployment.yaml');
   const astFile = join(testDir, 'production.ast');
-
-  const flagsDefinitions = `flags:
-  - name: new_dashboard
-    type: boolean
-    defaultValue: OFF
-    description: "New dashboard UI feature"
-  
-  - name: enable_analytics
-    type: boolean
-    defaultValue: false
-    description: "Enable analytics tracking"
-  
-  - name: theme_color
-    type: multivariate
-    defaultValue: blue
-    description: "Application theme color"
-    variations:
-      - name: BLUE
-        value: "blue"
-      - name: GREEN
-        value: "green"
-      - name: DARK
-        value: "dark"
-`;
-
-  const deployment = `environment: production
-rules:
-  new_dashboard:
-    rules:
-      - when: "role == 'admin'"
-        serve: ON
-      - serve: OFF
-  
-  enable_analytics:
-    rules:
-      - serve: true
-  
-  theme_color:
-    rules:
-      - when: "role == 'admin'"
-        serve: DARK
-      - serve: BLUE
-`;
 
   beforeAll(async () => {
     await mkdir(testDir, { recursive: true });
-    await writeFile(definitionsFile, flagsDefinitions);
-    await writeFile(deploymentFile, deployment);
   });
 
   afterAll(async () => {
     try {
       await rm(testDir, { recursive: true, force: true });
     } catch {
-      // Ignore cleanup errors
+      // Ignore cleanup errors.
     }
   });
 
   it('should compile and load AST artifact from Rust CLI', async () => {
-    // Compile using Rust CLI
-    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
-
-    // Load from file
+    await compileV2Catalog(testDir, astFile);
     const loaded = await loadFromFile(astFile);
 
     expect(loaded.v).toBe('1.0');
     expect(loaded.env).toBe('production');
     expect(loaded.strs.length).toBeGreaterThan(0);
-    expect(loaded.flags.length).toBe(3); // 3 flags
+    expect(loaded.flags.length).toBe(2);
   });
 
-  it('should evaluate flags from compiled AST artifact', async () => {
-    // Compile using Rust CLI
-    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
+  it('should evaluate boolean flags from compiled AST artifact', async () => {
+    const buffer = await compileV2Catalog(testDir, astFile);
     const loaded = await loadFromBuffer(buffer);
 
-    // Create flag name to index map from artifact
     const flagNameMap: Record<string, number> = {};
     loaded.flagNames.forEach((nameIndex, flagIndex) => {
       const flagName = loaded.strs[nameIndex];
@@ -172,46 +117,34 @@ rules:
       }
     });
 
-    // Test flag 0: new_dashboard
     const adminAttributes: Attributes = { id: 'admin1', role: 'admin' };
-    const result1 = evaluate(flagNameMap['new_dashboard'], loaded, adminAttributes);
-    expect(result1).toBe('ON'); // Admin should get ON
+    expect(evaluateBoolean(flagNameMap['new_dashboard'], loaded, adminAttributes)).toBe(true);
 
     const regularAttributes: Attributes = { id: 'user1', role: 'user' };
-    const result2 = evaluate(flagNameMap['new_dashboard'], loaded, regularAttributes);
-    expect(result2).toBe('OFF'); // Regular user should get OFF
-
-    // Test flag 1: enable_analytics (always true)
-    // Note: The compiler converts boolean true to "ON" string in the string table
-    const result3 = evaluate(flagNameMap['enable_analytics'], loaded, regularAttributes);
-    expect(result3).toBe('ON'); // Compiler normalizes true to "ON"
-
-    // Test flag 2: theme_color
-    const result4 = evaluate(flagNameMap['theme_color'], loaded, adminAttributes);
-    expect(result4).toBe('DARK'); // Admin should get DARK
-
-    const result5 = evaluate(flagNameMap['theme_color'], loaded, regularAttributes);
-    expect(result5).toBe('BLUE'); // Regular user should get BLUE
+    expect(evaluateBoolean(flagNameMap['new_dashboard'], loaded, regularAttributes)).toBe(false);
+    expect(evaluateBoolean(flagNameMap['enable_analytics'], loaded, regularAttributes)).toBe(true);
   });
 
-  it('should handle context in evaluation', async () => {
-    // Compile using Rust CLI
-    const buffer = await compileWithRustCli(definitionsFile, deploymentFile, astFile);
+  it('should apply kill switch file before AST rules', async () => {
+    const buffer = await compileV2Catalog(testDir, astFile);
     const loaded = await loadFromBuffer(buffer);
+    const flagIndex = loaded.flagNames.findIndex((idx) => loaded.strs[idx] === 'new_dashboard');
 
-    // Create flag name to index map from artifact
-    const flagNameMap: Record<string, number> = {};
-    loaded.flagNames.forEach((nameIndex, flagIndex) => {
-      const flagName = loaded.strs[nameIndex];
-      if (flagName) {
-        flagNameMap[flagName] = flagIndex;
-      }
+    const killSwitchFile: KillSwitchFile = {
+      version: '2.0',
+      flags: { new_dashboard: false },
+    };
+
+    const adminAttributes: Attributes = { id: 'admin1', role: 'admin' };
+    const value = resolveBooleanFlag({
+      qualifiedName: 'new_dashboard',
+      flagIndex,
+      artifact: loaded,
+      catalogDefault: false,
+      killSwitchFile,
+      attributes: adminAttributes,
     });
 
-    const attributes: Attributes = { id: 'user1', role: 'admin', environment: 'production', device: 'desktop' };
-
-    // Evaluation should work with attributes
-    const result = evaluate(flagNameMap['new_dashboard'], loaded, attributes);
-    expect(result).toBe('ON');
+    expect(value).toBe(false);
   });
 });

@@ -7,27 +7,49 @@
 /**
  * Control Path Runtime SDK
  *
- * Low-level runtime SDK for loading AST artifacts and evaluating flags.
+ * Low-level runtime SDK for loading AST artifacts and evaluating boolean flags.
  */
-export { loadFromFile, loadFromURL, loadFromBuffer, type LoadOptions } from './ast-loader';
 export {
-  loadOverrideFromFile,
-  loadOverrideFromURL,
-  OverrideFileNotModifiedError,
-  type OverrideLoadResult,
-} from './override-loader';
-export { evaluate, evaluateRule } from './evaluator';
+  loadFromFile,
+  loadFromURL,
+  loadFromBuffer,
+  ArtifactNotModifiedError,
+  type LoadOptions,
+  type ArtifactLoadResult,
+} from './ast-loader';
+export {
+  loadKillSwitchFromFile,
+  loadKillSwitchFromURL,
+  KillSwitchFileNotModifiedError,
+  type KillSwitchLoadResult,
+} from './kill-switch-loader';
+export { evaluate, evaluateBoolean, evaluateRule, coerceServePayloadToBoolean } from './evaluator';
+export { resolveBooleanFlag, type ResolveBooleanFlagOptions } from './resolve-flag';
+export {
+  refreshKillSwitchFromUrl,
+  KillSwitchRefreshCoordinator,
+  startKillSwitchPoll,
+  killSwitchInitDelayMs,
+  startJitteredPoll,
+  pollInitDelayMs,
+  type KillSwitchRefreshState,
+  type KillSwitchRefreshResult,
+  type KillSwitchPollOptions,
+  type JitteredPollOptions,
+} from './kill-switch-polling';
+export {
+  refreshArtifactFromUrl,
+  ArtifactRefreshCoordinator,
+  validateArtifactPoll,
+  assertArtifactAccepted,
+  resolveExpectedArtifactEnv,
+  shouldValidateArtifactAtInit,
+  artifactFlagNames,
+  type ArtifactRefreshState,
+  type ArtifactRefreshResult,
+} from './artifact-polling';
 export { buildFlagNameMap, buildFlagNameMapFromArtifact } from './utils';
-export type {
-  Artifact,
-  Rule,
-  Expression,
-  Variation,
-  Attributes,
-  Logger,
-  OverrideFile,
-  OverrideValue,
-} from './types';
+export type { Artifact, Rule, Expression, Attributes, Logger, KillSwitchFile } from './types';
 export {
   RuleType,
   ExpressionType,
@@ -36,6 +58,5 @@ export {
   FuncCode,
   isArtifact,
   isRule,
-  isVariation,
   isExpression,
 } from './types';

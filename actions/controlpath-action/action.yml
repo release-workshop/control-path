@@ -1,18 +1,11 @@
 name: 'Control Path'
-description: 'Validate and compile Control Path flag definitions in CI (Linux only)'
+description: 'Validate and compile Control Path v2 catalogs in CI (Linux only)'
 branding:
   icon: 'layers'
   color: 'blue'
 inputs:
-  definitions-file:
-    description: 'Path to flag definitions file (default: flags.definitions.yaml)'
-    required: false
-    default: 'flags.definitions.yaml'
-  deployment-file:
-    description: 'Path to deployment file (optional if environment is provided)'
-    required: false
   environment:
-    description: 'Environment name (uses .controlpath/<env>.deployment.yaml)'
+    description: 'Environment name to validate and compile (from control-path.yaml)'
     required: false
   version:
     description: 'Control Path CLI version to use (default: latest)'

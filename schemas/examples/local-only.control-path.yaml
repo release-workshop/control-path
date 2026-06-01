@@ -1,0 +1,55 @@
+# Local-only service catalog with environment rules.
+# Effective catalog id: acme.checkout-service (namespace from workspace file).
+
+catalog:
+  id: checkout-service
+
+mode: local
+
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+    description: Redesigned dashboard UI
+    owner: team-web
+    ticket: JIRA-456
+    expires: 2026-08-01
+
+  premium_checkout:
+    kind: entitlement
+    default: false
+    description: Premium checkout experience
+    owner: team-checkout
+
+segments:
+  beta_users:
+    when: "user.plan == 'beta'"
+
+kill_switches:
+  staging:
+    url: https://flags.example.com/staging/kill-switches.json
+  production:
+    url: https://flags.example.com/production/kill-switches.json
+
+artifacts:
+  staging:
+    url: https://flags.example.com/staging/rules.ast
+  production:
+    url: https://flags.example.com/production/rules.ast
+
+environments:
+  staging:
+    description: Pre-production
+    rules:
+      new_dashboard:
+        - serve: true
+
+  production:
+    rules:
+      new_dashboard:
+        - when: "segment('beta_users')"
+          serve: true
+        - rollout:
+            percentage: 10
+            serve: true
+          reason: Gradual rollout after beta validation

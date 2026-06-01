@@ -5,13 +5,17 @@ use crate::ops::compile as ops_compile;
 use crate::ops::compile::CompileOptions;
 use crate::ops::generate_sdk as ops_generate_sdk;
 use crate::ops::generate_sdk::GenerateOptions;
-use crate::utils::environment;
-use crate::utils::language;
-use controlpath_compiler::{
-    parse_definitions, parse_deployment, validate_definitions, validate_deployment,
+use crate::saas::{
+    build_flag_rot_report, fetch_saas_telemetry, load_saas_catalog_for_ci,
+    remote_ast_options_from_catalog, sync_saas_catalog_with_catalog, warn_on_rot_findings,
+    FakeSaasClient,
 };
-use std::fs;
-use std::path::PathBuf;
+use crate::utils::catalog;
+use crate::utils::language;
+use crate::utils::runtime;
+use crate::utils::unified_config;
+use controlpath_compiler::effective_catalog_id;
+use std::env;
 
 pub struct Options {
     /// Environment names to validate/compile (if None, processes all)
@@ -22,213 +26,141 @@ pub struct Options {
     pub no_validate: bool,
 }
 
-/// Find all deployment files in the .controlpath directory (legacy support)
-fn find_deployment_files() -> CliResult<Vec<(String, PathBuf)>> {
-    let controlpath_dir = PathBuf::from(".controlpath");
-
-    if !controlpath_dir.exists() {
-        return Ok(Vec::new());
-    }
-
-    let mut deployments = Vec::new();
-    if let Ok(entries) = fs::read_dir(&controlpath_dir) {
-        for entry in entries.flatten() {
-            if entry.path().is_file() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".deployment.yaml") {
-                        if let Some(env_name) = name.strip_suffix(".deployment.yaml") {
-                            deployments.push((env_name.to_string(), entry.path()));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(deployments)
-}
-
-/// Validate definitions file (from config or legacy file)
+/// Validate catalog from control-path.yaml.
 fn validate_definitions_file() -> CliResult<()> {
-    use crate::utils::unified_config;
-
-    if unified_config::unified_config_exists() {
-        // Use config
-        let unified = unified_config::read_unified_config()?;
-        let definitions = unified_config::extract_definitions(&unified)?;
-        validate_definitions(&definitions)
-            .map_err(|e| CliError::Message(format!("Config is invalid: {e}")))?;
-    } else {
-        // Use legacy file-based approach
-        let definitions_path = PathBuf::from("flags.definitions.yaml");
-        if !definitions_path.exists() {
-            return Err(CliError::Message(format!(
-                "Definitions file not found: {}\n  Run 'controlpath setup' to initialize the project.",
-                definitions_path.display()
-            )));
-        }
-        let content = fs::read_to_string(&definitions_path)
-            .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
-        let definitions = parse_definitions(&content)?;
-        validate_definitions(&definitions)
-            .map_err(|e| CliError::Message(format!("Definitions file is invalid: {e}")))?;
-    }
-
+    let base_dir = env::current_dir()
+        .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
+    catalog::load_sdk_catalog(&base_dir)?;
     Ok(())
 }
 
-/// Validate deployment files (from config or legacy files)
+/// Validate deployment environments from unified config.
 fn validate_deployment_files(envs: Option<&[String]>) -> CliResult<usize> {
-    use crate::utils::unified_config;
+    let unified = unified_config::read_unified_config()?;
+    let all_envs = unified_config::get_environments(&unified);
 
-    if unified_config::unified_config_exists() {
-        // Use config
-        let unified = unified_config::read_unified_config()?;
-        let all_envs = unified_config::get_environments(&unified);
-
-        let envs_to_validate: Vec<_> = if let Some(envs) = envs {
-            all_envs.into_iter().filter(|e| envs.contains(e)).collect()
-        } else {
-            all_envs
-        };
-
-        if envs_to_validate.is_empty() {
-            return Err(CliError::Message(
-                "No environments found in config to validate".to_string(),
-            ));
+    let envs_to_validate: Vec<String> = if let Some(requested) = envs {
+        let unknown: Vec<String> = requested
+            .iter()
+            .filter(|e| !all_envs.contains(*e))
+            .cloned()
+            .collect();
+        if !unknown.is_empty() {
+            return Err(CliError::Message(format!(
+                "Unknown environment(s): {}",
+                unknown.join(", ")
+            )));
         }
-
-        let mut validated_count = 0;
-        for env_name in &envs_to_validate {
-            let deployment = unified_config::extract_deployment(&unified, env_name)?;
-            validate_deployment(&deployment).map_err(|e| {
-                CliError::Message(format!(
-                    "Deployment for environment '{env_name}' is invalid: {e}"
-                ))
-            })?;
-            validated_count += 1;
-        }
-
-        Ok(validated_count)
+        requested.to_vec()
     } else {
-        // Use legacy file-based approach
-        let all_deployments = find_deployment_files()?;
+        all_envs
+    };
 
-        let deployments_to_validate: Vec<_> = if let Some(envs) = envs {
-            all_deployments
-                .into_iter()
-                .filter(|(env_name, _)| envs.contains(env_name))
-                .collect()
-        } else {
-            all_deployments
-        };
-
-        if deployments_to_validate.is_empty() {
-            return Err(CliError::Message(
-                "No deployment files found to validate".to_string(),
-            ));
-        }
-
-        let mut validated_count = 0;
-        for (env_name, deployment_path) in &deployments_to_validate {
-            let content = fs::read_to_string(deployment_path)
-                .map_err(|e| CliError::Message(format!("Failed to read deployment file: {e}")))?;
-            let deployment = parse_deployment(&content)?;
-            validate_deployment(&deployment).map_err(|e| {
-                CliError::Message(format!("Deployment file for '{env_name}' is invalid: {e}"))
-            })?;
-            validated_count += 1;
-        }
-
-        Ok(validated_count)
+    if envs_to_validate.is_empty() {
+        return Err(CliError::Message(
+            "No environments found in control-path.yaml to validate".to_string(),
+        ));
     }
+
+    Ok(envs_to_validate.len())
 }
 
 /// Run CI checks: validate, compile, and optionally regenerate SDK
 pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
         Ok(()) => {
-            println!("✓ CI checks passed");
+            if runtime::is_json_output() {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "ok",
+                        "command": "ci"
+                    })
+                );
+            } else {
+                println!("✓ CI checks passed");
+                println!();
+                println!("Next steps:");
+                println!("  • Deploy changes:      controlpath deploy");
+                println!(
+                    "  • Test flag evaluation: controlpath explain --flag <flag-name> --env <env>"
+                );
+                println!("  • View flags:          controlpath flag list");
+            }
             0
         }
         Err(e) => {
-            eprintln!("✗ CI checks failed");
-            eprintln!("  Error: {e}");
+            if runtime::is_json_output() {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "error",
+                        "command": "ci",
+                        "error": e.to_string()
+                    })
+                );
+            } else {
+                eprintln!("✗ CI checks failed");
+                eprintln!("  Error: {e}");
+            }
             1
         }
     }
 }
 
 fn run_inner(options: &Options) -> CliResult<()> {
-    // Determine environments to process (use smart defaults if not specified)
-    use crate::utils::unified_config;
+    let unified = unified_config::read_unified_config()?;
+    if unified_config::is_saas_mode(&unified) {
+        return run_saas_inner(options);
+    }
 
-    let envs_to_process = if options.envs.is_some() {
-        options.envs.clone()
-    } else {
-        // Try smart defaults: git branch mapping or defaultEnv
-        if let Ok(Some(default_env)) = environment::determine_environment() {
-            // Verify the default environment exists in config
-            if unified_config::unified_config_exists() {
-                let unified = unified_config::read_unified_config().ok();
-                if let Some(unified) = unified {
-                    let envs = unified_config::get_environments(&unified);
-                    if envs.contains(&default_env) {
-                        Some(vec![default_env])
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                // Legacy: check for deployment file
-                let deployment_path =
-                    PathBuf::from(format!(".controlpath/{default_env}.deployment.yaml"));
-                if deployment_path.exists() {
-                    Some(vec![default_env])
-                } else {
-                    None
-                }
-            }
-        } else {
-            // No smart default found, process all environments
-            None
-        }
-    };
+    // CI strict mode: process all environments unless explicitly filtered.
+    let envs_to_process = options.envs.clone();
 
     // Step 1: Validate (unless --no-validate)
     if !options.no_validate {
-        println!("Validating files...");
+        if !runtime::is_json_output() {
+            println!("Validating files...");
+        }
 
-        // Validate definitions
+        // Validate catalog
         validate_definitions_file()?;
-        println!("  ✓ Definitions file is valid");
+        if !runtime::is_json_output() {
+            println!("  ✓ Catalog is valid");
+        }
 
-        // Validate deployments
+        // Confirm requested environments exist
         let validated_count = validate_deployment_files(envs_to_process.as_deref())?;
-        println!("  ✓ Validated {} deployment file(s)", validated_count);
-    } else {
+        if !runtime::is_json_output() {
+            println!("  ✓ Validated {} environment(s)", validated_count);
+        }
+    } else if !runtime::is_json_output() {
         println!("Skipping validation (--no-validate)");
     }
 
     // Step 2: Compile ASTs
-    println!("Compiling ASTs...");
+    if !runtime::is_json_output() {
+        println!("Compiling ASTs...");
+    }
     let compile_opts = CompileOptions {
         envs: envs_to_process.clone(),
         skip_validation: options.no_validate,
     };
 
     let compiled = ops_compile::compile_envs(&compile_opts)?;
-    println!(
-        "  ✓ Compiled {} environment(s): {}",
-        compiled.len(),
-        compiled.join(", ")
-    );
+    if !runtime::is_json_output() {
+        println!(
+            "  ✓ Compiled {} environment(s): {}",
+            compiled.len(),
+            compiled.join(", ")
+        );
+    }
 
     // Step 3: Regenerate SDK (unless --no-sdk)
     if !options.no_sdk {
-        println!("Regenerating SDK...");
+        if !runtime::is_json_output() {
+            println!("Regenerating SDK...");
+        }
 
         // Determine language (will use config/cached if available)
         let language = language::determine_language(None)?;
@@ -240,8 +172,105 @@ fn run_inner(options: &Options) -> CliResult<()> {
         };
 
         ops_generate_sdk::generate_sdk_helper(&generate_opts)?;
-        println!("  ✓ SDK regenerated");
-    } else {
+        if !runtime::is_json_output() {
+            println!("  ✓ SDK regenerated");
+        }
+    } else if !runtime::is_json_output() {
+        println!("Skipping SDK generation (--no-sdk)");
+    }
+
+    Ok(())
+}
+
+fn run_saas_inner(options: &Options) -> CliResult<()> {
+    let base_dir = env::current_dir()
+        .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
+
+    let validate = !options.no_validate;
+    let (catalog, workspace) = load_saas_catalog_for_ci(&base_dir, validate)?;
+    let ast_options = remote_ast_options_from_catalog(&catalog)?;
+
+    if validate {
+        if !runtime::is_json_output() {
+            println!("Validating catalog...");
+            println!("  ✓ Catalog is valid");
+        }
+    } else if !runtime::is_json_output() {
+        println!("Skipping validation (--no-validate)");
+    }
+
+    if !runtime::is_json_output() {
+        println!("Syncing catalog to SaaS...");
+    }
+    // Offline fake boundary for issue 06; swap for an HTTP SaasClient when the backend exists.
+    let mut client = FakeSaasClient::open(&base_dir)?;
+    let outcome = sync_saas_catalog_with_catalog(
+        &base_dir,
+        &catalog,
+        workspace.as_ref(),
+        &mut client,
+        &ast_options,
+    )?;
+    if !runtime::is_json_output() {
+        if outcome.catalog_sync.upserted_flags.is_empty()
+            && outcome.catalog_sync.retired_flags.is_empty()
+        {
+            println!("  ✓ Catalog is in sync");
+        } else {
+            if !outcome.catalog_sync.upserted_flags.is_empty() {
+                println!(
+                    "  ✓ Synced {} flag(s)",
+                    outcome.catalog_sync.upserted_flags.len()
+                );
+            }
+            if !outcome.catalog_sync.retired_flags.is_empty() {
+                println!(
+                    "  ✓ Retired {} flag(s)",
+                    outcome.catalog_sync.retired_flags.len()
+                );
+            }
+        }
+        if !outcome.downloaded_envs.is_empty() {
+            println!(
+                "  ✓ Downloaded {} remote AST artifact(s): {}",
+                outcome.downloaded_envs.len(),
+                outcome.downloaded_envs.join(", ")
+            );
+        }
+    }
+
+    if validate && !runtime::is_json_output() {
+        let sdk_catalog = catalog::load_sdk_catalog(&base_dir)?;
+        let catalog_id = effective_catalog_id(&catalog.catalog, workspace.as_ref());
+        let project = catalog
+            .saas
+            .as_ref()
+            .map(|s| s.project.as_str())
+            .ok_or_else(|| {
+                CliError::Message(
+                    "SaaS mode requires saas.project in control-path.yaml".to_string(),
+                )
+            })?;
+        let telemetry = fetch_saas_telemetry(&client, &catalog_id, project)?;
+        let entries = build_flag_rot_report(&sdk_catalog, &telemetry);
+        warn_on_rot_findings(&entries);
+    }
+
+    if !options.no_sdk {
+        if !runtime::is_json_output() {
+            println!("Regenerating SDK...");
+        }
+        let language = language::determine_language(None)?;
+        let generate_opts = GenerateOptions {
+            lang: Some(language),
+            output: None,
+            skip_validation: options.no_validate,
+        };
+        ops_generate_sdk::generate_sdk_helper(&generate_opts)?;
+        if !runtime::is_json_output() {
+            println!("  ✓ SDK regenerated");
+        }
+    } else if !runtime::is_json_output() {
         println!("Skipping SDK generation (--no-sdk)");
     }
 
@@ -251,9 +280,10 @@ fn run_inner(options: &Options) -> CliResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::DirGuard;
+    use crate::test_helpers::{v2_test_catalog, DirGuard};
     use serial_test::serial;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     #[test]
@@ -266,20 +296,7 @@ mod tests {
         // Create .controlpath directory for AST output
         fs::create_dir_all(".controlpath").unwrap();
 
-        // Create config file
-        fs::write(
-            "control-path.yaml",
-            r"mode: local
-flags:
-  - name: test_flag
-    type: boolean
-    default: false
-    environments:
-      production:
-        - serve: true
-",
-        )
-        .unwrap();
+        fs::write("control-path.yaml", v2_test_catalog("test_flag", true)).unwrap();
 
         let options = Options {
             envs: Some(vec!["production".to_string()]), // Explicitly specify environment
@@ -301,18 +318,23 @@ flags:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create config file
         fs::write(
             "control-path.yaml",
-            r"mode: local
+            r"catalog:
+  id: test-service
+mode: local
 flags:
-  - name: test_flag
-    type: boolean
+  test_flag:
     default: false
-    environments:
-      production:
+    kind: release
+environments:
+  production:
+    rules:
+      test_flag:
         - serve: true
-      staging:
+  staging:
+    rules:
+      test_flag:
         - serve: false
 ",
         )
@@ -342,20 +364,7 @@ flags:
         // Create .controlpath directory for AST output
         fs::create_dir_all(".controlpath").unwrap();
 
-        // Create config file
-        fs::write(
-            "control-path.yaml",
-            r"mode: local
-flags:
-  - name: test_flag
-    type: boolean
-    default: false
-    environments:
-      production:
-        - serve: true
-",
-        )
-        .unwrap();
+        fs::write("control-path.yaml", v2_test_catalog("test_flag", true)).unwrap();
 
         let options = Options {
             envs: Some(vec!["production".to_string()]), // Explicitly specify environment
@@ -377,13 +386,14 @@ flags:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create invalid config file (missing required "default" field)
+        // Invalid v2 catalog: missing required catalog block
         fs::write(
             "control-path.yaml",
             r"mode: local
 flags:
-  - name: test_flag
-    type: boolean
+  test_flag:
+    default: false
+    kind: release
 ",
         )
         .unwrap();

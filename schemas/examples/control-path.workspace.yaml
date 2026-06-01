@@ -1,0 +1,11 @@
+namespace: acme
+
+scaffold:
+  imports:
+    platform:
+      path: ../../platform/control-path.yaml
+  defaults:
+    owner: platform-team
+  mode: saas
+  saas:
+    project: acme/{{service-id}}

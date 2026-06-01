@@ -17,6 +17,14 @@ pub struct ValidationError {
     pub suggestion: Option<String>,
 }
 
+/// Non-fatal validation warning (e.g. missing recommended metadata).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ValidationWarning {
+    pub file: String,
+    pub message: String,
+    pub path: Option<String>,
+}
+
 /// Validation result matching TypeScript ValidationResult interface
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ValidationResult {

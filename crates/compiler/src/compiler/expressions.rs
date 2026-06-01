@@ -582,12 +582,20 @@ impl ExpressionParser {
 
         self.advance(); // consume ')'
 
+        // v2 sugar (all compilation paths): segment('name') and IN_SEGMENT('name') imply
+        // user as the first argument. Previously single-arg IN_SEGMENT was a parse/eval
+        // no-op at runtime; it now compiles as IN_SEGMENT(user, ...).
+        if func_code == FuncCode::InSegment as u8 && args.len() == 1 {
+            args.insert(0, IntermediateExpression::Property("user".to_string()));
+        }
+
         Ok(IntermediateExpression::Func { func_code, args })
     }
 
     /// Get function code from function name
     fn get_function_code(func_name: &str) -> Result<u8, CompilerError> {
-        match func_name {
+        let normalized = func_name.to_ascii_uppercase();
+        match normalized.as_str() {
             "STARTS_WITH" => Ok(FuncCode::StartsWith as u8),
             "ENDS_WITH" => Ok(FuncCode::EndsWith as u8),
             "CONTAINS" => Ok(FuncCode::Contains as u8),
@@ -612,9 +620,9 @@ impl ExpressionParser {
             "CURRENT_DAY_OF_MONTH_UTC" => Ok(FuncCode::DayOfMonth as u8),
             "CURRENT_MONTH_UTC" => Ok(FuncCode::Month as u8),
             "CURRENT_TIMESTAMP" => Ok(FuncCode::CurrentTimestamp as u8),
-            "IN_SEGMENT" => Ok(FuncCode::InSegment as u8),
+            "IN_SEGMENT" | "SEGMENT" => Ok(FuncCode::InSegment as u8),
             _ => Err(CompilerError::Compilation(
-                CompilationError::ExpressionParsing(format!("Unknown function: {}", func_name)),
+                CompilationError::ExpressionParsing(format!("Unknown function: {func_name}")),
             )),
         }
     }
@@ -1202,6 +1210,82 @@ mod tests {
                 // Success - expression compiled correctly
             }
             _ => panic!("Expected LogicalOp after compilation"),
+        }
+    }
+
+    #[test]
+    fn test_parse_segment_v2_sugar() {
+        use crate::ast::FuncCode;
+
+        let result = parse_expression("segment('beta_users')").unwrap();
+        match result {
+            IntermediateExpression::Func { func_code, args } => {
+                assert_eq!(func_code, FuncCode::InSegment as u8);
+                assert_eq!(args.len(), 2);
+                match &args[0] {
+                    IntermediateExpression::Property(prop) => assert_eq!(prop, "user"),
+                    other => panic!("expected implicit user property, got {other:?}"),
+                }
+                match &args[1] {
+                    IntermediateExpression::Literal(serde_json::Value::String(name)) => {
+                        assert_eq!(name, "beta_users");
+                    }
+                    other => panic!("expected segment name literal, got {other:?}"),
+                }
+            }
+            other => panic!("expected segment function call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_in_segment_one_arg_sugar() {
+        use crate::ast::FuncCode;
+
+        let result = parse_expression("IN_SEGMENT('beta_users')").unwrap();
+        match result {
+            IntermediateExpression::Func { func_code, args } => {
+                assert_eq!(func_code, FuncCode::InSegment as u8);
+                assert_eq!(args.len(), 2);
+                match &args[0] {
+                    IntermediateExpression::Property(prop) => assert_eq!(prop, "user"),
+                    other => panic!("expected implicit user property, got {other:?}"),
+                }
+            }
+            other => panic!("expected IN_SEGMENT function call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_segment_alias_case_insensitive() {
+        use crate::ast::FuncCode;
+
+        for expr in ["SEGMENT('beta_users')", "Segment('beta_users')"] {
+            let result = parse_expression(expr).unwrap();
+            match result {
+                IntermediateExpression::Func { func_code, args } => {
+                    assert_eq!(func_code, FuncCode::InSegment as u8);
+                    assert_eq!(args.len(), 2);
+                }
+                other => panic!("expected segment alias for {expr:?}, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_in_segment_two_arg_form_unchanged() {
+        use crate::ast::FuncCode;
+
+        let result = parse_expression("IN_SEGMENT(user, 'beta_users')").unwrap();
+        match result {
+            IntermediateExpression::Func { func_code, args } => {
+                assert_eq!(func_code, FuncCode::InSegment as u8);
+                assert_eq!(args.len(), 2);
+                match &args[0] {
+                    IntermediateExpression::Property(prop) => assert_eq!(prop, "user"),
+                    other => panic!("expected user property, got {other:?}"),
+                }
+            }
+            other => panic!("expected two-arg IN_SEGMENT, got {other:?}"),
         }
     }
 

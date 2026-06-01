@@ -1,0 +1,39 @@
+# SaaS mode: repo owns the flag catalog; SaaS owns environment rules and CDN-hosted kill switches.
+# environments, segments, and kill_switches must not appear (validation error).
+# Incidents: toggle kill switches in the SaaS dashboard (direct CDN write); SDK polls automatically.
+
+# SaaS mode (multi-repo): namespace declared in catalog block.
+# Monorepos omit catalog.namespace and use control-path.workspace.yaml instead.
+
+catalog:
+  namespace: acme
+  id: checkout-service
+
+mode: saas
+
+saas:
+  project: acme/checkout
+
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+    owner: team-web
+    expires: 2026-08-01
+
+  emergency_kill_switch:
+    kind: kill_switch
+    default: false
+    owner: platform
+
+  premium_checkout:
+    kind: entitlement
+    default: false
+    owner: team-checkout
+
+  old_checkout_flow:
+    kind: release
+    default: false
+    lifecycle: deprecated
+    owner: checkout
+    ticket: JIRA-123

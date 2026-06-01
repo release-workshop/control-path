@@ -31,7 +31,7 @@ describe('Performance Tests', () => {
       const end = performance.now();
       const duration = end - start;
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
       expect(duration).toBeLessThan(1); // Less than 1ms
     });
 
@@ -61,7 +61,7 @@ describe('Performance Tests', () => {
       const end = performance.now();
       const duration = end - start;
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
       // Allow some overhead for test environment (1.1ms threshold)
       expect(duration).toBeLessThan(1.1); // Less than 1.1ms (allowing test overhead)
     });
@@ -117,7 +117,7 @@ describe('Performance Tests', () => {
       const end = performance.now();
       const duration = end - start;
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
       expect(duration).toBeLessThan(1); // Less than 1ms even with large string table
     });
 
@@ -157,7 +157,7 @@ describe('Performance Tests', () => {
       const end = performance.now();
       const duration = end - start;
 
-      expect(result).toBe('ON');
+      expect(result).toBe(true);
       expect(duration).toBeLessThan(1); // Less than 1ms even with many rules
     });
   });

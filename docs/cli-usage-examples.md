@@ -95,10 +95,10 @@ controlpath watch --lang typescript
 Explain how a flag evaluates for specific attributes:
 
 ```bash
-controlpath explain --flag new_dashboard --attributes attributes.json --env production
+controlpath explain --flag new_dashboard --user user.json --env production
 ```
 
-Example `attributes.json`:
+Example `user.json`:
 ```json
 {
   "id": "123",
@@ -125,7 +125,7 @@ Default: false (not used)
 Show step-by-step evaluation:
 
 ```bash
-controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
+controlpath explain --flag new_dashboard --user user.json --env production --trace
 ```
 
 #### With JSON String
@@ -134,7 +134,8 @@ Use inline JSON instead of a file:
 
 ```bash
 controlpath explain --flag new_dashboard \
-  --attributes '{"id":"123","role":"admin","environment":"production"}' \
+  --user '{"id":"123","role":"admin"}' \
+  --context '{"environment":"production"}' \
   --env production
 ```
 
@@ -144,17 +145,24 @@ Include all attributes in a single object:
 
 ```bash
 controlpath explain --flag new_dashboard \
-  --attributes attributes.json \
+  --user user.json \
+  --context context.json \
   --env production
 ```
 
-Example `attributes.json`:
+Example `user.json`:
 ```json
 {
   "id": "123",
   "role": "admin",
   "country": "US",
-  "timezone": "America/New_York",
+  "timezone": "America/New_York"
+}
+```
+
+Example `context.json`:
+```json
+{
   "environment": "production"
 }
 ```
@@ -204,7 +212,7 @@ controlpath flag add
 
 Prompts for:
 - Flag name
-- Flag type (boolean/multivariate)
+- Flag type (boolean only)
 - Default value
 - Description
 - Whether to sync to deployments
@@ -223,11 +231,12 @@ controlpath flag add \
   --description "My new feature flag"
 
 # Multivariate flag
+# v2 catalogs are boolean-only; use kind metadata instead of type
 controlpath flag add \
-  --name button_color \
-  --type multivariate \
-  --default blue \
-  --description "Button color variation"
+  --name new_dashboard \
+  --type boolean \
+  --default false \
+  --description "New dashboard rollout"
 
 # Add and sync to deployments
 controlpath flag add \
@@ -257,10 +266,10 @@ controlpath flag list --format json
 controlpath flag list --format yaml
 
 # List flags in production environment
-controlpath flag list --env production
+controlpath flag list --deployment production
 
 # List as JSON
-controlpath flag list --env production --format json
+controlpath flag list --deployment production --format json
 ```
 
 ### Show Flag Details
@@ -270,7 +279,7 @@ controlpath flag list --env production --format json
 controlpath flag show --name my_feature
 
 # Show flag in specific environment
-controlpath flag show --name my_feature --env production
+controlpath flag show --name my_feature --deployment production
 
 # Show as JSON
 controlpath flag show --name my_feature --format json
@@ -403,8 +412,8 @@ Setup complete!
 
 Next steps:
   1. Add your first flag:    controlpath new-flag
-  2. Enable a flag:          controlpath enable <flag> --env staging
-  3. Test flags:             controlpath test
+  2. Enable a flag:          controlpath flag enable <flag> --env staging
+  3. Test flags:             controlpath explain --flag my_feature --user user.json --env staging
   4. Start watch mode:       controlpath watch
   5. Get help:               controlpath help
 ```
@@ -421,16 +430,16 @@ Complete workflow from creation to deployment:
 controlpath flag add --name new_dashboard --type boolean --default false
 
 # 2. Enable in staging with rule
-controlpath enable new_dashboard --env staging --rule "role == 'admin'"
+controlpath flag enable new_dashboard --env staging --rule "role == 'admin'"
 
 # 3. Test the flag
-controlpath explain --flag new_dashboard --attributes admin.json --env staging
+controlpath explain --flag new_dashboard --user admin.json --env staging
 
 # 4. Compile for staging
 controlpath compile --env staging
 
 # 5. Deploy to production when ready
-controlpath enable new_dashboard --env production --rule "role == 'admin'"
+controlpath flag enable new_dashboard --env production --rule "role == 'admin'"
 controlpath compile --env production
 ```
 
@@ -446,7 +455,7 @@ controlpath watch --lang typescript
 # Edit control-path.yaml → SDK regenerates and AST recompiles automatically
 
 # Terminal 3: Test changes
-controlpath explain --flag my_feature --attributes attributes.json --env staging
+controlpath explain --flag my_feature --user user.json --env staging
 ```
 
 ### Workflow 3: Debugging Flag Evaluation
@@ -455,7 +464,7 @@ Debug why a flag isn't working as expected:
 
 ```bash
 # 1. Use explain command for quick check
-controlpath explain --flag my_feature --attributes attributes.json --env production --trace
+controlpath explain --flag my_feature --user user.json --env production --trace
 
 # 2. Use debug UI for interactive exploration
 controlpath debug --env production
@@ -482,13 +491,13 @@ controlpath flag add --name new_feature --type boolean
 controlpath env sync
 
 # 4. Enable in staging only
-controlpath enable new_feature --env staging --rule "beta == true"
+controlpath flag enable new_feature --env staging --rule "beta == true"
 
 # 5. Test in staging
-controlpath explain --flag new_feature --attributes beta_user.json --env staging
+controlpath explain --flag new_feature --user beta_user.json --env staging
 
 # 6. When ready, enable in production
-controlpath enable new_feature --env production --rule "beta == true"
+controlpath flag enable new_feature --env production --rule "beta == true"
 
 # 7. Deploy both environments
 controlpath deploy --env staging,production
@@ -503,16 +512,16 @@ Complete flag lifecycle:
 controlpath flag add --name experimental_feature --type boolean
 
 # 2. Enable in staging for testing
-controlpath enable experimental_feature --env staging --rule "role == 'tester'"
+controlpath flag enable experimental_feature --env staging --rule "role == 'tester'"
 
 # 3. Gradually roll out
-controlpath enable experimental_feature --env production --rule "id IN ['user1', 'user2']"
+controlpath flag enable experimental_feature --env production --rule "id IN ['user1', 'user2']"
 
 # 4. Monitor with debug UI
 controlpath debug --env production
 
 # 5. When stable, enable for all
-controlpath enable experimental_feature --env production --all
+controlpath flag enable experimental_feature --env production --all
 
 # 6. Eventually remove flag
 controlpath flag remove --name experimental_feature

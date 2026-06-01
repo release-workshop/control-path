@@ -103,9 +103,8 @@ Create `src/lib.rs`:
 ```rust
 use wasm_bindgen::prelude::*;
 use controlpath_compiler::{
-    parse_definitions, parse_deployment,
-    validate_definitions, validate_deployment,
-    compile, serialize, CompilerError
+    compile_catalog, load_and_validate_catalog, parse_catalog, serialize,
+    CatalogValidationContext, CompilerError,
 };
 
 // Convert Rust errors to JavaScript errors
@@ -115,83 +114,51 @@ impl From<CompilerError> for JsValue {
     }
 }
 
-/// Parse flag definitions from YAML/JSON string
+/// Parse a v2 catalog from YAML/JSON string
 #[wasm_bindgen]
-pub fn parse_definitions_wasm(content: &str) -> Result<JsValue, JsValue> {
-    let definitions = parse_definitions(content)
-        .map_err(|e| JsValue::from_str(&format!("{}", e)))?;
-    
-    // Convert to JavaScript object
-    serde_wasm_bindgen::to_value(&definitions)
-        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+pub fn parse_catalog_wasm(content: &str) -> Result<JsValue, JsValue> {
+    let catalog = parse_catalog(content, Some("input"))
+        .map_err(|e| JsValue::from_str(&format!("{e}")))?;
+
+    serde_wasm_bindgen::to_value(&catalog)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
 }
 
-/// Parse deployment from YAML/JSON string
+/// Validate a v2 catalog document
 #[wasm_bindgen]
-pub fn parse_deployment_wasm(content: &str) -> Result<JsValue, JsValue> {
-    let deployment = parse_deployment(content)
-        .map_err(|e| JsValue::from_str(&format!("{}", e)))?;
-    
-    serde_wasm_bindgen::to_value(&deployment)
-        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+pub fn validate_catalog_wasm(content: &str) -> Result<(), JsValue> {
+    let (_, result) = load_and_validate_catalog(
+        content,
+        "input",
+        &CatalogValidationContext::default(),
+    )
+    .map_err(|e| JsValue::from_str(&format!("{e}")))?;
+
+    if result.is_ok() {
+        Ok(())
+    } else {
+        Err(JsValue::from_str(&format!("{:?}", result.errors)))
+    }
 }
 
-/// Validate flag definitions
+/// Compile a v2 catalog environment to MessagePack bytes
 #[wasm_bindgen]
-pub fn validate_definitions_wasm(definitions: &JsValue) -> Result<(), JsValue> {
-    let definitions: serde_json::Value = serde_wasm_bindgen::from_value(definitions.clone())
-        .map_err(|e| JsValue::from_str(&format!("Deserialization error: {}", e)))?;
-    
-    validate_definitions(&definitions)
-        .map_err(|e| JsValue::from_str(&format!("{}", e)))
-}
+pub fn compile_catalog_wasm(content: &str, env: &str) -> Result<Vec<u8>, JsValue> {
+    let (catalog, initial) = load_and_validate_catalog(
+        content,
+        "input",
+        &CatalogValidationContext::default(),
+    )
+    .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 
-/// Validate deployment
-#[wasm_bindgen]
-pub fn validate_deployment_wasm(deployment: &JsValue) -> Result<(), JsValue> {
-    let deployment: serde_json::Value = serde_wasm_bindgen::from_value(deployment.clone())
-        .map_err(|e| JsValue::from_str(&format!("Deserialization error: {}", e)))?;
-    
-    validate_deployment(&deployment)
-        .map_err(|e| JsValue::from_str(&format!("{}", e)))
-}
+    if !initial.is_ok() {
+        return Err(JsValue::from_str("catalog validation failed"));
+    }
 
-/// Compile deployment and definitions to MessagePack bytes
-#[wasm_bindgen]
-pub fn compile_wasm(definitions: &JsValue, deployment: &JsValue) -> Result<Vec<u8>, JsValue> {
-    let definitions: serde_json::Value = serde_wasm_bindgen::from_value(definitions.clone())
-        .map_err(|e| JsValue::from_str(&format!("Deserialization error: {}", e)))?;
-    
-    let deployment: serde_json::Value = serde_wasm_bindgen::from_value(deployment.clone())
-        .map_err(|e| JsValue::from_str(&format!("Deserialization error: {}", e)))?;
-    
-    let artifact = compile(&deployment, &definitions)
-        .map_err(|e| JsValue::from_str(&format!("{}", e)))?;
-    
-    serialize(&artifact)
-        .map_err(|e| JsValue::from_str(&format!("{}", e)))
-}
+    let artifact = compile_catalog(&catalog, env)
+        .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 
-/// Compile from YAML strings (convenience function)
-#[wasm_bindgen]
-pub fn compile_from_strings(definitions_yaml: &str, deployment_yaml: &str) -> Result<Vec<u8>, JsValue> {
-    let definitions = parse_definitions(definitions_yaml)
-        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
-    
-    let deployment = parse_deployment(deployment_yaml)
-        .map_err(|e| JsValue::from_str(&format!("Parse error: {}", e)))?;
-    
-    validate_definitions(&definitions)
-        .map_err(|e| JsValue::from_str(&format!("Validation error: {}", e)))?;
-    
-    validate_deployment(&deployment)
-        .map_err(|e| JsValue::from_str(&format!("Validation error: {}", e)))?;
-    
-    let artifact = compile(&deployment, &definitions)
-        .map_err(|e| JsValue::from_str(&format!("Compilation error: {}", e)))?;
-    
-    serialize(&artifact)
-        .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))
+    serialize(&artifact).map_err(|e| JsValue::from_str(&format!("{e}")))
 }
 ```
 

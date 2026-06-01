@@ -14,27 +14,7 @@ use std::time::Duration;
 fn test_watch_mode_definitions_change() {
     let project = TestProject::with_definitions(&simple_flag_definition("initial_flag"));
 
-    // Test that watch command accepts valid arguments and starts successfully
-    // We spawn the process, wait briefly to verify it starts, then kill it
-
-    // Also create legacy file for watch command if it needs it
-    let legacy_definitions = r"flags:
-  - name: initial_flag
-    type: boolean
-    default: false
-    defaultValue: false
-";
-    project.write_file("flags.definitions.yaml", legacy_definitions);
-
-    // Create a deployment file so watch has something to watch
     fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
-    let deployment = r"environment: production
-rules:
-  initial_flag:
-    rules:
-      - serve: true
-";
-    project.write_file(".controlpath/production.deployment.yaml", deployment);
 
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_controlpath"));
     cmd.current_dir(&project.project_path);
@@ -79,13 +59,69 @@ fn test_watch_mode_help() {
     assert!(stdout.contains("watch") || stdout.contains("Watch"));
 }
 
-// Note: Full watch mode integration testing is challenging because:
-// 1. Watch mode runs indefinitely
-// 2. It requires file system watching which is async
-// 3. It needs time for file changes to be detected
-//
-// For comprehensive watch mode testing, consider:
-// - Manual testing during development
-// - Using specialized test frameworks that can handle async file watching
-// - Unit tests for the watch logic components (already in watch.rs tests)
-// - Integration tests that spawn watch, make changes, wait, then verify output
+/// v2 project: changing control-path.yaml while watch runs should regenerate the SDK.
+#[test]
+#[serial]
+fn test_watch_v2_regenerates_sdk_on_catalog_change() {
+    let project = TestProject::with_definitions(&simple_flag_definition("initial_flag"));
+    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
+    project.write_file(
+        ".controlpath/config.yaml",
+        "language: typescript\ndefaultEnv: production\n",
+    );
+
+    project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
+    let types_path = project.path("node_modules/@controlpath/generated/types.ts");
+    let before = fs::read_to_string(&types_path).unwrap();
+    assert!(!before.contains("addedFlag"));
+
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_controlpath"));
+    cmd.current_dir(&project.project_path);
+    cmd.args(["watch", "--definitions", "--lang", "typescript"]);
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().expect("Failed to spawn watch command");
+    thread::sleep(Duration::from_millis(800));
+
+    fs::write(
+        project.path("control-path.yaml"),
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  initial_flag:
+    default: false
+    kind: release
+  added_flag:
+    default: true
+    kind: release
+environments:
+  production:
+    rules:
+      initial_flag:
+        - serve: true
+",
+    )
+    .unwrap();
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(8);
+    let mut regen_seen = false;
+    while std::time::Instant::now() < deadline {
+        if let Ok(after) = fs::read_to_string(&types_path) {
+            if after.contains("addedFlag") {
+                regen_seen = true;
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    assert!(
+        regen_seen,
+        "watch should regenerate SDK when control-path.yaml changes (v2)"
+    );
+}

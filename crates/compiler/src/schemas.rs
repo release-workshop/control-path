@@ -5,60 +5,25 @@
  */
 use serde_json::Value;
 
-/// Embed flag definitions schema at compile time
-/// This avoids file I/O which is not available in WASM environments
-const DEFINITIONS_SCHEMA_JSON: &str =
-    include_str!("../../../schemas/flag-definitions.schema.v1.json");
+/// Embed v2 boolean catalog schema at compile time
+const CATALOG_SCHEMA_V2_JSON: &str = include_str!("../../../schemas/control-path.schema.v2.json");
 
-/// Embed deployment schema at compile time
-/// This avoids file I/O which is not available in WASM environments
-const DEPLOYMENT_SCHEMA_JSON: &str =
-    include_str!("../../../schemas/flag-deployment.schema.v1.json");
+/// Embed workspace schema at compile time
+const WORKSPACE_SCHEMA_JSON: &str =
+    include_str!("../../../schemas/control-path.workspace.schema.v1.json");
 
-/// Embed unified control-path schema at compile time
-/// This avoids file I/O which is not available in WASM environments
-const UNIFIED_SCHEMA_JSON: &str = include_str!("../../../schemas/control-path.schema.v1.json");
-
-/// Load the flag definitions schema
-///
-/// Returns the parsed JSON schema as a `serde_json::Value`.
-/// This function never fails at runtime since the schema is embedded at compile time.
-///
-/// # Panics
-///
-/// Panics if the embedded schema JSON is invalid (this should never happen).
+/// Load the v2 boolean catalog schema.
 #[must_use]
-pub fn load_definitions_schema() -> Value {
-    serde_json::from_str(DEFINITIONS_SCHEMA_JSON)
-        .expect("Failed to parse embedded definitions schema - this should never happen")
+pub fn load_catalog_schema() -> Value {
+    serde_json::from_str(CATALOG_SCHEMA_V2_JSON)
+        .expect("Failed to parse embedded catalog v2 schema - this should never happen")
 }
 
-/// Load the deployment schema
-///
-/// Returns the parsed JSON schema as a `serde_json::Value`.
-/// This function never fails at runtime since the schema is embedded at compile time.
-///
-/// # Panics
-///
-/// Panics if the embedded schema JSON is invalid (this should never happen).
+/// Load the monorepo workspace schema.
 #[must_use]
-pub fn load_deployment_schema() -> Value {
-    serde_json::from_str(DEPLOYMENT_SCHEMA_JSON)
-        .expect("Failed to parse embedded deployment schema - this should never happen")
-}
-
-/// Load the unified control-path schema
-///
-/// Returns the parsed JSON schema as a `serde_json::Value`.
-/// This function never fails at runtime since the schema is embedded at compile time.
-///
-/// # Panics
-///
-/// Panics if the embedded schema JSON is invalid (this should never happen).
-#[must_use]
-pub fn load_unified_schema() -> Value {
-    serde_json::from_str(UNIFIED_SCHEMA_JSON)
-        .expect("Failed to parse embedded unified schema - this should never happen")
+pub fn load_workspace_schema() -> Value {
+    serde_json::from_str(WORKSPACE_SCHEMA_JSON)
+        .expect("Failed to parse embedded workspace schema - this should never happen")
 }
 
 #[cfg(test)]
@@ -66,23 +31,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_load_definitions_schema() {
-        let schema = load_definitions_schema();
+    fn test_load_catalog_schema_v2() {
+        let schema = load_catalog_schema();
         assert!(schema.is_object());
-        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        assert!(schema["required"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|v| v == "catalog")));
     }
 
     #[test]
-    fn test_load_deployment_schema() {
-        let schema = load_deployment_schema();
+    fn test_load_workspace_schema() {
+        let schema = load_workspace_schema();
         assert!(schema.is_object());
-        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
-    }
-
-    #[test]
-    fn test_load_unified_schema() {
-        let schema = load_unified_schema();
-        assert!(schema.is_object());
-        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        assert!(schema["required"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|v| v == "namespace")));
     }
 }

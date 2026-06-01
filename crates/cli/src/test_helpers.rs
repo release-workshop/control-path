@@ -7,6 +7,12 @@
 use std::fs;
 #[cfg(test)]
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::Mutex;
+
+/// Serializes all tests that change the process working directory.
+#[cfg(test)]
+static CWD_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 /// Guard for changing the current working directory in tests.
 /// Automatically restores the original directory when dropped.
@@ -27,11 +33,14 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 pub struct DirGuard {
     original_dir: PathBuf,
+    _lock: std::sync::MutexGuard<'static, ()>,
 }
 
 #[cfg(test)]
 impl DirGuard {
     /// Create a new DirGuard and change to the specified directory.
+    ///
+    /// Holds a process-wide lock so parallel tests cannot race on `set_current_dir`.
     ///
     /// # Errors
     ///
@@ -40,11 +49,20 @@ impl DirGuard {
     /// - The current directory can't be determined
     /// - The directory can't be changed to
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
+        let _lock = CWD_TEST_MUTEX.lock().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("cwd test mutex poisoned: {e}"),
+            )
+        })?;
         let path = path.as_ref();
         fs::create_dir_all(path)?;
         let original_dir = std::env::current_dir()?;
         std::env::set_current_dir(path)?;
-        Ok(DirGuard { original_dir })
+        Ok(DirGuard {
+            original_dir,
+            _lock,
+        })
     }
 }
 
@@ -53,4 +71,30 @@ impl Drop for DirGuard {
     fn drop(&mut self) {
         let _ = std::env::set_current_dir(&self.original_dir);
     }
+}
+
+/// Minimal v2 catalog YAML for unit tests.
+#[cfg(test)]
+pub fn v2_test_catalog(flag_name: &str, serve: bool) -> String {
+    format!(
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  {flag_name}:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      {flag_name}:
+        - serve: {serve}
+"
+    )
+}
+
+/// Write a v2 catalog to `control-path.yaml` in the current directory.
+#[cfg(test)]
+pub fn write_v2_test_catalog(flag_name: &str, serve: bool) {
+    fs::write("control-path.yaml", v2_test_catalog(flag_name, serve)).unwrap();
 }

@@ -4,7 +4,11 @@ This document describes the public API of the Control Path Rust compiler library
 
 ## Overview
 
-The `controlpath-compiler` crate provides a pure Rust implementation of the Control Path compiler. It compiles deployment YAML files into compact MessagePack AST artifacts. The library is designed to be WASM-compatible and works only with in-memory data (no file I/O).
+The `controlpath-compiler` crate provides a pure Rust implementation of the Control Path compiler. **New integrations should use the v2 catalog API** with a single `control-path.yaml` boolean catalog (`parse_catalog`, `load_and_validate_catalog`, `compile_catalog`).
+
+Legacy split-file helpers (`parse_definitions`, `parse_deployment`, `compile`) remain for WASM compatibility and existing artifacts but are not the primary workflow.
+
+The library is designed to be WASM-compatible and works only with in-memory data (no file I/O).
 
 ## Installation
 
@@ -17,115 +21,72 @@ controlpath-compiler = { path = "../compiler" }  # For local development
 # controlpath-compiler = "0.1.0"
 ```
 
-## Core API
+## Core API (v2 catalog — preferred)
+
+Start with [Complete Example (v2 catalog)](#complete-example-v2-catalog) and the validation functions below. Jump to [Legacy split-file API](#legacy-split-file-api) only when you must consume v1 YAML shapes.
+
+### Validation Functions (v2 catalog)
+
+#### `load_and_validate_catalog`
+
+Parse and validate a v2 `control-path.yaml` catalog document.
+
+```rust
+pub fn load_and_validate_catalog(
+    content: &str,
+    file_path: &str,
+    ctx: &CatalogValidationContext,
+) -> Result<(CatalogDocument, CatalogValidationResult), ParseError>
+```
+
+#### `validate_catalog`
+
+Semantically validate an already-parsed catalog (including imports when provided in context).
+
+```rust
+pub fn validate_catalog(
+    file_path: &str,
+    catalog: &CatalogDocument,
+    ctx: &CatalogValidationContext,
+) -> CatalogValidationResult
+```
+
+**Example:**
+```rust
+use controlpath_compiler::{
+    load_and_validate_catalog, validate_catalog, CatalogValidationContext,
+};
+
+let (catalog, initial) = load_and_validate_catalog(yaml, "control-path.yaml", &CatalogValidationContext::default())?;
+if !initial.is_ok() {
+    return Err(/* handle validation errors */);
+}
+let result = validate_catalog("control-path.yaml", &catalog, &CatalogValidationContext::default());
+if !result.is_ok() {
+    return Err(/* handle semantic errors */);
+}
+```
+
+Legacy v1 `validate_definitions` / `validate_deployment` / `validate_unified_config` entry points were removed. Use the catalog validators above for v2 boolean catalogs.
+
+## Legacy split-file API
 
 ### Parsing Functions
 
 #### `parse_definitions`
 
-Parse flag definitions from a YAML/JSON string.
+Parse legacy flag definitions from a YAML/JSON string.
 
 ```rust
 pub fn parse_definitions(content: &str) -> Result<serde_json::Value, CompilerError>
 ```
 
-**Parameters:**
-- `content`: YAML or JSON string containing flag definitions
-
-**Returns:**
-- `Ok(serde_json::Value)`: Parsed flag definitions as JSON value
-- `Err(CompilerError::Parse)`: If parsing fails
-
-**Example:**
-```rust
-use controlpath_compiler::parse_definitions;
-
-let yaml = r#"
-flags:
-  - name: my_flag
-    type: boolean
-    defaultValue: false
-"#;
-
-let definitions = parse_definitions(yaml)?;
-```
-
 #### `parse_deployment`
 
-Parse deployment configuration from a YAML/JSON string.
+Parse legacy deployment configuration from a YAML/JSON string.
 
 ```rust
 pub fn parse_deployment(content: &str) -> Result<serde_json::Value, CompilerError>
-```
-
-**Parameters:**
-- `content`: YAML or JSON string containing deployment configuration
-
-**Returns:**
-- `Ok(serde_json::Value)`: Parsed deployment as JSON value
-- `Err(CompilerError::Parse)`: If parsing fails
-
-**Example:**
-```rust
-use controlpath_compiler::parse_deployment;
-
-let yaml = r#"
-environment: production
-rules:
-  my_flag:
-    rules:
-      - serve: true
-"#;
-
-let deployment = parse_deployment(yaml)?;
-```
-
-### Validation Functions
-
-#### `validate_definitions`
-
-Validate flag definitions against the JSON schema.
-
-```rust
-pub fn validate_definitions(definitions: &serde_json::Value) -> Result<(), CompilerError>
-```
-
-**Parameters:**
-- `definitions`: Parsed flag definitions (from `parse_definitions`)
-
-**Returns:**
-- `Ok(())`: If validation passes
-- `Err(CompilerError::Validation)`: If validation fails
-
-**Example:**
-```rust
-use controlpath_compiler::{parse_definitions, validate_definitions};
-
-let definitions = parse_definitions(yaml)?;
-validate_definitions(&definitions)?;
-```
-
-#### `validate_deployment`
-
-Validate deployment configuration against the JSON schema.
-
-```rust
-pub fn validate_deployment(deployment: &serde_json::Value) -> Result<(), CompilerError>
-```
-
-**Parameters:**
-- `deployment`: Parsed deployment (from `parse_deployment`)
-
-**Returns:**
-- `Ok(())`: If validation passes
-- `Err(CompilerError::Validation)`: If validation fails
-
-**Example:**
-```rust
-use controlpath_compiler::{parse_deployment, validate_deployment};
-
-let deployment = parse_deployment(yaml)?;
-validate_deployment(&deployment)?;
 ```
 
 ### Compilation Function
@@ -183,39 +144,32 @@ let artifact = compile(&deployment, &definitions)?;
 let bytes = serialize(&artifact)?;
 ```
 
-## Complete Example
-
-Here's a complete example showing the full compilation workflow:
+## Complete Example (v2 catalog)
 
 ```rust
 use controlpath_compiler::{
-    parse_definitions, parse_deployment, validate_definitions, validate_deployment,
-    compile, serialize, CompilerError
+    compile_catalog, load_and_validate_catalog, serialize, CatalogValidationContext,
+    CompilerError,
 };
 
-fn compile_deployment(
-    definitions_yaml: &str,
-    deployment_yaml: &str,
-) -> Result<Vec<u8>, CompilerError> {
-    // Parse definitions
-    let definitions = parse_definitions(definitions_yaml)?;
-    
-    // Validate definitions
-    validate_definitions(&definitions)?;
-    
-    // Parse deployment
-    let deployment = parse_deployment(deployment_yaml)?;
-    
-    // Validate deployment
-    validate_deployment(&deployment)?;
-    
-    // Compile to AST
-    let artifact = compile(&deployment, &definitions)?;
-    
-    // Serialize to MessagePack
-    let bytes = serialize(&artifact)?;
-    
-    Ok(bytes)
+fn compile_catalog_yaml(catalog_yaml: &str, env: &str) -> Result<Vec<u8>, CompilerError> {
+    let (catalog, initial) = load_and_validate_catalog(
+        catalog_yaml,
+        "control-path.yaml",
+        &CatalogValidationContext::default(),
+    )
+    .map_err(|e| CompilerError::Parse(e.into()))?;
+
+    if !initial.is_ok() {
+        return Err(CompilerError::Validation(
+            controlpath_compiler::validator::error::ValidationError::SchemaValidation(
+                "catalog validation failed".into(),
+            ),
+        ));
+    }
+
+    let artifact = compile_catalog(&catalog, env)?;
+    serialize(&artifact)
 }
 ```
 

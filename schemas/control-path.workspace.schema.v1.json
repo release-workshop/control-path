@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://controlpath.dev/schemas/control-path.workspace.schema.v1.json",
+  "title": "Control Path Workspace Schema",
+  "description": "Monorepo scaffold manifest (control-path.workspace.yaml). Created by controlpath init at repo root. Supplies namespace fallback at runtime and boilerplate for new service catalogs. Not used in multi-repo setups.",
+  "type": "object",
+  "required": ["namespace"],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Domain boundary prefix for service catalogs that omit catalog.namespace (e.g. namespace 'acme' + id 'checkout-service' → 'acme.checkout-service'). Resolved by walk-up from the service control-path.yaml.",
+      "minLength": 1,
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "scaffold": {
+      "$ref": "#/$defs/scaffold"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "scaffold": {
+      "type": "object",
+      "description": "Boilerplate copied into new service control-path.yaml by controlpath init. Not merged at compile or sync time.",
+      "properties": {
+        "imports": {
+          "type": "object",
+          "description": "Default imports pre-filled when scaffolding a new service catalog.",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "object",
+              "required": ["path"],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Path to imported catalog, relative to the new service directory.",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "defaults": {
+          "type": "object",
+          "description": "Default flag metadata pre-filled on scaffolded flags (e.g. owner, tags).",
+          "properties": {
+            "owner": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": true
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["local", "saas"],
+          "description": "Default mode pre-filled on scaffolded service catalogs."
+        },
+        "saas": {
+          "type": "object",
+          "description": "Default SaaS project template for scaffolded service catalogs.",
+          "required": ["project"],
+          "properties": {
+            "project": {
+              "type": "string",
+              "description": "SaaS project slug template (e.g. acme/{{service-id}}).",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

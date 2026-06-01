@@ -50,6 +50,20 @@ const MAX_FLAGS = 100000;
  */
 const MAX_REDIRECTS = 5;
 
+/** Thrown when the remote compiled artifact has not changed (HTTP 304). */
+export class ArtifactNotModifiedError extends Error {
+  constructor() {
+    super('Compiled artifact has not been modified since last request');
+    this.name = 'ArtifactNotModifiedError';
+  }
+}
+
+/** Result of loading a compiled artifact from a URL (includes ETag for conditional GET). */
+export interface ArtifactLoadResult {
+  artifact: Artifact;
+  etag?: string;
+}
+
 /**
  * Validate and normalize a file path to prevent path traversal attacks
  * @param filePath - The file path to validate
@@ -143,8 +157,9 @@ export async function loadFromFile(filePath: string, options?: LoadOptions): Pro
  * @param url - The URL to load the AST artifact from
  * @param timeout - Request timeout in milliseconds (default: 30000, max: 5 minutes)
  * @param logger - Optional logger for warnings
- * @param options - Optional loading options including signature verification
- * @returns The loaded AST artifact
+ * @param options - Optional loading options including signature verification and ETag
+ * @returns The loaded artifact and response ETag when present
+ * @throws {@link ArtifactNotModifiedError} on HTTP 304 when `options.etag` was sent
  * @throws Error if the request fails, times out, or the artifact is invalid
  */
 export async function loadFromURL(
@@ -152,7 +167,7 @@ export async function loadFromURL(
   timeout = DEFAULT_URL_TIMEOUT,
   logger?: { warn: (message: string) => void },
   options?: LoadOptions
-): Promise<Artifact> {
+): Promise<ArtifactLoadResult> {
   // Basic URL validation
   try {
     new URL(url);
@@ -178,11 +193,26 @@ export async function loadFromURL(
     const timeoutId = setTimeout(() => controller.abort(), effectiveTimeout);
 
     try {
+      const headers: Record<string, string> = {};
+      if (options?.etag) {
+        headers['If-None-Match'] = options.etag;
+      }
+
       response = await fetch(currentUrl, {
         signal: controller.signal,
         redirect: 'manual', // Handle redirects manually
+        headers,
       });
       clearTimeout(timeoutId);
+
+      if (response.status === 304) {
+        if (options?.etag) {
+          throw new ArtifactNotModifiedError();
+        }
+        throw new Error(
+          `Failed to load AST from URL ${url}: 304 Not Modified without If-None-Match`
+        );
+      }
 
       // Handle redirects
       if (response.status >= 300 && response.status < 400) {
@@ -212,6 +242,9 @@ export async function loadFromURL(
       clearTimeout(timeoutId);
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`Timeout loading AST from URL ${url} after ${effectiveTimeout}ms`);
+      }
+      if (error instanceof ArtifactNotModifiedError) {
+        throw error;
       }
       throw error;
     }
@@ -253,7 +286,10 @@ export async function loadFromURL(
     }
 
     const buffer = Buffer.from(arrayBuffer);
-    return loadFromBuffer(buffer, options);
+    const artifact = await loadFromBuffer(buffer, options);
+    const responseEtag = response.headers.get('etag') || undefined;
+
+    return { artifact, etag: responseEtag };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`Timeout loading AST from URL ${url} after ${effectiveTimeout}ms`);
@@ -275,6 +311,8 @@ export interface LoadOptions {
   requireSignature?: boolean;
   /** Optional allowed directory for file loading (restricts file access to this directory) */
   allowedDirectory?: string;
+  /** ETag from a prior fetch; sends If-None-Match and may yield {@link ArtifactNotModifiedError} */
+  etag?: string;
 }
 
 /**

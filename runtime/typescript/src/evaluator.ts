@@ -9,7 +9,7 @@
  * This module handles rule matching and expression evaluation.
  */
 
-import type { Artifact, Rule, Expression, Attributes, Variation } from './types';
+import type { Artifact, Rule, Expression, Attributes } from './types';
 import {
   RuleType,
   ExpressionType,
@@ -22,8 +22,45 @@ import {
 import * as semver from 'semver';
 
 /**
+ * Coerce an AST serve/rollout payload to a boolean (v2 catalogs use ON/OFF in the string table).
+ */
+export function coerceServePayloadToBoolean(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const upper = value.toUpperCase();
+    if (upper === 'ON' || upper === 'TRUE') {
+      return true;
+    }
+    if (upper === 'OFF' || upper === 'FALSE') {
+      return false;
+    }
+    return undefined;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  return undefined;
+}
+
+/**
+ * Evaluate a flag against AST rules only, returning a boolean when a rule matches.
+ */
+export function evaluateBoolean(
+  flagIndex: number,
+  artifact: Artifact,
+  attributes?: Attributes
+): boolean | undefined {
+  return coerceServePayloadToBoolean(evaluate(flagIndex, artifact, attributes));
+}
+
+/**
  * Evaluate a flag by index using the provided artifact and attributes.
  * Returns the evaluated value or undefined if no rules match.
+ *
+ * **Breaking change (v0.2):** boolean serve/rollout payloads are coerced to `true`/`false`.
+ * Prefer {@link evaluateBoolean} or {@link resolveBooleanFlag} for v2 boolean catalogs.
  * @param flagIndex - The index of the flag in the flags array
  * @param artifact - The AST artifact containing flag definitions
  * @param attributes - Optional attributes object with user identity, attributes, and context
@@ -65,9 +102,13 @@ export function evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attrib
   }
 
   // Rule is a tuple type, so we can safely access elements
-  // The type is: [type, when?, payload] where type is 0, 1, or 2
+  // The type is: [type, when?, payload] where type is 0 (serve) or 2 (rollout)
   // Note: Rust serializes None as null, so we need to check for both undefined and null
-  const ruleType = rule[0];
+  const ruleType = rule[0] as number;
+  // Legacy multivariate artifacts may still encode rule type 1; ignore.
+  if (ruleType === 1) {
+    return undefined;
+  }
   const when: Expression | undefined | null = rule.length > 1 ? rule[1] : undefined;
   const payload: unknown = rule.length > 2 ? rule[2] : undefined;
 
@@ -83,21 +124,11 @@ export function evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attrib
   // Rule matches - return payload based on rule type
   switch (ruleType) {
     case RuleType.SERVE: {
-      // Serve rule: payload is string table index or direct value
       if (typeof payload === 'number') {
-        return artifact.strs[payload];
+        const served = artifact.strs[payload];
+        return coerceServePayloadToBoolean(served) ?? served;
       }
-      return payload;
-    }
-
-    case RuleType.VARIATIONS: {
-      // Variations rule: payload is Variation[]
-      if (!Array.isArray(payload)) {
-        return undefined;
-      }
-      // Type guard: ensure payload is Variation[]
-      const variations = payload as Variation[];
-      return selectVariation(variations, artifact, attributes);
+      return coerceServePayloadToBoolean(payload) ?? payload;
     }
 
     case RuleType.ROLLOUT: {
@@ -109,9 +140,10 @@ export function evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attrib
       const [valueIndex, pct] = rolloutPayload;
       if (selectRollout(pct, attributes)) {
         if (typeof valueIndex === 'number') {
-          return artifact.strs[valueIndex];
+          const served = artifact.strs[valueIndex];
+          return coerceServePayloadToBoolean(served) ?? served;
         }
-        return valueIndex;
+        return coerceServePayloadToBoolean(valueIndex) ?? valueIndex;
       }
       return undefined;
     }
@@ -469,57 +501,6 @@ function getProperty(propPath: string, attributes?: Attributes): unknown {
   }
 
   return obj;
-}
-
-/**
- * Select a variation based on user ID hash.
- */
-function selectVariation(
-  variations: Variation[],
-  artifact: Artifact,
-  attributes?: Attributes
-): unknown {
-  if (!variations || variations.length === 0) {
-    return undefined;
-  }
-
-  // Helper to safely get string from string table
-  const getString = (varIndex: number): string | undefined => {
-    if (typeof varIndex !== 'number' || varIndex < 0 || varIndex >= artifact.strs.length) {
-      return undefined;
-    }
-    return artifact.strs[varIndex];
-  };
-
-  // Use user ID for consistent hashing
-  const userId = attributes?.id || '';
-  const hash = hashString(userId);
-
-  // Calculate total percentage
-  const totalPct = variations.reduce((sum, [_, pct]) => sum + pct, 0);
-  if (totalPct === 0) {
-    // Return first variation if no percentages
-    const [varIndex] = variations[0];
-    return getString(varIndex);
-  }
-
-  // Normalize hash to 0-100 range
-  const bucket = hash % 100;
-  let cumulative = 0;
-
-  for (const [varIndex, pct] of variations) {
-    cumulative += pct;
-    if (bucket < cumulative) {
-      const result = getString(varIndex);
-      if (result !== undefined) {
-        return result;
-      }
-    }
-  }
-
-  // Fallback to last variation
-  const [varIndex] = variations[variations.length - 1];
-  return getString(varIndex);
 }
 
 /**

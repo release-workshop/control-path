@@ -72,7 +72,7 @@ fn test_flag_remove_nonexistent() {
     let project = TestProject::new();
 
     // Try to remove non-existent flag
-    let output = project.run_command_failure(&["flag", "remove", "nonexistent_flag", "--force"]);
+    let output = project.run_command_failure(&["flag", "remove", "nonexistent_flag"]);
     assert!(!output.status.success());
 }
 
@@ -84,9 +84,11 @@ fn test_env_add_duplicate() {
         &simple_deployment("production", "my_flag", true),
     );
 
-    // Try to add duplicate environment
+    // v2 catalog: production already exists in environments.
     let output = project.run_command_failure(&["env", "add", "--name", "production"]);
     assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already exists"));
 }
 
 #[test]
@@ -103,24 +105,9 @@ fn test_enable_flag_nonexistent() {
 fn test_enable_flag_nonexistent_env() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
-    // Also create legacy file for enable command if it needs it
-    let legacy_definitions = r"flags:
-  - name: my_flag
-    type: boolean
-    default: false
-    defaultValue: false
-";
-    project.write_file("flags.definitions.yaml", legacy_definitions);
-
-    // Enable command now automatically creates environments, so this should succeed
-    // (The enable command uses config and creates environments automatically)
-    let output = project.run_command(&["enable", "my_flag", "--env", "nonexistent"]);
-    // Should succeed - environments are created automatically
-    assert!(output.status.success());
-
-    // Verify the environment was created in config
-    let config = project.read_file("control-path.yaml");
-    assert!(config.contains("nonexistent"));
+    // Enabling against an environment that doesn't exist should fail.
+    let output = project.run_command_failure(&["enable", "my_flag", "--env", "nonexistent"]);
+    assert!(!output.status.success());
 }
 
 #[test]
@@ -142,18 +129,22 @@ fn test_generate_sdk_invalid_language() {
 }
 
 #[test]
-fn test_compile_invalid_deployment() {
-    let project = TestProject::new();
-
-    // Create invalid deployment file
-    project.write_file(
-        ".controlpath/production.deployment.yaml",
-        "invalid: yaml: content: [",
+fn test_compile_invalid_catalog_rules() {
+    let project = TestProject::with_definitions(
+        "catalog:\n  id: test\nmode: local\nflags:\n  my_flag:\n    default: false\n    kind: release\nenvironments:\n  production:\n    rules:\n      my_flag:\n        - serve: not_a_boolean\n",
     );
 
-    // Compile should fail
     let output = project.run_command_failure(&["compile", "--env", "production"]);
     assert!(!output.status.success());
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        combined.contains("invalid") || combined.contains("serve") || combined.contains("Config"),
+        "expected compile to reject invalid catalog rules, got: {combined}"
+    );
 }
 
 #[test]
@@ -212,7 +203,7 @@ fn test_env_remove_nonexistent() {
     let project = TestProject::new();
 
     // Try to remove non-existent environment
-    let output = project.run_command_failure(&["env", "remove", "nonexistent", "--force"]);
+    let output = project.run_command_failure(&["env", "remove", "nonexistent"]);
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("not found") || stderr.contains("error"));

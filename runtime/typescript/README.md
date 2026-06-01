@@ -1,6 +1,6 @@
 # @controlpath/runtime
 
-Low-level runtime SDK for Control Path. This package provides AST artifact loading and flag evaluation capabilities.
+Low-level runtime SDK for Control Path. Loads compiled AST artifacts and kill switch files, then resolves boolean flags in product evaluation order.
 
 ## Installation
 
@@ -8,142 +8,107 @@ Low-level runtime SDK for Control Path. This package provides AST artifact loadi
 npm install @controlpath/runtime
 ```
 
+## Migrating to 0.2
+
+`evaluate()` now returns booleans for v2 serve/rollout rules instead of `'ON'`/`'OFF'`. Update comparisons or switch to:
+
+- `evaluateBoolean()` — AST rules only
+- `resolveBooleanFlag()` — kill switch → AST → catalog default
+
+See [CHANGELOG.md](./CHANGELOG.md).
+
+## Evaluation order
+
+1. **Kill switch file** — if the flag appears in the loaded file, its boolean value wins and AST rules are skipped.
+2. **Compiled AST** — environment rules from `controlpath compile`.
+3. **Catalog default** — from `control-path.yaml` when nothing else applies.
+
+## Deploy velocities
+
+| Change | How it ships |
+| --- | --- |
+| **Flag catalog** (flags, defaults, kinds, imports) | Regenerate SDK + redeploy the app |
+| **Environment rules** only | Replace the compiled artifact at the **artifact URL** (SDK polls; no SDK rebuild) |
+| **Kill switch** (incident) | Kill switch file at the kill switch URL (faster poll than artifacts) |
+
+In local mode, declare `artifacts.<env>.url` in `control-path.yaml` (like `kill_switches`). The generated SDK embeds `ARTIFACT_URLS` and polls after the first load from a bundled `.controlpath/<env>.ast` or URL. Init env/overlap validation runs only when those URLs exist; omit `artifacts` for local-only projects that do not need remote rule refresh or strict init checks.
+
 ## Usage
 
-### Basic Usage
+### AST + boolean resolution
 
 ```typescript
-import { loadFromFile, evaluate, buildFlagNameMapFromArtifact } from '@controlpath/runtime';
+import {
+  loadFromFile,
+  buildFlagNameMapFromArtifact,
+  resolveBooleanFlag,
+} from '@controlpath/runtime';
 
-// Load AST artifact from file
-const artifact = await loadFromFile('./flags/production.ast');
-
-// Build flag name map from artifact
+const artifact = await loadFromFile('./.controlpath/production.ast');
 const flagNameMap = buildFlagNameMapFromArtifact(artifact);
 
-// Evaluate flags using attributes
 const attributes = { id: 'user123', role: 'admin' };
-const flagIndex = flagNameMap['new_dashboard'];
-const result = evaluate(flagIndex, artifact, attributes);
-
-if (result === 'ON') {
-  console.log('New dashboard enabled');
-}
-```
-
-### Loading AST Artifacts
-
-```typescript
-import { loadFromFile, loadFromURL, loadFromBuffer } from '@controlpath/runtime';
-
-// Load from file
-const artifact = await loadFromFile('./flags/production.ast');
-
-// Load from URL
-const artifact = await loadFromURL('https://cdn.example.com/flags/production.ast');
-
-// Load from Buffer
-const buffer = Buffer.from(/* ... */);
-const artifact = loadFromBuffer(buffer);
-```
-
-### Flag Name Map
-
-The flag name map is built from the `flagNames` array in the artifact, which contains string table indices for each flag name. This allows you to look up flags by name without requiring the flag definitions file at runtime.
-
-```typescript
-import { buildFlagNameMapFromArtifact } from '@controlpath/runtime';
-
-const flagNameMap = buildFlagNameMapFromArtifact(artifact);
-const flagIndex = flagNameMap['my_flag'];
-```
-
-### Signature Verification
-
-Verify Ed25519 signatures when loading artifacts from untrusted sources:
-
-```typescript
-import { loadFromFile } from '@controlpath/runtime';
-
-// Public key (base64 or hex encoded)
-const publicKey = 'base64-encoded-public-key-here';
-
-const artifact = await loadFromFile('./flags/production.ast', {
-  publicKey,
-  requireSignature: true, // Require signature (optional, default: false)
+const enabled = resolveBooleanFlag({
+  qualifiedName: 'new_dashboard',
+  flagIndex: flagNameMap['new_dashboard'],
+  artifact,
+  catalogDefault: false,
+  attributes,
 });
 ```
 
-### Evaluation with Attributes
+### Kill switch files
 
-All attributes (user identity, user attributes, and environmental context) are provided in a single `Attributes` object:
-
-```typescript
-import { evaluate } from '@controlpath/runtime';
-
-const attributes = {
-  id: 'user123',
-  role: 'admin',
-  email: 'user@example.com',
-  environment: 'production',
-  device: 'desktop',
-  app_version: '1.2.3'
-};
-
-const flagIndex = flagNameMap['my_flag'];
-const result = evaluate(flagIndex, artifact, attributes);
-```
-
-### Error Handling
-
-The `evaluate` function returns `undefined` if no rule matches. Always provide a default value:
+Kill switch files use the v2 boolean map (`schemas/examples/production.kill-switches.json`):
 
 ```typescript
-const result = evaluate(flagIndex, artifact, attributes);
-const value = result ?? defaultValue;
+import { loadKillSwitchFromFile, loadKillSwitchFromURL } from '@controlpath/runtime';
+
+const local = await loadKillSwitchFromFile('.controlpath/production.kill-switches.json');
+
+const { killSwitchFile, etag } = await loadKillSwitchFromURL(
+  'https://flags.example.com/production/kill-switches.json'
+);
 ```
 
-## API Reference
+Poll with the returned `etag` on later requests; `KillSwitchFileNotModifiedError` indicates HTTP 304 (no change).
 
-### Loading Functions
+### Generated SDK
 
-- `loadFromFile(path: string, options?: LoadOptions): Promise<Artifact>` - Load AST artifact from file
-- `loadFromURL(url: string | URL, timeout?: number, logger?: Logger, options?: LoadOptions): Promise<Artifact>` - Load AST artifact from URL
-- `loadFromBuffer(buffer: Buffer | Uint8Array): Artifact` - Load AST artifact from buffer
+Prefer the generated `@controlpath/generated` evaluator: it embeds `kill_switches.<env>.url` as `KILL_SWITCH_URLS` and `artifacts.<env>.url` as `ARTIFACT_URLS`, polls both in the background after `init()`, and calls `resolveBooleanFlag` for each flag method.
 
-### Evaluation Functions
+`init()` does not wait for the first remote fetch. Kill switches poll about every 30s (+ jitter); compiled artifacts poll about every 60s (+ jitter) on an independent timer. Until a refresh succeeds, flags use the last loaded artifact and kill switch state (or AST/catalog defaults on cold start). See [SDK configuration](../docs/override-sdk-config.md).
 
-- `evaluate(flagIndex: number, artifact: Artifact, attributes?: Attributes): unknown` - Evaluate a flag by index
-- `evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attributes): unknown` - Evaluate a single rule
+Pass an optional `logger` to `init({ artifact, logger })` to emit warnings when a refresh fails (prior state is retained).
 
-### Utility Functions
+## API reference
 
-- `buildFlagNameMapFromArtifact(artifact: Artifact): Record<string, number>` - Build flag name to index map from artifact
+### Loading
+
+- `loadFromFile`, `loadFromURL`, `loadFromBuffer` — compiled artifacts (`loadFromURL` returns `{ artifact, etag? }`; ETag / 304 when `loadOptions.etag` is set)
+- `loadKillSwitchFromFile`, `loadKillSwitchFromURL` — kill switch JSON (v2 boolean map)
+
+### Evaluation
+
+- `resolveBooleanFlag` — kill switch → AST → catalog default
+- `evaluateBoolean` — AST rules only (boolean coercion for ON/OFF serve payloads)
+- `evaluate`, `evaluateRule` — low-level AST evaluation
 
 ### Types
 
-- `Artifact` - AST artifact structure
-- `Rule` - Flag rule structure
-- `Expression` - Expression node structure
-- `Variation` - Variation structure
-- `Attributes` - Attributes object for evaluation (consolidates user identity, attributes, and context)
-- `Logger` - Logger interface
-- `OverrideFile` - Override file format
-- `OverrideValue` - Override value type
+- `KillSwitchFile`, `KillSwitchRefreshState` — kill switch file shape and polling state
+- `KillSwitchRefreshCoordinator` — serialized kill switch refresh (only commits on `status === 'updated'`)
+- `ArtifactRefreshCoordinator`, `refreshArtifactFromUrl`, `validateArtifactPoll`, `assertArtifactAccepted` — compiled artifact polling and init guardrails
+- `startJitteredPoll`, `pollInitDelayMs` — generic jittered poll helpers (aliases of kill-switch names)
+- `refreshKillSwitchFromUrl`, `startKillSwitchPoll` — low-level fetch and interval helper
+- `Artifact`, `Rule` (serve and rollout only), `Expression`, `Attributes` — AST types
 
 ## Development
 
 ```bash
-# Build
 npm run build
-
-# Test
 npm test
-
-# Type check
 npm run typecheck
-
-# Lint
 npm run lint
 ```
 

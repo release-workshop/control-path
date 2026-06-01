@@ -1,0 +1,19 @@
+# Shared platform catalog (monorepo root or org repo).
+# Environment rules for imported flags live HERE, not in consuming services.
+
+catalog:
+  id: platform
+
+flags:
+  emergency_kill_switch:
+    kind: kill_switch
+    default: false
+    owner: platform
+    description: Global incident kill switch
+
+environments:
+  production:
+    rules:
+      emergency_kill_switch:
+        - serve: false
+          reason: Default off; enable only during incidents via platform catalog

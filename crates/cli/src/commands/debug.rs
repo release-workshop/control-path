@@ -761,14 +761,26 @@ fn determine_ast_path(options: &Options) -> Result<PathBuf, CliError> {
                         // Try to find any AST file
                         let controlpath_dir = PathBuf::from(".controlpath");
                         if controlpath_dir.exists() {
-                            let entries = fs::read_dir(&controlpath_dir)
-                                .map_err(|e| CliError::Message(format!("Failed to read .controlpath directory: {e}")))?;
+                            let entries = fs::read_dir(&controlpath_dir).map_err(|e| {
+                                CliError::Message(format!(
+                                    "Failed to read .controlpath directory: {e}"
+                                ))
+                            })?;
+                            let mut ast_paths = Vec::new();
                             for entry in entries {
-                                let entry = entry.map_err(|e| CliError::Message(format!("Failed to read directory entry: {e}")))?;
+                                let entry = entry.map_err(|e| {
+                                    CliError::Message(format!(
+                                        "Failed to read directory entry: {e}"
+                                    ))
+                                })?;
                                 let path = entry.path();
                                 if path.extension().and_then(|s| s.to_str()) == Some("ast") {
-                                    return Ok(path);
+                                    ast_paths.push(path);
                                 }
+                            }
+                            ast_paths.sort();
+                            if let Some(path) = ast_paths.into_iter().next() {
+                                return Ok(path);
                             }
                         }
                         Err(CliError::Message(

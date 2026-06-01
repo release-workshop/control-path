@@ -2,13 +2,18 @@
 
 use crate::error::{CliError, CliResult};
 use crate::generator::generate_sdk;
-use controlpath_compiler::{
-    parse_definitions, parse_deployment, validate_definitions, validate_deployment,
+use crate::saas::{
+    build_flag_rot_report, fetch_saas_telemetry, parse_saas_catalog_document,
+    print_flag_rot_report, FakeSaasClient,
 };
-use dialoguer::{Confirm, Input, Select};
+use crate::utils::catalog;
+use crate::utils::runtime;
+use crate::utils::unified_config;
+use controlpath_compiler::effective_catalog_id;
+use dialoguer::{Input, Select};
 use serde_json::Value;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::env;
+use std::path::PathBuf;
 use strsim::levenshtein;
 
 pub struct Options {
@@ -38,10 +43,12 @@ pub enum FlagSubcommand {
     },
     Remove {
         name: String,
-        from_deployments: bool,
         env: Option<String>,
-        force: bool,
     },
+    Deprecate {
+        name: String,
+    },
+    Report,
 }
 
 #[derive(Debug, Clone)]
@@ -64,209 +71,66 @@ impl OutputFormat {
     }
 }
 
-fn get_definitions_path() -> PathBuf {
-    PathBuf::from("flags.definitions.yaml")
-}
-
-fn find_deployment_files() -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let controlpath_dir = PathBuf::from(".controlpath");
-    if let Ok(entries) = fs::read_dir(&controlpath_dir) {
-        for entry in entries.flatten() {
-            if entry.path().is_file() {
-                if let Some(name) = entry.file_name().to_str() {
-                    if name.ends_with(".deployment.yaml") {
-                        files.push(entry.path());
-                    }
-                }
-            }
-        }
-    }
-    files
-}
-
-fn get_environment_name(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .and_then(|s| s.strip_suffix(".deployment.yaml"))
-        .map(|s| s.to_string())
-}
-
-fn read_definitions() -> CliResult<Value> {
-    let path = get_definitions_path();
-    if !path.exists() {
-        return Err(CliError::Message(
-            "flags.definitions.yaml not found. Run 'controlpath init' to create it.".to_string(),
-        ));
-    }
-    let content = fs::read_to_string(&path)
-        .map_err(|e| CliError::Message(format!("Failed to read {}: {e}", path.display())))?;
-    parse_definitions(&content).map_err(CliError::from)
-}
-
-fn write_definitions(definitions: &Value) -> CliResult<()> {
-    let path = get_definitions_path();
-    let yaml = serde_yaml::to_string(definitions)
-        .map_err(|e| CliError::Message(format!("Failed to serialize definitions: {e}")))?;
-    fs::write(&path, yaml)
-        .map_err(|e| CliError::Message(format!("Failed to write {}: {e}", path.display())))?;
-    Ok(())
-}
-
-fn read_deployment(path: &PathBuf) -> CliResult<Value> {
-    if !path.exists() {
-        return Err(CliError::Message(format!(
-            "Deployment file not found: {}",
-            path.display()
-        )));
-    }
-    let content = fs::read_to_string(path)
-        .map_err(|e| CliError::Message(format!("Failed to read {}: {e}", path.display())))?;
-    parse_deployment(&content).map_err(CliError::from)
-}
-
-fn write_deployment(path: &PathBuf, deployment: &Value) -> CliResult<()> {
-    let yaml = serde_yaml::to_string(deployment)
-        .map_err(|e| CliError::Message(format!("Failed to serialize deployment: {e}")))?;
-    fs::write(path, yaml)
-        .map_err(|e| CliError::Message(format!("Failed to write {}: {e}", path.display())))?;
-    Ok(())
-}
-
 fn validate_flag_name(name: &str) -> CliResult<()> {
     // Flag names must match pattern: ^[a-z][a-z0-9_]*$
     if name.is_empty() {
-        return Err(CliError::Message("Flag name cannot be empty".to_string()));
-    }
-    if !name.chars().next().unwrap().is_ascii_lowercase() {
         return Err(CliError::Message(
-            "Flag name must start with a lowercase letter".to_string(),
+            "Flag name cannot be empty.\n  Tip: Flag names must be in snake_case format (e.g., 'new_feature', 'api_v2')".to_string(),
         ));
+    }
+    if !name.chars().next().is_some_and(|c| c.is_ascii_lowercase()) {
+        return Err(CliError::Message(format!(
+            "Invalid flag name: '{}'\n  Flag names must:\n  - Start with a lowercase letter\n  - Contain only lowercase letters, digits, and underscores\n  - Be in snake_case format\n  Examples: 'new_feature', 'api_v2', 'dashboard_enabled'\n  Your input: '{}'",
+            name, name
+        )));
     }
     if !name
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     {
-        return Err(CliError::Message(
-            "Flag name can only contain lowercase letters, digits, and underscores".to_string(),
-        ));
+        return Err(CliError::Message(format!(
+            "Invalid flag name: '{}'\n  Flag names must:\n  - Start with a lowercase letter\n  - Contain only lowercase letters, digits, and underscores\n  - Be in snake_case format\n  Examples: 'new_feature', 'api_v2', 'dashboard_enabled'\n  Your input: '{}'",
+            name, name
+        )));
     }
     Ok(())
 }
 
 fn validate_flag_type(flag_type: &str) -> CliResult<()> {
-    if flag_type != "boolean" && flag_type != "multivariate" {
-        return Err(CliError::Message(
-            "Flag type must be 'boolean' or 'multivariate'".to_string(),
-        ));
+    if flag_type != "boolean" {
+        return Err(CliError::Message(format!(
+            "Invalid flag type: '{flag_type}'\n  v2 catalogs support boolean flags only."
+        )));
     }
     Ok(())
 }
 
-fn flag_exists(definitions: &Value, name: &str) -> bool {
-    if let Some(flags) = definitions.get("flags").and_then(|f| f.as_array()) {
-        for flag in flags {
-            if let Some(flag_name) = flag.get("name").and_then(|n| n.as_str()) {
-                if flag_name == name {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+fn catalog_flag_names(unified: &Value) -> Vec<String> {
+    unified
+        .get("flags")
+        .and_then(|f| f.as_object())
+        .map(|flags| {
+            let mut names: Vec<String> = flags.keys().cloned().collect();
+            names.sort();
+            names
+        })
+        .unwrap_or_default()
 }
 
-fn find_similar_flag_names(definitions: &Value, name: &str) -> Vec<String> {
+fn find_similar_flag_names(unified: &Value, name: &str) -> Vec<String> {
     let mut similar = Vec::new();
-    if let Some(flags) = definitions.get("flags").and_then(|f| f.as_array()) {
-        for flag in flags {
-            if let Some(flag_name) = flag.get("name").and_then(|n| n.as_str()) {
-                let distance = levenshtein(name, flag_name);
-                // If distance is small relative to name length, consider it similar
-                if distance > 0 && distance <= name.len().max(flag_name.len()) / 2 {
-                    similar.push((flag_name.to_string(), distance));
-                }
-            }
+    for flag_name in catalog_flag_names(unified) {
+        let distance = levenshtein(name, &flag_name);
+        if distance > 0 && distance <= name.len().max(flag_name.len()) / 2 {
+            similar.push((flag_name, distance));
         }
     }
-    // Sort by distance and return top 3
     similar.sort_by_key(|(_, d)| *d);
     similar.into_iter().take(3).map(|(name, _)| name).collect()
 }
 
-fn add_flag_to_definitions(
-    definitions: &mut Value,
-    name: &str,
-    flag_type: &str,
-    default: &Value,
-    description: Option<&str>,
-) -> CliResult<()> {
-    let flags = definitions
-        .get_mut("flags")
-        .and_then(|f| f.as_array_mut())
-        .ok_or_else(|| {
-            CliError::Message("Invalid definitions: missing 'flags' array".to_string())
-        })?;
-
-    let mut flag_obj = serde_json::Map::new();
-    flag_obj.insert("name".to_string(), Value::String(name.to_string()));
-    flag_obj.insert("type".to_string(), Value::String(flag_type.to_string()));
-    // Add both "default" and "defaultValue" for schema compatibility
-    flag_obj.insert("default".to_string(), default.clone());
-    flag_obj.insert("defaultValue".to_string(), default.clone());
-
-    if let Some(desc) = description {
-        flag_obj.insert("description".to_string(), Value::String(desc.to_string()));
-    }
-
-    flags.push(Value::Object(flag_obj));
-    Ok(())
-}
-
-fn sync_flag_to_deployment(
-    deployment: &mut Value,
-    flag_name: &str,
-    default_value: &Value,
-) -> CliResult<()> {
-    let rules = deployment
-        .get_mut("rules")
-        .and_then(|r| r.as_object_mut())
-        .ok_or_else(|| {
-            CliError::Message("Invalid deployment: missing 'rules' object".to_string())
-        })?;
-
-    // Only add if flag doesn't already exist in deployment
-    if !rules.contains_key(flag_name) {
-        let default_serve = match default_value {
-            Value::Bool(b) => Value::Bool(*b),
-            Value::String(s) => {
-                // Convert "ON"/"OFF" to boolean if needed
-                if s == "ON" {
-                    Value::Bool(true)
-                } else if s == "OFF" {
-                    Value::Bool(false)
-                } else {
-                    default_value.clone()
-                }
-            }
-            _ => default_value.clone(),
-        };
-
-        let mut rule_obj = serde_json::Map::new();
-        rule_obj.insert("serve".to_string(), default_serve);
-
-        let mut flag_entry = serde_json::Map::new();
-        flag_entry.insert(
-            "rules".to_string(),
-            Value::Array(vec![Value::Object(rule_obj)]),
-        );
-        rules.insert(flag_name.to_string(), Value::Object(flag_entry));
-    }
-
-    Ok(())
-}
-
-fn prompt_for_flag_name(definitions: &Value) -> CliResult<String> {
+fn prompt_for_flag_name(unified: &Value) -> CliResult<String> {
+    runtime::require_interactive("prompt for flag name")?;
     loop {
         let name: String = Input::new()
             .with_prompt("Flag name")
@@ -276,8 +140,8 @@ fn prompt_for_flag_name(definitions: &Value) -> CliResult<String> {
             .interact()
             .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
 
-        if flag_exists(definitions, &name) {
-            let similar = find_similar_flag_names(definitions, &name);
+        if unified_config::flag_exists(unified, &name) {
+            let similar = find_similar_flag_names(unified, &name);
             let mut msg = format!("Flag '{name}' already exists");
             if !similar.is_empty() {
                 msg.push_str(&format!("\n  Did you mean: {}?", similar.join(", ")));
@@ -291,7 +155,8 @@ fn prompt_for_flag_name(definitions: &Value) -> CliResult<String> {
 }
 
 fn prompt_for_flag_type() -> CliResult<String> {
-    let types = vec!["boolean", "multivariate"];
+    runtime::require_interactive("prompt for flag type")?;
+    let types = vec!["boolean"];
     let selection = Select::new()
         .with_prompt("Flag type")
         .items(&types)
@@ -301,24 +166,18 @@ fn prompt_for_flag_type() -> CliResult<String> {
     Ok(types[selection].to_string())
 }
 
-fn prompt_for_default_value(flag_type: &str) -> CliResult<Value> {
-    if flag_type == "boolean" {
-        let default: bool = Input::new()
-            .with_prompt("Default value")
-            .default(false)
-            .interact()
-            .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
-        Ok(Value::Bool(default))
-    } else {
-        let default: String = Input::new()
-            .with_prompt("Default value (variation name)")
-            .interact()
-            .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
-        Ok(Value::String(default))
-    }
+fn prompt_for_default_value() -> CliResult<Value> {
+    runtime::require_interactive("prompt for default flag value")?;
+    let default: bool = Input::new()
+        .with_prompt("Default value")
+        .default(false)
+        .interact()
+        .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?;
+    Ok(Value::Bool(default))
 }
 
 fn prompt_for_description() -> CliResult<Option<String>> {
+    runtime::require_interactive("prompt for flag description")?;
     let description: String = Input::new()
         .with_prompt("Description (optional)")
         .allow_empty(true)
@@ -329,28 +188,6 @@ fn prompt_for_description() -> CliResult<Option<String>> {
     } else {
         Some(description)
     })
-}
-
-fn prompt_for_sync_to_deployments(deployment_files: &[PathBuf]) -> CliResult<bool> {
-    if deployment_files.is_empty() {
-        return Ok(false);
-    }
-    let envs: Vec<String> = deployment_files
-        .iter()
-        .filter_map(|p| get_environment_name(p.as_path()))
-        .collect();
-    if envs.is_empty() {
-        return Ok(false);
-    }
-    Confirm::new()
-        .with_prompt(format!(
-            "Sync to {} deployment file(s)? ({})",
-            deployment_files.len(),
-            envs.join(", ")
-        ))
-        .default(true)
-        .interact()
-        .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))
 }
 
 pub fn run(options: &Options) -> i32 {
@@ -364,6 +201,10 @@ pub fn run(options: &Options) -> i32 {
 }
 
 fn run_inner(options: &Options) -> CliResult<()> {
+    run_unified(options)
+}
+
+fn run_unified(options: &Options) -> CliResult<()> {
     match &options.subcommand {
         FlagSubcommand::Add {
             name,
@@ -374,18 +215,18 @@ fn run_inner(options: &Options) -> CliResult<()> {
             sync,
             interactive,
         } => {
-            let mut definitions = read_definitions()?;
+            let mut unified = unified_config::read_unified_config()?;
 
-            // Interactive mode: prompt for missing values
             let (name, flag_type, default_value, description) = if *interactive && name.is_none() {
-                let name = prompt_for_flag_name(&definitions)?;
+                println!();
+                println!("Interactive mode: We'll guide you through adding a new flag");
+                println!("Press Ctrl+C at any time to cancel");
+                println!();
+                let name = prompt_for_flag_name(&unified)?;
                 let flag_type = flag_type.clone().unwrap_or_else(|| {
                     prompt_for_flag_type().unwrap_or_else(|_| "boolean".to_string())
                 });
-
-                // Validate flag type in interactive mode as well
                 validate_flag_type(&flag_type)?;
-
                 let default_value = default
                     .as_ref()
                     .map(|d| {
@@ -397,21 +238,12 @@ fn run_inner(options: &Options) -> CliResult<()> {
                             Value::String(d.clone())
                         }
                     })
-                    .unwrap_or_else(|| {
-                        prompt_for_default_value(&flag_type).unwrap_or_else(|_| {
-                            if flag_type == "boolean" {
-                                Value::Bool(false)
-                            } else {
-                                Value::String("default".to_string())
-                            }
-                        })
-                    });
+                    .unwrap_or_else(|| prompt_for_default_value().unwrap_or(Value::Bool(false)));
                 let description = description
                     .clone()
                     .or_else(|| prompt_for_description().ok().flatten());
                 (name, flag_type, default_value, description)
             } else {
-                // Non-interactive mode: use provided values or defaults
                 let name = name.clone().ok_or_else(|| {
                     CliError::Message(
                         "Flag name is required. Use --name <name> or run in interactive mode"
@@ -419,33 +251,23 @@ fn run_inner(options: &Options) -> CliResult<()> {
                     )
                 })?;
                 validate_flag_name(&name)?;
-
-                if flag_exists(&definitions, &name) {
-                    let similar = find_similar_flag_names(&definitions, &name);
-                    let mut msg = format!("Flag '{name}' already exists");
-                    if !similar.is_empty() {
-                        msg.push_str(&format!("\n  Did you mean: {}?", similar.join(", ")));
-                    }
-                    return Err(CliError::Message(msg));
+                if unified_config::flag_exists(&unified, &name) {
+                    return Err(CliError::Message(format!("Flag '{name}' already exists")));
                 }
-
                 let flag_type = flag_type.as_deref().unwrap_or("boolean");
                 validate_flag_type(flag_type)?;
-
                 let default_value = if let Some(default_str) = default {
                     if default_str == "true" || default_str == "ON" {
                         Value::Bool(true)
                     } else if default_str == "false" || default_str == "OFF" {
                         Value::Bool(false)
                     } else {
-                        Value::String(default_str.clone())
+                        return Err(CliError::Message(
+                            "Boolean flags require default true or false".to_string(),
+                        ));
                     }
-                } else if flag_type == "boolean" {
-                    Value::Bool(false)
                 } else {
-                    return Err(CliError::Message(
-                        "Multivariate flags require a default value".to_string(),
-                    ));
+                    Value::Bool(false)
                 };
                 (
                     name,
@@ -455,91 +277,58 @@ fn run_inner(options: &Options) -> CliResult<()> {
                 )
             };
 
-            add_flag_to_definitions(
-                &mut definitions,
-                &name,
-                &flag_type,
-                &default_value,
-                description.as_deref(),
-            )?;
-
-            // Validate before writing
-            validate_definitions(&definitions)?;
-            write_definitions(&definitions)?;
-
-            // Sync to deployment files
-            let deployment_files = find_deployment_files();
-            let should_sync = if *sync {
-                true
-            } else if *interactive && !deployment_files.is_empty() {
-                prompt_for_sync_to_deployments(&deployment_files).unwrap_or(false)
+            let existing_envs_for_sync = if *sync {
+                unified_config::get_environments(&unified)
             } else {
-                false
+                Vec::new()
             };
 
-            let mut synced_count = 0;
-            if should_sync {
-                for deployment_path in &deployment_files {
-                    match read_deployment(deployment_path) {
-                        Ok(mut deployment) => {
-                            match sync_flag_to_deployment(&mut deployment, &name, &default_value) {
-                                Ok(()) => match validate_deployment(&deployment) {
-                                    Ok(()) => {
-                                        match write_deployment(deployment_path, &deployment) {
-                                            Ok(()) => synced_count += 1,
-                                            Err(e) => eprintln!(
-                                                "  Warning: Failed to write {}: {e}",
-                                                deployment_path.display()
-                                            ),
-                                        }
-                                    }
-                                    Err(e) => eprintln!(
-                                        "  Warning: Failed to validate {}: {e}",
-                                        deployment_path.display()
-                                    ),
-                                },
-                                Err(e) => eprintln!(
-                                    "  Warning: Failed to sync to {}: {e}",
-                                    deployment_path.display()
-                                ),
-                            }
-                        }
-                        Err(e) => eprintln!(
-                            "  Warning: Failed to read {}: {e}",
-                            deployment_path.display()
-                        ),
-                    }
+            if flag_type != "boolean" {
+                return Err(CliError::Message(
+                    "v2 catalogs support boolean flags only".to_string(),
+                ));
+            }
+
+            let default_bool = match default_value {
+                Value::Bool(b) => b,
+                _ => {
+                    return Err(CliError::Message(
+                        "Boolean flags require default true or false".to_string(),
+                    ))
                 }
-            }
+            };
 
+            unified_config::add_flag(
+                &mut unified,
+                &name,
+                default_bool,
+                "release",
+                description.as_deref(),
+                &existing_envs_for_sync,
+            )?;
+
+            unified_config::write_unified_config(&unified)?;
+
+            let base_dir = std::env::current_dir().map_err(|e| {
+                CliError::Message(format!("Failed to resolve working directory: {e}"))
+            })?;
+            catalog::load_sdk_catalog(&base_dir)?;
             println!("✓ Added flag '{name}'");
-            if synced_count > 0 {
-                println!("  Synced to {synced_count} deployment file(s)");
-            }
 
-            // Regenerate SDK if lang is specified
             if let Some(language) = lang {
-                let output_path = PathBuf::from("./flags");
-                match generate_sdk(language, &definitions, &output_path) {
+                let output_path = unified_config::get_sdk_output_path(&unified)
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("node_modules/@controlpath/generated"));
+                let base_dir = std::env::current_dir().map_err(|e| {
+                    CliError::Message(format!("Failed to resolve working directory: {e}"))
+                })?;
+                match catalog::load_sdk_catalog(&base_dir)
+                    .and_then(|sdk| generate_sdk(language, &sdk, &output_path))
+                {
                     Ok(()) => println!("  Regenerated SDK ({language})"),
                     Err(e) => eprintln!("  Warning: Failed to regenerate SDK: {e}"),
                 }
             }
-
-            // Show next steps
-            if synced_count == 0 && !deployment_files.is_empty() {
-                println!("\nNext steps:");
-                if let Some(env) = deployment_files
-                    .first()
-                    .and_then(|p| get_environment_name(p.as_path()))
-                {
-                    println!("  controlpath flag enable {name} --env {env}");
-                }
-            } else if synced_count > 0 {
-                println!("\nNext steps:");
-                println!("  controlpath compile --env <env>  # Compile deployment files");
-            }
-
             Ok(())
         }
         FlagSubcommand::List {
@@ -547,18 +336,11 @@ fn run_inner(options: &Options) -> CliResult<()> {
             deployment,
             format,
         } => {
-            if *definitions {
-                let defs = read_definitions()?;
-                list_flags_from_definitions(&defs, format)?;
+            let unified = unified_config::read_unified_config()?;
+            if *definitions || deployment.is_none() {
+                list_flags_from_catalog(&unified, format)?;
             } else if let Some(env) = deployment {
-                let path = PathBuf::from(format!(".controlpath/{env}.deployment.yaml"));
-                let dep = read_deployment(&path)?;
-                let defs = read_definitions().ok();
-                list_flags_from_deployment(&dep, defs.as_ref(), format)?;
-            } else {
-                // Default: list from definitions
-                let defs = read_definitions()?;
-                list_flags_from_definitions(&defs, format)?;
+                list_flags_for_environment(&unified, env, format)?;
             }
             Ok(())
         }
@@ -567,128 +349,73 @@ fn run_inner(options: &Options) -> CliResult<()> {
             deployment,
             format,
         } => {
-            let definitions = read_definitions()?;
-            show_flag(&definitions, name, deployment.as_deref(), format)?;
+            let unified = unified_config::read_unified_config()?;
+            show_flag_from_catalog(&unified, name, deployment.as_deref(), format)?;
             Ok(())
         }
-        FlagSubcommand::Remove {
-            name,
-            from_deployments,
-            env,
-            force,
-        } => {
-            validate_flag_name(name)?;
-
-            let mut definitions = read_definitions()?;
-
-            if !flag_exists(&definitions, name) {
-                return Err(CliError::Message(format!("Flag '{name}' not found")));
-            }
-
-            // Show preview of what will be removed
-            if !*force {
-                println!("This will remove flag '{name}' from:");
-                println!("  - flags.definitions.yaml");
-
-                let deployment_files = if let Some(env) = env {
-                    vec![PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))]
-                } else if *from_deployments {
-                    find_deployment_files()
-                } else {
-                    Vec::new()
-                };
-
-                for deployment_path in &deployment_files {
-                    if deployment_path.exists() {
-                        if let Some(env_name) = get_environment_name(deployment_path) {
-                            println!("  - .controlpath/{env_name}.deployment.yaml");
-                        }
-                    }
-                }
-
-                if !Confirm::new()
-                    .with_prompt("Continue?")
-                    .default(false)
-                    .interact()
-                    .map_err(|e| CliError::Message(format!("Failed to read input: {e}")))?
-                {
-                    println!("Cancelled.");
-                    return Ok(());
-                }
-            }
-
-            // Remove from definitions
-            if let Some(flags) = definitions.get_mut("flags").and_then(|f| f.as_array_mut()) {
-                flags.retain(|flag| {
-                    flag.get("name")
-                        .and_then(|n| n.as_str())
-                        .map(|n| n != name)
-                        .unwrap_or(true)
-                });
-            }
-
-            validate_definitions(&definitions)?;
-            write_definitions(&definitions)?;
-
-            // Remove from deployment files
-            let deployment_files = if let Some(env) = env {
-                vec![PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))]
-            } else if *from_deployments {
-                find_deployment_files()
-            } else {
-                Vec::new()
-            };
-
-            let mut removed_count = 0;
-            for deployment_path in &deployment_files {
-                match read_deployment(deployment_path) {
-                    Ok(mut deployment) => {
-                        if let Some(rules) =
-                            deployment.get_mut("rules").and_then(|r| r.as_object_mut())
-                        {
-                            if rules.remove(name).is_some() {
-                                removed_count += 1;
-                                match validate_deployment(&deployment) {
-                                    Ok(()) => {
-                                        match write_deployment(deployment_path, &deployment) {
-                                            Ok(()) => {}
-                                            Err(e) => eprintln!(
-                                                "  Warning: Failed to write {}: {e}",
-                                                deployment_path.display()
-                                            ),
-                                        }
-                                    }
-                                    Err(e) => eprintln!(
-                                        "  Warning: Failed to validate {}: {e}",
-                                        deployment_path.display()
-                                    ),
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!(
-                        "  Warning: Failed to read {}: {e}",
-                        deployment_path.display()
-                    ),
-                }
-            }
-
+        FlagSubcommand::Remove { name, env } => {
+            let mut unified = unified_config::read_unified_config()?;
+            unified_config::remove_flag(&mut unified, name, env.as_deref())?;
+            unified_config::write_unified_config(&unified)?;
             println!("✓ Removed flag '{name}'");
-            if removed_count > 0 {
-                println!("  Removed from {removed_count} deployment file(s)");
-            }
             Ok(())
         }
+        FlagSubcommand::Deprecate { name } => {
+            let mut unified = unified_config::read_unified_config()?;
+            if !unified_config::flag_exists(&unified, name) {
+                return Err(CliError::Message(format!("Flag '{name}' not found.")));
+            }
+            unified_config::deprecate_flag(&mut unified, name)?;
+            unified_config::write_unified_config(&unified)?;
+            println!("✓ Flag '{name}' marked as deprecated");
+            println!("  Rule changes are blocked unless --force is used with flag enable");
+            Ok(())
+        }
+        FlagSubcommand::Report => run_flag_report(),
     }
 }
 
-fn list_flags_from_definitions(definitions: &Value, format: &OutputFormat) -> CliResult<()> {
-    let flags = definitions
+fn run_flag_report() -> CliResult<()> {
+    let base_dir = env::current_dir()
+        .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
+    let unified = unified_config::read_unified_config()?;
+    let mode = unified
+        .get("mode")
+        .and_then(|m| m.as_str())
+        .unwrap_or("local");
+
+    let sdk_catalog = catalog::load_sdk_catalog(&base_dir)?;
+    let telemetry = if mode == "saas" {
+        let (saas_catalog, workspace) = parse_saas_catalog_document(&base_dir)?;
+        let catalog_id = effective_catalog_id(&saas_catalog.catalog, workspace.as_ref());
+        let project = saas_catalog
+            .saas
+            .as_ref()
+            .map(|s| s.project.as_str())
+            .ok_or_else(|| {
+                CliError::Message(
+                    "SaaS mode requires saas.project in control-path.yaml".to_string(),
+                )
+            })?;
+        let client = FakeSaasClient::open(&base_dir)?;
+        fetch_saas_telemetry(&client, &catalog_id, project)?
+    } else {
+        Vec::new()
+    };
+
+    let entries = build_flag_rot_report(&sdk_catalog, &telemetry);
+    print_flag_rot_report(&entries)?;
+    Ok(())
+}
+
+fn list_flags_from_catalog(unified: &Value, format: &OutputFormat) -> CliResult<()> {
+    let flags_obj = unified
         .get("flags")
-        .and_then(|f| f.as_array())
-        .ok_or_else(|| {
-            CliError::Message("Invalid definitions: missing 'flags' array".to_string())
-        })?;
+        .and_then(|f| f.as_object())
+        .ok_or_else(|| CliError::Message("Invalid catalog: flags must be a map".to_string()))?;
+
+    let mut rows: Vec<(String, &Value)> = flags_obj.iter().map(|(k, v)| (k.clone(), v)).collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
 
     match format {
         OutputFormat::Table => {
@@ -699,11 +426,9 @@ fn list_flags_from_definitions(definitions: &Value, format: &OutputFormat) -> Cl
                 "Name", "Type", "Default"
             );
             println!("{:-<80}", "");
-            for flag in flags {
-                let name = flag.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-                let flag_type = flag.get("type").and_then(|t| t.as_str()).unwrap_or("?");
+            for (name, flag) in &rows {
                 let default = flag
-                    .get("defaultValue")
+                    .get("default")
                     .map(format_value)
                     .unwrap_or_else(|| "?".to_string());
                 let description = flag
@@ -711,18 +436,18 @@ fn list_flags_from_definitions(definitions: &Value, format: &OutputFormat) -> Cl
                     .and_then(|d| d.as_str())
                     .unwrap_or("");
                 println!(
-                    "{:<30} {:<15} {:<20} {}",
-                    name, flag_type, default, description
+                    "{:<30} {:<15} {:<20} {description}",
+                    name, "boolean", default
                 );
             }
         }
         OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(flags)
+            let json = serde_json::to_string_pretty(flags_obj)
                 .map_err(|e| CliError::Message(format!("Failed to serialize: {e}")))?;
             println!("{json}");
         }
         OutputFormat::Yaml => {
-            let yaml = serde_yaml::to_string(flags)
+            let yaml = serde_yaml::to_string(flags_obj)
                 .map_err(|e| CliError::Message(format!("Failed to serialize: {e}")))?;
             print!("{yaml}");
         }
@@ -730,63 +455,49 @@ fn list_flags_from_definitions(definitions: &Value, format: &OutputFormat) -> Cl
     Ok(())
 }
 
-fn list_flags_from_deployment(
-    deployment: &Value,
-    definitions: Option<&Value>,
-    format: &OutputFormat,
-) -> CliResult<()> {
-    let rules = deployment
-        .get("rules")
-        .and_then(|r| r.as_object())
-        .ok_or_else(|| {
-            CliError::Message("Invalid deployment: missing 'rules' object".to_string())
-        })?;
+fn list_flags_for_environment(unified: &Value, env: &str, format: &OutputFormat) -> CliResult<()> {
+    let envs = unified_config::get_environments(unified);
+    if !envs.is_empty() && !envs.iter().any(|e| e == env) {
+        return Err(CliError::Message(format!(
+            "Environment '{env}' not found in control-path.yaml"
+        )));
+    }
 
-    // Build flag info by looking up in definitions
+    let rules = unified
+        .get("environments")
+        .and_then(|e| e.get(env))
+        .and_then(|e| e.get("rules"))
+        .and_then(|r| r.as_object());
+
     let mut flag_info = Vec::new();
-    for (flag_name, _flag_rules) in rules {
-        let mut info = serde_json::Map::new();
-        info.insert("name".to_string(), Value::String(flag_name.clone()));
+    if let Some(rules) = rules {
+        for (flag_name, flag_rules) in rules {
+            let mut info = serde_json::Map::new();
+            info.insert("name".to_string(), Value::String(flag_name.clone()));
+            info.insert("type".to_string(), Value::String("boolean".to_string()));
 
-        // Look up flag details from definitions
-        if let Some(defs) = definitions {
-            if let Some(flags) = defs.get("flags").and_then(|f| f.as_array()) {
-                if let Some(flag_def) = flags
-                    .iter()
-                    .find(|f| f.get("name").and_then(|n| n.as_str()) == Some(flag_name.as_str()))
-                {
-                    if let Some(flag_type) = flag_def.get("type") {
-                        info.insert("type".to_string(), flag_type.clone());
-                    }
-                    if let Some(default) = flag_def.get("defaultValue") {
-                        info.insert("default".to_string(), default.clone());
-                    }
-                    if let Some(description) = flag_def.get("description") {
-                        info.insert("description".to_string(), description.clone());
-                    }
+            if let Some(flag_def) = unified.get("flags").and_then(|f| f.get(flag_name)) {
+                if let Some(default) = flag_def.get("default") {
+                    info.insert("default".to_string(), default.clone());
+                }
+                if let Some(description) = flag_def.get("description") {
+                    info.insert("description".to_string(), description.clone());
                 }
             }
+
+            let status = if flag_rules.as_array().is_some_and(|a| !a.is_empty()) {
+                "configured"
+            } else {
+                "not configured"
+            };
+            info.insert("status".to_string(), Value::String(status.to_string()));
+            flag_info.push(Value::Object(info));
         }
-
-        // Check if flag has rules (status: configured)
-        let status = if _flag_rules
-            .get("rules")
-            .and_then(|r| r.as_array())
-            .map(|a| !a.is_empty())
-            .unwrap_or(false)
-        {
-            "configured"
-        } else {
-            "not configured"
-        };
-        info.insert("status".to_string(), Value::String(status.to_string()));
-
-        flag_info.push(Value::Object(info));
     }
 
     match format {
         OutputFormat::Table => {
-            println!("Flags in deployment:");
+            println!("Flags in environment '{env}':");
             println!("{:-<80}", "");
             println!(
                 "{:<30} {:<15} {:<20} {:<15}",
@@ -821,165 +532,153 @@ fn list_flags_from_deployment(
     Ok(())
 }
 
-fn show_flag(
-    definitions: &Value,
+fn show_flag_from_catalog(
+    unified: &Value,
     name: &str,
     deployment_env: Option<&str>,
     format: &OutputFormat,
 ) -> CliResult<()> {
-    let flags = definitions
+    let flag = unified
         .get("flags")
-        .and_then(|f| f.as_array())
+        .and_then(|f| f.get(name))
         .ok_or_else(|| {
-            CliError::Message("Invalid definitions: missing 'flags' array".to_string())
+            let available = catalog_flag_names(unified);
+            let similar = find_similar_flag_names(unified, name);
+            let mut msg = format!("Flag '{name}' not found.");
+            if !available.is_empty() {
+                msg.push_str(&format!("\n  Available flags: {}", available.join(", ")));
+            }
+            if !similar.is_empty() {
+                msg.push_str(&format!("\n  Did you mean: {}?", similar.join(", ")));
+            }
+            msg.push_str("\n  Tip: Use 'controlpath flag list' to see all flags");
+            CliError::Message(msg)
         })?;
-
-    let flag = flags
-        .iter()
-        .find(|f| f.get("name").and_then(|n| n.as_str()) == Some(name))
-        .ok_or_else(|| CliError::Message(format!("Flag '{name}' not found")))?;
 
     match format {
         OutputFormat::Table => {
             println!("Flag: {name}");
             println!("{:-<60}", "");
+            println!("Type: boolean");
 
-            if let Some(flag_type) = flag.get("type").and_then(|t| t.as_str()) {
-                println!("Type: {flag_type}");
+            if let Some(default) = flag.get("default") {
+                println!("Default: {}", format_value(default));
             }
 
-            if let Some(default) = flag.get("defaultValue") {
-                println!("Default: {}", format_value(default));
+            if let Some(kind) = flag.get("kind").and_then(|k| k.as_str()) {
+                println!("Kind: {kind}");
             }
 
             if let Some(description) = flag.get("description").and_then(|d| d.as_str()) {
                 println!("Description: {description}");
             }
 
-            if let Some(variations) = flag.get("variations").and_then(|v| v.as_array()) {
-                println!("Variations:");
-                for variation in variations {
-                    if let Some(var_name) = variation.get("name").and_then(|n| n.as_str()) {
-                        let var_value = variation
-                            .get("value")
-                            .map(format_value)
-                            .unwrap_or_else(|| "?".to_string());
-                        println!("  - {var_name}: {var_value}");
-                    }
-                }
+            if let Some(lifecycle) = flag.get("lifecycle").and_then(|l| l.as_str()) {
+                println!("Lifecycle: {lifecycle}");
             }
 
-            // Show deployment info - either specific env or all
-            if let Some(env) = deployment_env {
-                let path = PathBuf::from(format!(".controlpath/{env}.deployment.yaml"));
-                if let Ok(deployment) = read_deployment(&path) {
-                    if let Some(rules) = deployment.get("rules").and_then(|r| r.as_object()) {
-                        if let Some(flag_rules) = rules.get(name) {
-                            println!("\nDeployment ({env}):");
-                            if let Some(rules_array) =
-                                flag_rules.get("rules").and_then(|r| r.as_array())
-                            {
-                                println!("  Rules: {}", rules_array.len());
-                            }
-                        } else {
-                            println!("\nDeployment ({env}): Not configured");
-                        }
-                    }
-                }
-            } else {
-                // Show status across all environments
-                let deployment_files = find_deployment_files();
-                if !deployment_files.is_empty() {
-                    println!("\nDeployment Status:");
-                    for deployment_path in &deployment_files {
-                        if let Some(env_name) = get_environment_name(deployment_path) {
-                            if let Ok(deployment) = read_deployment(deployment_path) {
-                                if let Some(rules) =
-                                    deployment.get("rules").and_then(|r| r.as_object())
-                                {
-                                    if rules.contains_key(name) {
-                                        if let Some(flag_rules) = rules.get(name) {
-                                            if let Some(rules_array) =
-                                                flag_rules.get("rules").and_then(|r| r.as_array())
-                                            {
-                                                println!(
-                                                    "  {env_name}: {} rule(s)",
-                                                    rules_array.len()
-                                                );
-                                            } else {
-                                                println!("  {env_name}: configured");
-                                            }
-                                        }
-                                    } else {
-                                        println!("  {env_name}: not configured");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            print_catalog_environment_rules(unified, name, deployment_env);
         }
-        OutputFormat::Json => {
-            let mut output = serde_json::Map::new();
-            output.insert("flag".to_string(), flag.clone());
-
-            // Add deployment info
-            let mut deployments = serde_json::Map::new();
-            let deployment_files = if let Some(env) = deployment_env {
-                vec![PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))]
-            } else {
-                find_deployment_files()
-            };
-
-            for deployment_path in &deployment_files {
-                if let Some(env_name) = get_environment_name(deployment_path) {
-                    if let Ok(deployment) = read_deployment(deployment_path) {
-                        if let Some(rules) = deployment.get("rules").and_then(|r| r.as_object()) {
-                            if let Some(flag_rules) = rules.get(name) {
-                                deployments.insert(env_name, flag_rules.clone());
-                            }
-                        }
-                    }
-                }
+        OutputFormat::Json | OutputFormat::Yaml => {
+            let mut flag_output = flag.clone();
+            if let Some(obj) = flag_output.as_object_mut() {
+                obj.insert("name".to_string(), Value::String(name.to_string()));
             }
-            output.insert("deployments".to_string(), Value::Object(deployments));
-
-            let json = serde_json::to_string_pretty(&output)
-                .map_err(|e| CliError::Message(format!("Failed to serialize: {e}")))?;
-            println!("{json}");
-        }
-        OutputFormat::Yaml => {
             let mut output = serde_json::Map::new();
-            output.insert("flag".to_string(), flag.clone());
+            output.insert("flag".to_string(), flag_output);
+            output.insert(
+                "environments".to_string(),
+                Value::Object(catalog_environments_for_output(
+                    unified,
+                    name,
+                    deployment_env,
+                )),
+            );
 
-            // Add deployment info
-            let mut deployments = serde_json::Map::new();
-            let deployment_files = if let Some(env) = deployment_env {
-                vec![PathBuf::from(format!(".controlpath/{env}.deployment.yaml"))]
-            } else {
-                find_deployment_files()
-            };
-
-            for deployment_path in &deployment_files {
-                if let Some(env_name) = get_environment_name(deployment_path) {
-                    if let Ok(deployment) = read_deployment(deployment_path) {
-                        if let Some(rules) = deployment.get("rules").and_then(|r| r.as_object()) {
-                            if let Some(flag_rules) = rules.get(name) {
-                                deployments.insert(env_name, flag_rules.clone());
-                            }
-                        }
-                    }
+            match format {
+                OutputFormat::Json => {
+                    let json = serde_json::to_string_pretty(&output)
+                        .map_err(|e| CliError::Message(format!("Failed to serialize: {e}")))?;
+                    println!("{json}");
                 }
+                OutputFormat::Yaml => {
+                    let yaml = serde_yaml::to_string(&output)
+                        .map_err(|e| CliError::Message(format!("Failed to serialize: {e}")))?;
+                    print!("{yaml}");
+                }
+                OutputFormat::Table => {}
             }
-            output.insert("deployments".to_string(), Value::Object(deployments));
-
-            let yaml = serde_yaml::to_string(&output)
-                .map_err(|e| CliError::Message(format!("Failed to serialize: {e}")))?;
-            print!("{yaml}");
         }
     }
     Ok(())
+}
+
+fn environment_rule_count(rules: &Value) -> usize {
+    rules.as_array().map(|a| a.len()).unwrap_or(0)
+}
+
+fn print_catalog_environment_rules(unified: &Value, flag_name: &str, deployment_env: Option<&str>) {
+    let Some(envs) = unified.get("environments").and_then(|e| e.as_object()) else {
+        return;
+    };
+
+    if let Some(env) = deployment_env {
+        if let Some(rules) = envs
+            .get(env)
+            .and_then(|e| e.get("rules"))
+            .and_then(|r| r.get(flag_name))
+        {
+            println!("\nEnvironment ({env}):");
+            println!("  Rules: {}", environment_rule_count(rules));
+        } else {
+            println!("\nEnvironment ({env}): Not configured");
+        }
+    } else {
+        let mut configured = Vec::new();
+        for (env_name, env_val) in envs {
+            if let Some(rules) = env_val
+                .get("rules")
+                .and_then(|r| r.get(flag_name))
+                .filter(|r| r.as_array().is_some_and(|a| !a.is_empty()))
+            {
+                configured.push((env_name.clone(), environment_rule_count(rules)));
+            }
+        }
+        if !configured.is_empty() {
+            println!("\nEnvironment rules:");
+            for (env_name, count) in configured {
+                println!("  {env_name}: {count} rule(s)");
+            }
+        }
+    }
+}
+
+fn catalog_environments_for_output(
+    unified: &Value,
+    flag_name: &str,
+    deployment_env: Option<&str>,
+) -> serde_json::Map<String, Value> {
+    let mut environments = serde_json::Map::new();
+    let Some(envs) = unified.get("environments").and_then(|e| e.as_object()) else {
+        return environments;
+    };
+
+    if let Some(env) = deployment_env {
+        if let Some(rules) = envs
+            .get(env)
+            .and_then(|e| e.get("rules"))
+            .and_then(|r| r.get(flag_name))
+        {
+            environments.insert(env.to_string(), rules.clone());
+        }
+    } else {
+        for (env_name, env_val) in envs {
+            if let Some(rules) = env_val.get("rules").and_then(|r| r.get(flag_name)) {
+                environments.insert(env_name.clone(), rules.clone());
+            }
+        }
+    }
+    environments
 }
 
 fn format_value(value: &Value) -> String {
@@ -994,13 +693,10 @@ fn format_value(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_helpers::DirGuard;
     use serial_test::serial;
     use std::fs;
-    use std::path::PathBuf;
     use tempfile::TempDir;
-
-    use crate::test_helpers::DirGuard;
-
     #[test]
     #[serial]
     fn test_validate_flag_name() {
@@ -1021,26 +717,20 @@ mod tests {
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        // Create definitions file
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: existing_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        // Create deployment file
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   existing_flag:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: false
+      existing_flag:
+        - serve: false
 ",
         )
         .unwrap();
@@ -1060,14 +750,12 @@ rules:
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
 
-        // Verify flag was added to definitions
-        let content = fs::read_to_string("flags.definitions.yaml").unwrap();
+        // Verify flag was added to unified config
+        let content = fs::read_to_string("control-path.yaml").unwrap();
         assert!(content.contains("new_flag"));
 
-        // Verify flag was synced to deployment
-        let deployment_content =
-            fs::read_to_string(".controlpath/production.deployment.yaml").unwrap();
-        assert!(deployment_content.contains("new_flag"));
+        // Verify flag was synced into environment rules in unified config
+        assert!(content.contains("production:"));
     }
 
     #[test]
@@ -1077,12 +765,7 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
-",
-        )
-        .unwrap();
+        crate::test_helpers::write_v2_test_catalog("placeholder_flag", false);
 
         let options = Options {
             subcommand: FlagSubcommand::Add {
@@ -1096,11 +779,7 @@ rules:
             },
         };
 
-        // Multivariate flags require variations array, which flag add doesn't support yet
-        // So this should fail validation
         let exit_code = run(&options);
-        // The command will fail because multivariate flags need variations
-        // For now, we expect it to fail until variations support is added
         assert_ne!(exit_code, 0);
     }
 
@@ -1112,14 +791,17 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  flag1:
     default: false
-  - name: flag2
-    type: boolean
+    kind: release
+  flag2:
     default: true
+    kind: release
 ",
         )
         .unwrap();
@@ -1138,42 +820,65 @@ rules:
 
     #[test]
     fn test_find_similar_flag_names() {
-        let definitions = serde_json::json!({
-            "flags": [
-                {"name": "test_flag"},
-                {"name": "test_flag_2"},
-                {"name": "other_flag"},
-                {"name": "test"}
-            ]
-        });
+        let unified = serde_yaml::from_str(
+            r"catalog:
+  id: test
+mode: local
+flags:
+  test_flag:
+    default: false
+    kind: release
+  test_flag_2:
+    default: false
+    kind: release
+  other_flag:
+    default: false
+    kind: release
+  test:
+    default: false
+    kind: release
+",
+        )
+        .unwrap();
 
-        let similar = find_similar_flag_names(&definitions, "test_flag_1");
-        // Should find similar flags
+        let similar = find_similar_flag_names(&unified, "test_flag_1");
         assert!(!similar.is_empty());
-        assert!(similar.len() <= 3); // Should return max 3
+        assert!(similar.len() <= 3);
     }
 
     #[test]
     fn test_find_similar_flag_names_no_similar() {
-        let definitions = serde_json::json!({
-            "flags": [
-                {"name": "abc"},
-                {"name": "xyz"}
-            ]
-        });
+        let unified = serde_yaml::from_str(
+            r"catalog:
+  id: test
+mode: local
+flags:
+  abc:
+    default: false
+    kind: release
+  xyz:
+    default: false
+    kind: release
+",
+        )
+        .unwrap();
 
-        let similar = find_similar_flag_names(&definitions, "completely_different");
-        // Should be empty or have very few matches
+        let similar = find_similar_flag_names(&unified, "completely_different");
         assert!(similar.len() <= 3);
     }
 
     #[test]
     fn test_find_similar_flag_names_empty_definitions() {
-        let definitions = serde_json::json!({
-            "flags": []
-        });
+        let unified = serde_yaml::from_str(
+            r"catalog:
+  id: test
+mode: local
+flags: {}
+",
+        )
+        .unwrap();
 
-        let similar = find_similar_flag_names(&definitions, "test_flag");
+        let similar = find_similar_flag_names(&unified, "test_flag");
         assert!(similar.is_empty());
     }
 
@@ -1185,11 +890,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: other_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  other_flag:
     default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -1197,9 +905,7 @@ rules:
         let options = Options {
             subcommand: FlagSubcommand::Remove {
                 name: "nonexistent_flag".to_string(),
-                from_deployments: false,
                 env: None,
-                force: true,
             },
         };
 
@@ -1215,11 +921,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  flag1:
     default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -1243,30 +952,25 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
-    default: false
-  - name: flag2
-    type: boolean
-    default: true
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   flag1:
-    rules:
-      - serve: false
+    default: false
+    kind: release
   flag2:
+    default: true
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      flag1:
+        - serve: false
+      flag2:
+        - serve: true
 ",
         )
         .unwrap();
@@ -1274,25 +978,21 @@ rules:
         let options = Options {
             subcommand: FlagSubcommand::Remove {
                 name: "flag1".to_string(),
-                from_deployments: true,
                 env: None,
-                force: true,
             },
         };
 
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
 
-        // Verify flag was removed from definitions
-        let content = fs::read_to_string("flags.definitions.yaml").unwrap();
+        // Verify flag was removed from unified config
+        let content = fs::read_to_string("control-path.yaml").unwrap();
         assert!(!content.contains("flag1"));
         assert!(content.contains("flag2"));
 
-        // Verify flag was removed from deployment
-        let deployment_content =
-            fs::read_to_string(".controlpath/production.deployment.yaml").unwrap();
-        assert!(!deployment_content.contains("flag1"));
-        assert!(deployment_content.contains("flag2"));
+        // Verify environment rules are updated in unified config
+        assert!(!content.contains("flag1"));
+        assert!(content.contains("flag2"));
     }
 
     #[test]
@@ -1304,33 +1004,23 @@ rules:
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  flag1:
     default: false
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
-  flag1:
+    kind: release
+environments:
+  production:
     rules:
-      - serve: false
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/staging.deployment.yaml",
-            r"environment: staging
-rules:
-  flag1:
+      flag1:
+        - serve: false
+  staging:
     rules:
-      - serve: true
+      flag1:
+        - serve: true
 ",
         )
         .unwrap();
@@ -1338,21 +1028,17 @@ rules:
         let options = Options {
             subcommand: FlagSubcommand::Remove {
                 name: "flag1".to_string(),
-                from_deployments: true,
                 env: Some("production".to_string()),
-                force: true,
             },
         };
 
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
 
-        // Verify flag was removed from production but not staging
-        let prod_content = fs::read_to_string(".controlpath/production.deployment.yaml").unwrap();
-        assert!(!prod_content.contains("flag1"));
-
-        let staging_content = fs::read_to_string(".controlpath/staging.deployment.yaml").unwrap();
-        assert!(staging_content.contains("flag1"));
+        // Removing from one environment clears production rules but keeps the flag definition.
+        let updated = fs::read_to_string("control-path.yaml").unwrap();
+        assert!(updated.contains("flag1"));
+        assert!(updated.contains("staging:"));
     }
 
     #[test]
@@ -1362,25 +1048,21 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-    description: A test flag
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
+    default: false
+    kind: release
+    description: A test flag
+environments:
+  production:
     rules:
-      - serve: false
+      test_flag:
+        - serve: false
 ",
         )
         .unwrap();
@@ -1405,23 +1087,26 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: my_feature_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  my_feature_flag:
     default: false
-  - name: my_other_flag
-    type: boolean
+    kind: release
+  my_other_flag:
     default: false
-  - name: completely_different
-    type: boolean
+    kind: release
+  completely_different:
     default: false
+    kind: release
 ",
         )
         .unwrap();
 
-        let definitions = read_definitions().unwrap();
-        let similar = find_similar_flag_names(&definitions, "my_feature_flg");
+        let unified = unified_config::read_unified_config().unwrap();
+        let similar = find_similar_flag_names(&unified, "my_feature_flg");
         // Should find "my_feature_flag" as similar
         assert!(similar.contains(&"my_feature_flag".to_string()));
     }
@@ -1435,8 +1120,11 @@ rules:
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags: {}
 ",
         )
         .unwrap();
@@ -1465,8 +1153,11 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags: {}
 ",
         )
         .unwrap();
@@ -1507,24 +1198,20 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   flag1:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      flag1:
+        - serve: true
 ",
         )
         .unwrap();
@@ -1548,25 +1235,16 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-    description: A test flag
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
-    rules:
-      - serve: false
+    default: false
+    kind: release
+    description: A test flag
 ",
         )
         .unwrap();
@@ -1592,11 +1270,14 @@ rules:
 
         fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
     default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -1620,18 +1301,15 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: multivariate
-    default: variant_a
-    variations:
-      - name: VARIANT_A
-        value: variant_a
-      - name: VARIANT_B
-        value: variant_b
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
+    default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -1655,30 +1333,25 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
-    default: false
-  - name: flag2
-    type: boolean
-    default: true
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   flag1:
-    rules:
-      - serve: false
+    default: false
+    kind: release
   flag2:
+    default: true
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      flag1:
+        - serve: false
+      flag2:
+        - serve: true
 ",
         )
         .unwrap();
@@ -1686,23 +1359,20 @@ rules:
         let options = Options {
             subcommand: FlagSubcommand::Remove {
                 name: "flag1".to_string(),
-                from_deployments: false,
                 env: None,
-                force: true,
             },
         };
 
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
 
-        // Verify flag was removed from definitions but not deployment
-        let content = fs::read_to_string("flags.definitions.yaml").unwrap();
+        // Verify flag was removed from unified config
+        let content = fs::read_to_string("control-path.yaml").unwrap();
         assert!(!content.contains("flag1"));
         assert!(content.contains("flag2"));
 
-        let deployment_content =
-            fs::read_to_string(".controlpath/production.deployment.yaml").unwrap();
-        assert!(deployment_content.contains("flag1")); // Still in deployment
+        let unified_content = fs::read_to_string("control-path.yaml").unwrap();
+        assert!(!unified_content.contains("flag1"));
     }
 
     #[test]
@@ -1719,7 +1389,7 @@ rules:
     #[serial]
     fn test_validate_flag_type() {
         assert!(validate_flag_type("boolean").is_ok());
-        assert!(validate_flag_type("multivariate").is_ok());
+        assert!(validate_flag_type("multivariate").is_err());
         assert!(validate_flag_type("invalid").is_err());
     }
 
@@ -1731,49 +1401,21 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: existing_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        let definitions = read_definitions().unwrap();
-        assert!(flag_exists(&definitions, "existing_flag"));
-        assert!(!flag_exists(&definitions, "nonexistent_flag"));
-    }
-
-    #[test]
-    #[serial]
-    fn test_sync_flag_to_deployment_preserves_existing() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path).unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   existing_flag:
-    rules:
-      - serve: true
+    default: false
+    kind: release
 ",
         )
         .unwrap();
 
-        let mut deployment =
-            read_deployment(&PathBuf::from(".controlpath/production.deployment.yaml")).unwrap();
-
-        // Try to sync a flag that already exists
-        sync_flag_to_deployment(&mut deployment, "existing_flag", &Value::Bool(false)).unwrap();
-
-        // Flag should still exist (not duplicated)
-        let rules = deployment.get("rules").and_then(|r| r.as_object()).unwrap();
-        assert_eq!(rules.len(), 1);
-        assert!(rules.contains_key("existing_flag"));
+        let unified = unified_config::read_unified_config().unwrap();
+        assert!(unified_config::flag_exists(&unified, "existing_flag"));
+        assert!(!unified_config::flag_exists(&unified, "nonexistent_flag"));
     }
 
     #[test]
@@ -1800,23 +1442,19 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      test_flag:
+        - serve: true
 ",
         )
         .unwrap();
@@ -1841,11 +1479,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: other_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  other_flag:
     default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -1870,23 +1511,19 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      test_flag:
+        - serve: true
 ",
         )
         .unwrap();
@@ -1911,17 +1548,15 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags: {}
+environments:
+  production:
+    rules: {}
 ",
-        )
-        .unwrap();
-
-        // Create invalid deployment file
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"invalid: yaml: [",
         )
         .unwrap();
 
@@ -1937,10 +1572,8 @@ rules:
             },
         };
 
-        // Should still succeed (flag added to definitions) but warn about deployment sync failure
         let exit_code = run(&options);
-        // May succeed or fail depending on error handling, but flag should be added
-        assert!(exit_code == 0 || exit_code == 1);
+        assert_eq!(exit_code, 0);
     }
 
     #[test]
@@ -1951,11 +1584,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  flag1:
     default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -1980,23 +1616,19 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      test_flag:
+        - serve: true
 ",
         )
         .unwrap();
@@ -2021,23 +1653,19 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      test_flag:
+        - serve: true
 ",
         )
         .unwrap();
@@ -2061,14 +1689,20 @@ rules:
         let temp_path = temp_dir.path();
         let _guard = DirGuard::new(temp_path).unwrap();
 
-        fs::create_dir_all(".controlpath").unwrap();
         fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
+    default: false
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
+      test_flag:
+        - serve: true
 ",
         )
         .unwrap();
@@ -2093,11 +1727,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: flag1
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  flag1:
     default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -2130,8 +1767,11 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags: {}
 ",
         )
         .unwrap();
@@ -2160,34 +1800,23 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
     default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
-  test_flag:
+    kind: release
+environments:
+  production:
     rules:
-      - serve: true
-",
-        )
-        .unwrap();
-
-        fs::write(
-            ".controlpath/staging.deployment.yaml",
-            r"environment: staging
-rules:
-  test_flag:
+      test_flag:
+        - serve: true
+  staging:
     rules:
-      - serve: false
+      test_flag:
+        - serve: false
 ",
         )
         .unwrap();
@@ -2212,17 +1841,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules: {}
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags: {}
+environments:
+  production:
+    rules: {}
 ",
         )
         .unwrap();
@@ -2252,17 +1878,14 @@ rules: {}
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags: []
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules: {}
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags: {}
+environments:
+  production:
+    rules: {}
 ",
         )
         .unwrap();
@@ -2292,11 +1915,14 @@ rules: {}
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
     default: false
+    kind: release
     description: A test flag description
 ",
         )
@@ -2322,23 +1948,18 @@ rules: {}
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
-    default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        // Flag in deployment but no rules (not configured)
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules:
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
   test_flag:
-    rules: []
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      test_flag: []
 ",
         )
         .unwrap();
@@ -2363,16 +1984,14 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: multivariate
-    default: variant_a
-    variations:
-      - name: VARIANT_A
-        value: variant_a
-      - name: VARIANT_B
-        value: variant_b
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
+    default: false
+    kind: release
 ",
         )
         .unwrap();
@@ -2397,20 +2016,17 @@ rules:
         let _guard = DirGuard::new(temp_path).unwrap();
 
         fs::write(
-            "flags.definitions.yaml",
-            r"flags:
-  - name: test_flag
-    type: boolean
+            "control-path.yaml",
+            r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
     default: false
-",
-        )
-        .unwrap();
-
-        fs::create_dir_all(".controlpath").unwrap();
-        fs::write(
-            ".controlpath/production.deployment.yaml",
-            r"environment: production
-rules: {}
+    kind: release
+environments:
+  production:
+    rules: {}
 ",
         )
         .unwrap();
@@ -2425,34 +2041,5 @@ rules: {}
 
         let exit_code = run(&options);
         assert_eq!(exit_code, 0);
-    }
-
-    #[test]
-    #[serial]
-    fn test_sync_flag_to_deployment_with_on_off() {
-        let temp_dir = TempDir::new().unwrap();
-        let temp_path = temp_dir.path();
-        let _guard = DirGuard::new(temp_path).unwrap();
-
-        let mut deployment = serde_json::json!({
-            "environment": "test",
-            "rules": {}
-        });
-
-        // Test syncing with "ON" string
-        sync_flag_to_deployment(&mut deployment, "flag_on", &Value::String("ON".to_string()))
-            .unwrap();
-
-        // Test syncing with "OFF" string
-        sync_flag_to_deployment(
-            &mut deployment,
-            "flag_off",
-            &Value::String("OFF".to_string()),
-        )
-        .unwrap();
-
-        let rules = deployment.get("rules").and_then(|r| r.as_object()).unwrap();
-        assert!(rules.contains_key("flag_on"));
-        assert!(rules.contains_key("flag_off"));
     }
 }

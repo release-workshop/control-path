@@ -24,12 +24,6 @@ export interface Attributes {
   [key: string]: unknown;
 }
 
-{% for variation_type in variation_types %}
-export type {{ variation_type.name }} =
-{% for value in variation_type.values %}{% if not loop.first %} |
-{% endif %}  {{ value }}{% endfor %};
-{% endfor %}
-
 {% if flag_names %}
 export type FlagName =
 {% for name in flag_names %}{% if not loop.first %} |
@@ -38,7 +32,6 @@ export type FlagName =
 
 export type FlagReturnTypes = {
 {% for flag in flags %}
-  {{ flag.camel_name }}: {{ flag.return_type }};
+  {{ flag.camel_name }}: boolean;
 {% endfor %}
 };
-

@@ -3,7 +3,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::Mutex;
 use tempfile::TempDir;
+
+static CWD_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 /// Guard for changing the current working directory in tests.
 /// Automatically restores the original directory when dropped.
@@ -24,10 +27,13 @@ use tempfile::TempDir;
 #[allow(dead_code)] // May be used by integration tests
 pub struct DirGuard {
     original_dir: PathBuf,
+    _lock: std::sync::MutexGuard<'static, ()>,
 }
 
 impl DirGuard {
     /// Create a new DirGuard and change to the specified directory.
+    ///
+    /// Holds a process-wide lock so parallel integration tests cannot race on `set_current_dir`.
     ///
     /// # Errors
     ///
@@ -37,11 +43,20 @@ impl DirGuard {
     /// - The directory can't be changed to
     #[allow(dead_code)] // May be used by integration tests
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
+        let _lock = CWD_TEST_MUTEX.lock().map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("cwd test mutex poisoned: {e}"),
+            )
+        })?;
         let path = path.as_ref();
         fs::create_dir_all(path)?;
         let original_dir = std::env::current_dir()?;
         std::env::set_current_dir(path)?;
-        Ok(DirGuard { original_dir })
+        Ok(DirGuard {
+            original_dir,
+            _lock,
+        })
     }
 }
 
@@ -102,96 +117,14 @@ impl TestProject {
         project
     }
 
-    /// Create a test project with config (with_definitions is now for config)
-    /// Also creates legacy files for commands that don't support config yet
+    /// Create a test project with a v2 catalog (environment rules live in control-path.yaml).
     #[allow(dead_code)] // Used across multiple test files
     pub fn with_deployment(
         definitions_content: &str,
-        env: &str,
+        _env: &str,
         _deployment_content: &str,
     ) -> Self {
-        // Create config
-        let project = Self::with_definitions(definitions_content);
-
-        // Also create legacy files for commands that don't support config yet (flag, env)
-        // Parse config and extract flags for legacy format
-        if let Ok(unified) = serde_yaml::from_str::<serde_json::Value>(definitions_content) {
-            if let Some(flags) = unified.get("flags").and_then(|f| f.as_array()) {
-                // Create legacy definitions format
-                let mut legacy_flags = Vec::new();
-                let mut deployment_rules = serde_json::Map::new();
-
-                for flag in flags {
-                    let mut legacy_flag = flag.clone();
-                    if let Some(flag_name) = flag.get("name").and_then(|n| n.as_str()) {
-                        if let Some(obj) = legacy_flag.as_object_mut() {
-                            // Remove environments (not in definitions)
-                            obj.remove("environments");
-                            // Ensure both default and defaultValue exist
-                            if let Some(default_val) = obj.get("default").cloned() {
-                                if !obj.contains_key("defaultValue") {
-                                    obj.insert("defaultValue".to_string(), default_val.clone());
-                                }
-                            }
-
-                            // Add flag to deployment rules if it has environment rules
-                            if let Some(envs) = flag.get("environments").and_then(|e| e.as_object())
-                            {
-                                if envs.contains_key(env) {
-                                    // Flag has rules for this environment, add to deployment
-                                    let mut flag_rules_obj = serde_json::Map::new();
-                                    let mut rules_array = Vec::new();
-                                    if let Some(env_rules) =
-                                        envs.get(env).and_then(|r| r.as_array())
-                                    {
-                                        for rule in env_rules {
-                                            rules_array.push(rule.clone());
-                                        }
-                                    }
-                                    flag_rules_obj.insert(
-                                        "rules".to_string(),
-                                        serde_json::json!(rules_array),
-                                    );
-                                    deployment_rules.insert(
-                                        flag_name.to_string(),
-                                        serde_json::json!(flag_rules_obj),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    legacy_flags.push(legacy_flag);
-                }
-
-                let legacy_definitions = serde_yaml::to_string(&serde_json::json!({
-                    "flags": legacy_flags
-                }))
-                .unwrap();
-                fs::write(
-                    project.project_path.join("flags.definitions.yaml"),
-                    legacy_definitions,
-                )
-                .unwrap();
-
-                // Also create legacy deployment file with rules
-                fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
-                let deployment = serde_yaml::to_string(&serde_json::json!({
-                    "environment": env,
-                    "rules": deployment_rules
-                }))
-                .unwrap();
-                fs::write(
-                    project
-                        .project_path
-                        .join(".controlpath")
-                        .join(format!("{}.deployment.yaml", env)),
-                    deployment,
-                )
-                .unwrap();
-            }
-        }
-
-        project
+        Self::with_definitions(definitions_content)
     }
 
     /// Get path to a file in the project
@@ -403,19 +336,24 @@ main();
     }
 }
 
-/// Create a simple test flag definition (config format)
+/// Create a simple v2 test catalog
+#[allow(dead_code)] // Used by other integration test crates
 pub fn simple_flag_definition(flag_name: &str) -> String {
     format!(
-        r"mode: local
+        r"catalog:
+  id: test-service
+mode: local
 flags:
-  - name: {}
-    type: boolean
+  {}:
     default: false
-    environments:
-      production:
+    kind: release
+environments:
+  production:
+    rules:
+      {}:
         - serve: true
 ",
-        flag_name
+        flag_name, flag_name
     )
 }
 

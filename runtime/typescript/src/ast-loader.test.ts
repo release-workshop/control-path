@@ -4,7 +4,7 @@
  * See the LICENSE file in the project root for details.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readFile, writeFile, mkdir, rm, stat } from 'fs/promises';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
@@ -515,6 +515,41 @@ describe('AST Loader', () => {
   });
 
   describe('loadFromURL', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+      vi.restoreAllMocks();
+    });
+
+    function headersWith(values: Record<string, string>): Headers {
+      return {
+        get: (name: string) => values[name.toLowerCase()] ?? null,
+      } as Headers;
+    }
+
+    function fetchAbortingOnSignal(): typeof fetch {
+      return vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            reject(new Error('expected AbortSignal'));
+            return;
+          }
+          if (signal.aborted) {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            reject(err);
+            return;
+          }
+          signal.addEventListener('abort', () => {
+            const err = new Error('Aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      }) as typeof fetch;
+    }
 
     it('should throw error for invalid URL', async () => {
       await expect(loadFromURL('not-a-valid-url')).rejects.toThrow('Invalid URL');
@@ -527,70 +562,197 @@ describe('AST Loader', () => {
     });
 
     it('should throw error for 404 response', async () => {
-      // Use a URL that will return 404
-      await expect(loadFromURL('https://httpbin.org/status/404')).rejects.toThrow(
-        'Failed to load AST from URL'
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: headersWith({}),
+        arrayBuffer: async () => new ArrayBuffer(0),
+      })) as typeof fetch;
+
+      await expect(loadFromURL('https://example.com/missing.ast')).rejects.toThrow(
+        'Failed to load AST from URL https://example.com/missing.ast: 404 Not Found'
       );
-    }, 10000); // 10 second timeout for HTTP request
+    });
 
     it('should handle timeout', async () => {
-      // Use a URL that will timeout (very short timeout)
-      await expect(loadFromURL('https://httpbin.org/delay/10', 100)).rejects.toThrow('Timeout');
+      global.fetch = fetchAbortingOnSignal();
+
+      await expect(loadFromURL('https://example.com/slow.ast', 100)).rejects.toThrow(
+        'Timeout loading AST from URL https://example.com/slow.ast after 100ms'
+      );
+    });
+
+    it('should load a valid artifact from a mocked URL', async () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'production',
+        strs: [],
+        flags: [],
+        flagNames: [],
+      };
+      const buffer = Buffer.from(pack(artifact));
+      const arrayBuffer = buffer.buffer.slice(
+        buffer.byteOffset,
+        buffer.byteOffset + buffer.byteLength
+      );
+
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: headersWith({ 'content-type': 'application/octet-stream' }),
+        arrayBuffer: async () => arrayBuffer,
+      })) as typeof fetch;
+
+      const loaded = await loadFromURL('https://example.com/production.ast');
+      expect(loaded.artifact.env).toBe('production');
+    });
+
+    it('should fail init-style GET on HTTP 304 without If-None-Match', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 304,
+        statusText: 'Not Modified',
+        headers: headersWith({}),
+      })) as typeof fetch;
+
+      await expect(loadFromURL('https://example.com/production.ast')).rejects.toThrow(
+        '304 Not Modified without If-None-Match'
+      );
+    });
+
+    it('should throw ArtifactNotModifiedError on HTTP 304 when etag is sent', async () => {
+      global.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        const headers = init?.headers as Record<string, string> | undefined;
+        expect(headers?.['If-None-Match']).toBe('"cached"');
+        return {
+          ok: false,
+          status: 304,
+          statusText: 'Not Modified',
+          headers: headersWith({ etag: '"cached"' }),
+        };
+      }) as typeof fetch;
+
+      const { ArtifactNotModifiedError: NotModified } = await import('./ast-loader');
+      await expect(
+        loadFromURL('https://example.com/production.ast', 30000, undefined, {
+          etag: '"cached"',
+        })
+      ).rejects.toBeInstanceOf(NotModified);
+    });
+
+    it('should return etag from response headers on success', async () => {
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'production',
+        strs: [],
+        flags: [],
+        flagNames: [],
+      };
+      const buffer = Buffer.from(pack(artifact));
+      const arrayBuffer = buffer.buffer.slice(
+        buffer.byteOffset,
+        buffer.byteOffset + buffer.byteLength
+      );
+
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: headersWith({
+          'content-type': 'application/octet-stream',
+          etag: '"v1"',
+        }),
+        arrayBuffer: async () => arrayBuffer,
+      })) as typeof fetch;
+
+      const loaded = await loadFromURL('https://example.com/production.ast');
+      expect(loaded.etag).toBe('"v1"');
+      expect(loaded.artifact.env).toBe('production');
     });
 
     describe('redirect limits', () => {
-      it('should follow redirects up to MAX_REDIRECTS', async () => {
-        // Use httpbin redirect endpoint - redirects 5 times then returns 200
-        // Note: This test may be flaky if httpbin is unavailable
-        try {
-          // httpbin redirects to itself, so we'll hit the limit
-          await expect(loadFromURL('https://httpbin.org/redirect/6')).rejects.toThrow(
-            'Too many redirects'
-          );
-        } catch (error) {
-          // If httpbin is unavailable, skip this test
-          if (error instanceof Error && error.message.includes('Failed to load')) {
-            // Network error, skip test
-            return;
-          }
-          throw error;
-        }
-      }, 15000); // 15 second timeout for redirect test
+      it('should reject when redirect limit is exceeded', async () => {
+        global.fetch = vi.fn(async () => ({
+          ok: false,
+          status: 302,
+          statusText: 'Found',
+          headers: headersWith({ location: 'https://example.com/next' }),
+        })) as typeof fetch;
+
+        await expect(loadFromURL('https://example.com/start.ast')).rejects.toThrow(
+          'Too many redirects (max: 5)'
+        );
+        expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(6);
+      });
 
       it('should reject redirects without location header', async () => {
-        // Use a URL that returns 3xx without location header
-        // Note: This is hard to test without a mock server
-        // We'll test the error handling path exists
-        try {
-          await expect(loadFromURL('https://httpbin.org/status/301')).rejects.toThrow();
-        } catch (error) {
-          // Accept any error (could be redirect without location or other error)
-          expect(error).toBeInstanceOf(Error);
-        }
+        global.fetch = vi.fn(async () => ({
+          ok: false,
+          status: 301,
+          statusText: 'Moved Permanently',
+          headers: headersWith({}),
+        })) as typeof fetch;
+
+        await expect(loadFromURL('https://example.com/here.ast')).rejects.toThrow(
+          'Redirect without location header: 301'
+        );
       });
 
       it('should cap timeout at MAX_URL_TIMEOUT', async () => {
-        // Test that timeout is capped at 5 minutes
-        // Request with timeout > 5 minutes should be capped
-        const veryLongTimeout = 10 * 60 * 1000; // 10 minutes
-        const effectiveTimeout = Math.min(veryLongTimeout, 5 * 60 * 1000); // Should be 5 minutes
-
-        // This test verifies the timeout capping logic exists
-        // Actual timeout behavior is tested in the timeout test above
+        const veryLongTimeout = 10 * 60 * 1000;
+        const effectiveTimeout = Math.min(veryLongTimeout, 5 * 60 * 1000);
         expect(effectiveTimeout).toBe(5 * 60 * 1000);
       });
 
-      it('should handle invalid redirect URL', async () => {
-        // This tests the error path when redirect URL is invalid
-        // We can't easily mock this, but we can verify the code path exists
-        // by checking that the error handling is in place
-        try {
-          // Use a URL that might redirect to an invalid URL
-          await loadFromURL('https://httpbin.org/redirect/1');
-        } catch (error) {
-          // Accept any error - could be invalid redirect URL or other error
-          expect(error).toBeInstanceOf(Error);
-        }
+      it('should reject invalid redirect URL', async () => {
+        global.fetch = vi.fn(async () => ({
+          ok: false,
+          status: 302,
+          statusText: 'Found',
+          headers: headersWith({ location: 'https://[' }),
+        })) as typeof fetch;
+
+        await expect(loadFromURL('https://example.com/here.ast')).rejects.toThrow(
+          'Invalid redirect URL: https://['
+        );
+      });
+
+      it('should follow a valid redirect then load the artifact', async () => {
+        const artifact: Artifact = {
+          v: '1.0',
+          env: 'staging',
+          strs: [],
+          flags: [],
+          flagNames: [],
+        };
+        const buffer = Buffer.from(pack(artifact));
+        const arrayBuffer = buffer.buffer.slice(
+          buffer.byteOffset,
+          buffer.byteOffset + buffer.byteLength
+        );
+
+        global.fetch = vi
+          .fn()
+          .mockResolvedValueOnce({
+            ok: false,
+            status: 302,
+            statusText: 'Found',
+            headers: headersWith({ location: 'https://example.com/final.ast' }),
+          })
+          .mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            headers: headersWith({ 'content-type': 'application/octet-stream' }),
+            arrayBuffer: async () => arrayBuffer,
+          }) as typeof fetch;
+
+        const loaded = await loadFromURL('https://example.com/start.ast');
+        expect(loaded.artifact.env).toBe('staging');
+        expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(global.fetch).mock.calls[1][0]).toBe('https://example.com/final.ast');
       });
 
       it('should warn on unexpected content type', async () => {
@@ -608,8 +770,6 @@ describe('AST Loader', () => {
           buffer.byteOffset + buffer.byteLength
         );
 
-        // Mock fetch to return unexpected content type
-        const originalFetch = global.fetch;
         const warnMessages: string[] = [];
         const logger = {
           warn: (message: string) => {
@@ -617,27 +777,18 @@ describe('AST Loader', () => {
           },
         };
 
-        global.fetch = async () => {
-          return {
-            ok: true,
-            status: 200,
-            statusText: 'OK',
-            headers: new Headers({
-              'content-type': 'text/html', // Unexpected content type
-            }),
-            arrayBuffer: async () => arrayBuffer,
-          } as Response;
-        };
+        global.fetch = vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          headers: headersWith({ 'content-type': 'text/html' }),
+          arrayBuffer: async () => arrayBuffer,
+        })) as typeof fetch;
 
-        try {
-          await loadFromURL('https://example.com/test.ast', 30000, logger);
-          // Should still load but warn about content type
-          expect(warnMessages.length).toBeGreaterThan(0);
-          expect(warnMessages[0]).toContain('Unexpected Content-Type');
-        } finally {
-          global.fetch = originalFetch;
-        }
-      }, 10000);
+        await loadFromURL('https://example.com/test.ast', 30000, logger);
+        expect(warnMessages.length).toBeGreaterThan(0);
+        expect(warnMessages[0]).toContain('Unexpected Content-Type');
+      });
     });
   });
 

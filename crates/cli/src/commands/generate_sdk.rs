@@ -1,79 +1,104 @@
 //! Generate SDK command implementation
 
-use crate::error::{CliError, CliResult};
+use crate::error::CliResult;
 use crate::generator::generate_sdk;
+use crate::utils::catalog;
 use crate::utils::language;
+use crate::utils::runtime;
 use crate::utils::unified_config;
-use controlpath_compiler::{parse_definitions, validate_definitions};
-use std::fs;
+use std::env;
 use std::path::PathBuf;
 
 pub struct Options {
     pub lang: Option<String>,
     pub output: Option<String>,
-    pub definitions: Option<String>,
 }
 
-fn determine_definitions_path(options: &Options) -> PathBuf {
-    PathBuf::from(
-        options
-            .definitions
-            .as_deref()
-            .unwrap_or("flags.definitions.yaml"),
-    )
-}
-
-fn determine_output_path(options: &Options) -> PathBuf {
-    PathBuf::from(options.output.as_deref().unwrap_or("./flags"))
+fn determine_output_path(options: &Options, unified: Option<&serde_json::Value>) -> PathBuf {
+    if let Some(ref output) = options.output {
+        PathBuf::from(output)
+    } else if let Some(config) = unified {
+        if let Some(config_output) = unified_config::get_sdk_output_path(config) {
+            PathBuf::from(config_output)
+        } else {
+            PathBuf::from("node_modules/@controlpath/generated")
+        }
+    } else {
+        PathBuf::from("node_modules/@controlpath/generated")
+    }
 }
 
 pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
-        Ok(()) => {
-            println!("✓ SDK generated successfully");
+        Ok(output_path) => {
+            if runtime::is_json_output() {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "ok",
+                        "command": "generate-sdk",
+                        "artifacts": [output_path.display().to_string()],
+                        "warnings": [],
+                        "errors": []
+                    })
+                );
+            } else {
+                println!("✓ SDK generated successfully");
+            }
             0
         }
         Err(e) => {
-            eprintln!("✗ SDK generation failed");
-            eprintln!("  Error: {e}");
+            if runtime::is_json_output() {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "status": "error",
+                        "command": "generate-sdk",
+                        "artifacts": [],
+                        "warnings": [],
+                        "errors": [e.to_string()]
+                    })
+                );
+            } else {
+                eprintln!("✗ SDK generation failed");
+                eprintln!("  Error: {e}");
+            }
             1
         }
     }
 }
 
-fn run_inner(options: &Options) -> CliResult<()> {
-    let output_path = determine_output_path(options);
-
-    // Check if using config (when no explicit definitions file is specified)
-    let definitions = if options.definitions.is_none() && unified_config::unified_config_exists() {
-        // Use config
-        let unified = unified_config::read_unified_config()?;
-        unified_config::extract_definitions(&unified)?
-    } else {
-        // Use legacy file-based approach
-        let definitions_path = determine_definitions_path(options);
-        let definitions_content = fs::read_to_string(&definitions_path)
-            .map_err(|e| CliError::Message(format!("Failed to read definitions file: {e}")))?;
-        parse_definitions(&definitions_content)?
-    };
-
-    // Validate definitions
-    validate_definitions(&definitions)?;
-
-    // Determine language (priority: CLI flag > Config > Auto-detect > Default)
+fn run_inner(options: &Options) -> CliResult<PathBuf> {
+    let unified = unified_config::read_unified_config().ok();
+    let base_dir = env::current_dir().map_err(|e| {
+        crate::error::CliError::Message(format!("Failed to resolve working directory: {e}"))
+    })?;
+    let sdk_catalog = catalog::load_sdk_catalog_for_generate(&base_dir)?;
+    let output_path = determine_output_path(options, unified.as_ref());
     let language = language::determine_language(options.lang.clone())?.to_lowercase();
 
-    // Generate SDK
-    generate_sdk(&language, &definitions, &output_path)?;
+    generate_sdk(&language, &sdk_catalog, &output_path)?;
 
-    println!("  Generated SDK to {}", output_path.display());
-    Ok(())
+    if !runtime::is_json_output() {
+        println!("  Generated SDK to {}", output_path.display());
+        println!();
+        println!("Next steps:");
+        println!(
+            "  • Import SDK in your code: import {{ evaluator }} from '@controlpath/generated'"
+        );
+        println!(
+            "  • Initialize evaluator:   await evaluator.init({{ artifact: './.controlpath/<env>.ast' }})"
+        );
+        println!("  • Use flags in code:       const enabled = await evaluator.<flagName>(user)");
+    }
+    Ok(output_path)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::generator::generate_sdk;
+    use controlpath_compiler::{build_sdk_catalog, parse_catalog};
+    use std::collections::BTreeMap;
     use tempfile::TempDir;
 
     #[test]
@@ -81,19 +106,23 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let output_path = temp_dir.path().join("generated");
 
-        let definitions_content = r#"flags:
-  - name: test_flag
-    type: boolean
+        let catalog = parse_catalog(
+            r#"
+catalog:
+  id: svc
+flags:
+  test_flag:
     default: false
-"#;
+    kind: release
+"#,
+            Some("control-path.yaml"),
+        )
+        .unwrap();
+        let sdk = build_sdk_catalog(&catalog, &BTreeMap::new()).unwrap();
 
-        let definitions = parse_definitions(definitions_content).unwrap();
-        let result = generate_sdk("typescript", &definitions, &output_path);
+        let result = generate_sdk("typescript", &sdk, &output_path);
         assert!(result.is_ok());
-
-        // Verify files were created
         assert!(output_path.join("index.ts").exists());
         assert!(output_path.join("types.ts").exists());
-        assert!(output_path.join("package.json").exists());
     }
 }

@@ -26,7 +26,7 @@ The CLI is distributed as a native binary for:
 
 ### `validate`
 
-Validate flag definitions and deployment files against JSON schemas.
+Validate `control-path.yaml` and environment rules against schemas.
 
 #### Usage
 
@@ -36,7 +36,6 @@ controlpath validate [OPTIONS]
 
 #### Options
 
-- `--config <FILE>`: Path to configuration file (default: `control-path.yaml`)
 - `--env <ENV>`: Validate specific environment rules
 - `--all`: Validate all environments in the configuration file
 
@@ -46,12 +45,6 @@ Validate the configuration file:
 
 ```bash
 controlpath validate
-```
-
-Validate a specific configuration file:
-
-```bash
-controlpath validate --config control-path.yaml
 ```
 
 Validate specific environment:
@@ -73,7 +66,7 @@ controlpath validate --all
 
 ### `compile`
 
-Compile deployment files to AST artifacts.
+Compile environment rules from `control-path.yaml` into AST artifacts.
 
 #### Usage
 
@@ -83,8 +76,7 @@ controlpath compile [OPTIONS]
 
 #### Options
 
-- `--config <FILE>`: Path to configuration file (default: `control-path.yaml`)
-- `--env <ENV>`: Environment name (required)
+- `--env <ENV>`: Environment name
 - `--output <FILE>`: Output path for AST file (default: `.controlpath/<env>.ast`)
 
 #### Examples
@@ -99,15 +91,6 @@ This will:
 1. Read `control-path.yaml`
 2. Extract production environment rules
 3. Compile to `.controlpath/production.ast`
-
-Compile with explicit config path:
-
-```bash
-controlpath compile \
-  --config control-path.yaml \
-  --env production \
-  --output .controlpath/production.ast
-```
 
 Compile with custom output path:
 
@@ -134,6 +117,7 @@ controlpath setup [OPTIONS]
 
 - `--lang <LANGUAGE>`: Language for SDK generation (auto-detected if not provided)
 - `--skip-install`: Skip installing runtime SDK package
+- `--no-examples`: Skip creating example flags/usage files
 
 #### Examples
 
@@ -172,25 +156,25 @@ controlpath watch [OPTIONS]
 
 #### Options
 
-- `--lang <LANGUAGE>`: Language for SDK generation (default: typescript, required when watching definitions)
-- `--definitions`: Watch definitions file only
-- `--deployments`: Watch deployment files only
+- `--lang <LANGUAGE>`: Language for SDK generation (default: typescript; used when SDK regeneration runs)
+- `--definitions`: Regenerate SDK only when `control-path.yaml` changes (skip AST recompilation)
+- `--deployments`: Recompile AST artifacts only when `control-path.yaml` changes (skip SDK regeneration)
 
 #### Examples
 
-Watch everything (definitions + deployments):
+Watch everything (SDK + AST recompilation):
 
 ```bash
 controlpath watch --lang typescript
 ```
 
-Watch definitions only (regenerates SDK on change):
+Regenerate SDK only on catalog changes:
 
 ```bash
 controlpath watch --definitions --lang typescript
 ```
 
-Watch deployments only (recompiles AST on change):
+Recompile ASTs only on catalog changes:
 
 ```bash
 controlpath watch --deployments
@@ -198,11 +182,12 @@ controlpath watch --deployments
 
 #### Behavior
 
-- Validates files exist before watching
-- Shows what files are being watched on startup
-- Watches `control-path.yaml` → Regenerates SDK and recompiles ASTs (if `--lang` provided)
-- Shows output when files change
-- Handles file errors gracefully
+- Validates `control-path.yaml` exists before watching
+- Watches `control-path.yaml` for changes
+- Default (no flags): regenerates SDK and recompiles all environment ASTs
+- `--definitions`: SDK regeneration only
+- `--deployments`: AST recompilation only
+- Shows output when the catalog changes
 - Runs until interrupted (Ctrl+C)
 
 #### Exit Codes
@@ -223,29 +208,30 @@ controlpath explain [OPTIONS]
 #### Options
 
 - `--flag <NAME>`: Flag name (required)
-- `--attributes <FILE|JSON>`: Attributes JSON file or JSON string (required)
+- `--user <FILE|JSON>`: User JSON file or JSON string
+- `--context <FILE|JSON>`: Optional context JSON file or JSON string
 - `--env <ENV>`: Environment name (uses `.controlpath/<env>.ast`)
 - `--ast <FILE>`: Path to AST file (alternative to `--env`)
 - `--trace`: Show detailed trace of evaluation
 
 #### Examples
 
-Explain with attributes file:
+Explain with user file:
 
 ```bash
-controlpath explain --flag new_dashboard --attributes attributes.json --env production
+controlpath explain --flag new_dashboard --user user.json --env production
 ```
 
 Explain with detailed trace:
 
 ```bash
-controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
+controlpath explain --flag new_dashboard --user user.json --env production --trace
 ```
 
 Explain with JSON string:
 
 ```bash
-controlpath explain --flag new_dashboard --attributes '{"id":"123","role":"admin","environment":"production"}' --env production
+controlpath explain --flag new_dashboard --user '{"id":"123","role":"admin"}' --context '{"environment":"production"}' --env production
 ```
 
 #### Output
@@ -256,7 +242,7 @@ Shows:
 - Why rule matched/didn't match
 - Expression evaluation details (if `--trace`)
 
-Note: Attributes should include all properties used in flag rules (e.g., `role`, `environment`, `id`, etc.)
+Note: User/context should include all properties used in flag rules (e.g., `role`, `environment`, `id`, etc.)
 
 #### Exit Codes
 
@@ -320,7 +306,7 @@ Manage flags (add, list, show, remove).
 
 #### `flag add`
 
-Adds a new flag to definitions and optionally syncs to deployments.
+Adds a new boolean flag to `control-path.yaml` and optionally seeds environment rules.
 
 ##### Usage
 
@@ -331,11 +317,11 @@ controlpath flag add [OPTIONS]
 ##### Options
 
 - `--name <NAME>`: Flag name (required, snake_case format)
-- `--type <TYPE>`: Flag type (boolean or multivariate)
-- `--default <VALUE>`: Default value
+- `--type <TYPE>`: Flag type (`boolean` only in v2 catalogs)
+- `--default <VALUE>`: Default value (`true` or `false`)
 - `--description <TEXT>`: Description
 - `--lang <LANGUAGE>`: Language for SDK regeneration
-- `--sync`: Sync to deployment files
+- `--sync`: Add default serve rules for all environments in the catalog
 - `--no-interactive`: Disable interactive mode
 
 ##### Examples
@@ -352,7 +338,7 @@ Add with all options:
 controlpath flag add --name my_feature --type boolean --default false --description "My feature flag"
 ```
 
-Add and sync to deployments:
+Add and seed rules in every environment:
 
 ```bash
 controlpath flag add --name my_feature --sync
@@ -360,7 +346,7 @@ controlpath flag add --name my_feature --sync
 
 #### `flag list`
 
-Lists flags from definitions or deployment.
+Lists flags from the catalog or from a specific environment's rules.
 
 ##### Usage
 
@@ -370,19 +356,19 @@ controlpath flag list [OPTIONS]
 
 ##### Options
 
-- `--definitions`: List from definitions file
-- `--deployment <ENV>`: List from deployment file (specify environment)
+- `--definitions`: List flag definitions from the catalog (default when `--deployment` is omitted)
+- `--deployment <ENV>`: List flags configured in an environment's rules
 - `--format <FORMAT>`: Output format (table, json, yaml, default: table)
 
 ##### Examples
 
-List from definitions (default):
+List all flags in the catalog:
 
 ```bash
 controlpath flag list
 ```
 
-List from specific deployment:
+List flags with rules in production:
 
 ```bash
 controlpath flag list --deployment production
@@ -407,7 +393,7 @@ controlpath flag show [OPTIONS]
 ##### Options
 
 - `--name <NAME>`: Flag name (required)
-- `--deployment <ENV>`: Show deployment info for environment
+- `--deployment <ENV>`: Show environment rules for the given environment
 - `--format <FORMAT>`: Output format (table, json, yaml)
 
 ##### Examples
@@ -418,7 +404,7 @@ Show flag details:
 controlpath flag show --name my_feature
 ```
 
-Show flag in specific environment:
+Show flag rules in production:
 
 ```bash
 controlpath flag show --name my_feature --deployment production
@@ -426,7 +412,7 @@ controlpath flag show --name my_feature --deployment production
 
 #### `flag remove`
 
-Removes a flag from definitions and optionally from deployments.
+Removes a flag from the catalog or removes its rules from one environment.
 
 ##### Usage
 
@@ -437,22 +423,21 @@ controlpath flag remove [OPTIONS]
 ##### Options
 
 - `--name <NAME>`: Flag name (required)
-- `--from-deployments`: Remove from deployment files (default: true)
-- `--env <ENV>`: Remove from specific environment only
+- `--env <ENV>`: Remove rules from this environment only (flag definition remains)
 - `--force`: Force removal without confirmation
 
 ##### Examples
 
-Remove from definitions only:
-
-```bash
-controlpath flag remove --name my_feature --from-deployments false
-```
-
-Remove from all deployments:
+Remove a flag entirely:
 
 ```bash
 controlpath flag remove --name my_feature
+```
+
+Remove production rules only:
+
+```bash
+controlpath flag remove --name my_feature --env production
 ```
 
 Force removal without confirmation:
@@ -503,7 +488,7 @@ controlpath env add --name staging --template production
 
 #### `env sync`
 
-Syncs flags from definitions to deployment files.
+Validates catalog rules for one or all environments in `control-path.yaml`.
 
 ##### Usage
 
@@ -513,24 +498,24 @@ controlpath env sync [OPTIONS]
 
 ##### Options
 
-- `--env <ENV>`: Environment to sync (syncs all if not specified)
-- `--dry-run`: Show what would be synced without making changes
+- `--env <ENV>`: Environment to validate (validates all if not specified)
+- `--dry-run`: Report status without writing artifacts
 
 ##### Examples
 
-Sync all environments:
+Validate all environments:
 
 ```bash
 controlpath env sync
 ```
 
-Sync specific environment:
+Validate a specific environment:
 
 ```bash
 controlpath env sync --env staging
 ```
 
-Dry run (show what would be synced):
+Dry run:
 
 ```bash
 controlpath env sync --dry-run
@@ -538,7 +523,7 @@ controlpath env sync --dry-run
 
 #### `env list`
 
-Lists all environments.
+Lists environments defined in `control-path.yaml`.
 
 ##### Usage
 
@@ -612,11 +597,11 @@ project-root/
 
 ### Configuration File
 
-Location: `control-path.yaml` (or custom path via `--config`)
+Location: `control-path.yaml` in the project root
 
 Contains:
-- Flag definitions (types, defaults, variations)
-- Environment-specific rules per flag
+- Flag definitions (boolean defaults, kind metadata)
+- Environment-specific rollout rules
 - Segment definitions
 - Mode configuration (local or saas)
 
@@ -686,8 +671,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'flags.definitions.yaml'
-      - '.controlpath/**/*.deployment.yaml'
+      - 'control-path.yaml'
+      - '.controlpath/**/*.ast'
 
 jobs:
   compile:
@@ -718,7 +703,7 @@ When validation fails, the CLI provides clear error messages:
 
 ```
 ✗ Validation failed
-  Error: Schema validation failed: /flags/0/name: must be a string
+  Error: v1 array "flags" is not supported; use map-keyed flags
 ```
 
 ### Compilation Errors
@@ -738,7 +723,7 @@ Clear messages when files are missing:
 
 ```
 ✗ Compilation failed
-  Error: Failed to read definitions file: No such file or directory (os error 2)
+  Error: Failed to read control-path.yaml: No such file or directory (os error 2)
 ```
 
 ## Performance
@@ -775,7 +760,7 @@ controlpath validate --all
 
 Check for:
 - Invalid expressions in `when` clauses (remember: no `user.` or `context.` prefixes)
-- Missing flag definitions
+- Missing flags or environment rules in `control-path.yaml`
 - Type mismatches
 - Ensure attributes in expressions match the properties in your attributes object
 

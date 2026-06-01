@@ -4,42 +4,70 @@
 //! Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.
 //! See the LICENSE file in the project root for details.
 //!
-//! This library compiles Control Path deployment YAML files into compact AST artifacts.
-//! It is designed to be WASM-compatible and works only with in-memory data (no file I/O).
+//! This library compiles v2 boolean catalogs (and legacy split-file YAML) into compact AST
+//! artifacts. Prefer the v2 catalog API (`load_and_validate_catalog`, `compile_catalog`) for
+//! new integrations. It is designed to be WASM-compatible and works only with in-memory data
+//! (no file I/O).
 //!
-//! # Example
+//! # Example (v2 catalog)
 //!
 //! ```rust,no_run
-//! use controlpath_compiler::{parse_definitions, parse_deployment, compile, serialize};
+//! use controlpath_compiler::{
+//!     compile_catalog, load_and_validate_catalog, serialize, CatalogValidationContext,
+//!     CompilerError,
+//! };
 //!
-//! let definitions_yaml = r#"
+//! let catalog_yaml = r#"
+//! catalog:
+//!   id: my-service
+//! mode: local
 //! flags:
-//!   - name: my_flag
-//!     type: boolean
-//!     defaultValue: false
-//! "#;
-//!
-//! let deployment_yaml = r#"
-//! environment: production
-//! rules:
 //!   my_flag:
+//!     default: false
+//!     kind: release
+//! environments:
+//!   production:
 //!     rules:
-//!       - serve: true
+//!       my_flag:
+//!         - serve: true
 //! "#;
 //!
-//! let definitions = parse_definitions(definitions_yaml)?;
-//! let deployment = parse_deployment(deployment_yaml)?;
-//! let artifact = compile(&deployment, &definitions)?;
-//! let bytes = serialize(&artifact);
-//! # Ok::<(), controlpath_compiler::CompilerError>(())
+//! let (catalog, initial) = load_and_validate_catalog(
+//!     catalog_yaml,
+//!     "control-path.yaml",
+//!     &CatalogValidationContext::default(),
+//! )
+//! .map_err(|e| CompilerError::Parse(e.into()))?;
+//! if !initial.is_ok() {
+//!     return Err(CompilerError::Validation(
+//!         controlpath_compiler::error::ValidationError::SchemaValidation(
+//!             "invalid catalog".to_string(),
+//!         ),
+//!     ));
+//! }
+//! let artifact = compile_catalog(&catalog, "production")?;
+//! let bytes = serialize(&artifact)?;
+//! # Ok::<(), CompilerError>(())
 //! ```
 
 pub mod ast;
+pub mod catalog;
 pub mod compiler;
 pub mod error;
 pub mod parser;
+pub mod runtime;
 pub mod schemas;
 pub mod validator;
+
+pub use catalog::{
+    build_saas_runtime_urls, build_sdk_catalog, compile_catalog, compile_catalog_with_imports,
+    effective_catalog_id, imported_flag_keys_from_imports, load_and_validate_catalog,
+    load_and_validate_workspace, load_validate_and_compile_catalog, parse_catalog, parse_workspace,
+    resolve_namespace, saas_cdn_base_url, validate_and_compile_catalog, validate_catalog,
+    validate_catalog_value, validate_workspace_value, CatalogDocument, CatalogIdentity,
+    CatalogMode, CatalogValidationContext, CatalogValidationResult, EffectiveCatalogId, FlagKind,
+    FlagLifecycle, SaasRuntimeUrls, SdkCatalog, SdkFlag, WorkspaceDocument, DEFAULT_SAAS_CDN_BASE,
+};
 
 use ast::Artifact;
 use serde::Serialize;
@@ -58,6 +86,10 @@ impl<'a> Serialize for BytesWrapper<'a> {
 
 // Re-export error types for public API
 pub use error::CompilerError;
+pub use runtime::{
+    evaluate_flag, evaluate_rule, find_flag_index, rollout_bucket, user_id, EvaluationAttributes,
+    RuleEvaluation,
+};
 
 /// Parse flag definitions from YAML/JSON string
 ///
@@ -93,66 +125,6 @@ pub fn parse_deployment(content: &str) -> Result<serde_json::Value, CompilerErro
 /// Returns `ParseError` if the input is invalid YAML/JSON or missing required fields.
 pub fn parse_unified_config(content: &str) -> Result<serde_json::Value, CompilerError> {
     parser::parse_unified_config(content).map_err(|e| CompilerError::Parse(e.into()))
-}
-
-/// Validate flag definitions against JSON schema
-///
-/// # Errors
-///
-/// Returns `ValidationError` if validation fails.
-pub fn validate_definitions(definitions: &serde_json::Value) -> Result<(), CompilerError> {
-    let validator = validator::Validator::new();
-    let result = validator.validate_definitions("<input>", definitions);
-
-    if result.valid {
-        Ok(())
-    } else {
-        // Convert ValidationResult to ValidationError
-        let error_messages: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
-        Err(CompilerError::Validation(
-            error::ValidationError::SchemaValidation(error_messages.join("; ")),
-        ))
-    }
-}
-
-/// Validate deployment against JSON schema
-///
-/// # Errors
-///
-/// Returns `ValidationError` if validation fails.
-pub fn validate_deployment(deployment: &serde_json::Value) -> Result<(), CompilerError> {
-    let validator = validator::Validator::new();
-    let result = validator.validate_deployment("<input>", deployment);
-
-    if result.valid {
-        Ok(())
-    } else {
-        // Convert ValidationResult to ValidationError
-        let error_messages: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
-        Err(CompilerError::Validation(
-            error::ValidationError::SchemaValidation(error_messages.join("; ")),
-        ))
-    }
-}
-
-/// Validate control-path.yaml configuration against JSON schema
-///
-/// # Errors
-///
-/// Returns `ValidationError` if validation fails.
-pub fn validate_unified_config(config: &serde_json::Value) -> Result<(), CompilerError> {
-    let validator = validator::Validator::new();
-    let result = validator.validate_unified_config("<input>", config);
-
-    if result.valid {
-        Ok(())
-    } else {
-        // Convert ValidationResult to ValidationError
-        let error_messages: Vec<String> = result.errors.iter().map(|e| e.message.clone()).collect();
-        Err(CompilerError::Validation(
-            error::ValidationError::SchemaValidation(error_messages.join("; ")),
-        ))
-    }
 }
 
 /// Compile deployment and definitions into an AST artifact
@@ -497,40 +469,6 @@ mod tests {
         match result.unwrap_err() {
             CompilerError::Parse(_) => {}
             _ => panic!("Expected Parse error"),
-        }
-    }
-
-    #[test]
-    fn test_validate_definitions_with_errors() {
-        use serde_json::json;
-        let invalid_definitions = json!({
-            "flags": [
-                {
-                    "name": "test_flag"
-                    // Missing required fields
-                }
-            ]
-        });
-        let result = validate_definitions(&invalid_definitions);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            CompilerError::Validation(_) => {}
-            _ => panic!("Expected Validation error"),
-        }
-    }
-
-    #[test]
-    fn test_validate_deployment_with_errors() {
-        use serde_json::json;
-        let invalid_deployment = json!({
-            "environment": "test"
-            // Missing required 'rules' field
-        });
-        let result = validate_deployment(&invalid_deployment);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            CompilerError::Validation(_) => {}
-            _ => panic!("Expected Validation error"),
         }
     }
 

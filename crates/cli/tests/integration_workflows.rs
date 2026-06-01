@@ -60,7 +60,7 @@ fn test_enable_workflow() {
     );
 
     // Enable the flag (uses config)
-    project.run_command_success(&["enable", "my_flag", "--env", "production", "--all"]);
+    project.run_command_success(&["flag", "enable", "my_flag", "--env", "production", "--all"]);
 
     // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "production"]);
@@ -95,6 +95,7 @@ fn test_enable_with_rule_workflow() {
 
     // Enable with a rule (uses config)
     project.run_command_success(&[
+        "flag",
         "enable",
         "my_flag",
         "--env",
@@ -176,7 +177,14 @@ fn test_complete_workflow_new_flag_enable_deploy() {
     ]);
 
     // Step 2: Enable it in production
-    project.run_command_success(&["enable", "new_feature", "--env", "production", "--all"]);
+    project.run_command_success(&[
+        "flag",
+        "enable",
+        "new_feature",
+        "--env",
+        "production",
+        "--all",
+    ]);
 
     // Step 3: Deploy
     project.run_command_success(&["deploy", "--env", "production"]);
@@ -193,15 +201,13 @@ fn test_complete_workflow_new_flag_enable_deploy() {
 #[test]
 #[serial]
 fn test_flag_add_list_show_remove_workflow() {
-    // Initialize project first - use with_deployment to create both config and legacy files
-    // The flag command still uses legacy files, so we need both
     let project = TestProject::with_deployment(
         &simple_flag_definition("existing_flag"),
         "production",
         &simple_deployment("production", "existing_flag", false),
     );
 
-    // Add a flag (flag command works with legacy files)
+    // Add a flag to the v2 catalog
     project.run_command_success(&[
         "flag",
         "add",
@@ -227,17 +233,9 @@ fn test_flag_add_list_show_remove_workflow() {
     assert!(stdout.contains("test_flag"));
 
     // Remove flag (name is a flag, not positional)
-    project.run_command_success(&[
-        "flag",
-        "remove",
-        "--name",
-        "test_flag",
-        "--from-deployments",
-        "--force",
-    ]);
+    project.run_command_success(&["flag", "remove", "--name", "test_flag"]);
 
-    // Verify flag was removed (check legacy definitions file)
-    let definitions = project.read_file("flags.definitions.yaml");
+    let definitions = project.read_file("control-path.yaml");
     assert!(!definitions.contains("test_flag"));
 }
 
@@ -309,11 +307,11 @@ fn test_setup_workflow() {
     assert!(config.contains("defaultEnv:") || config.contains("default_env:"));
 
     // Verify SDK was generated and contains correct content
-    assert!(project.file_exists("./flags"));
-    assert!(project.file_exists("./flags/index.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/types.ts"));
 
     // Verify SDK content is correct and usable
-    let sdk_content = project.read_file("./flags/index.ts");
+    let sdk_content = project.read_file("node_modules/@controlpath/generated/index.ts");
     assert!(
         sdk_content.contains("export")
             || sdk_content.contains("class")
@@ -424,9 +422,10 @@ fn test_setup_skip_install_flag() {
     assert!(project.ast_exists("production"));
     assert!(project.ast_exists("staging"));
 
-    // Verify SDK was generated
-    assert!(project.file_exists("./flags"));
-    assert!(project.file_exists("./flags/index.ts"));
+    // Verify SDK was generated (default path is node_modules/@controlpath/generated)
+    assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/types.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/package.json"));
 
     // Verify example usage file was created
     assert!(project.file_exists("example_usage.ts"));
@@ -473,11 +472,11 @@ fn test_validate_compile_generate_sdk_workflow() {
     project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
 
     // Verify SDK was generated and contains correct content
-    assert!(project.file_exists("./flags"));
-    assert!(project.file_exists("./flags/index.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/types.ts"));
 
     // Verify SDK content is correct and usable
-    let sdk_content = project.read_file("./flags/index.ts");
+    let sdk_content = project.read_file("node_modules/@controlpath/generated/index.ts");
     assert!(
         sdk_content.contains("export")
             || sdk_content.contains("class")
@@ -499,7 +498,7 @@ fn test_enable_auto_compiles_env() {
     assert!(!project.ast_exists("production"));
 
     // Enable the flag (should auto-compile AST)
-    project.run_command_success(&["enable", "my_flag", "--env", "production", "--all"]);
+    project.run_command_success(&["flag", "enable", "my_flag", "--env", "production", "--all"]);
 
     // Verify flag behavior: evaluate with a test user and verify it's enabled
     if let Some(result) =
@@ -537,6 +536,7 @@ fn test_enable_no_compile_flag() {
 
     // Enable the flag with --no-compile (should NOT auto-compile AST)
     project.run_command_success(&[
+        "flag",
         "enable",
         "my_flag",
         "--env",
@@ -579,7 +579,7 @@ fn test_new_flag_auto_generates_sdk() {
     project.write_file("package.json", "{}");
 
     // Ensure SDK directory doesn't exist before new-flag
-    assert!(!project.file_exists("./flags"));
+    assert!(!project.file_exists("node_modules/@controlpath/generated"));
 
     // Run new-flag command WITHOUT --skip-sdk (should auto-generate SDK)
     project.run_command_success(&[
@@ -597,16 +597,12 @@ fn test_new_flag_auto_generates_sdk() {
 
     // Verify SDK was automatically generated and contains correct content
     assert!(
-        project.file_exists("./flags"),
+        project.file_exists("node_modules/@controlpath/generated/index.ts"),
         "SDK should be automatically generated after new-flag"
-    );
-    assert!(
-        project.file_exists("./flags/index.ts"),
-        "SDK index.ts should exist"
     );
 
     // Verify SDK content is correct and usable
-    let sdk_content = project.read_file("./flags/index.ts");
+    let sdk_content = project.read_file("node_modules/@controlpath/generated/index.ts");
     assert!(
         sdk_content.contains("export")
             || sdk_content.contains("class")
@@ -632,7 +628,7 @@ fn test_new_flag_skip_sdk_flag() {
     project.write_file("package.json", "{}");
 
     // Ensure SDK directory doesn't exist before new-flag
-    assert!(!project.file_exists("./flags"));
+    assert!(!project.file_exists("node_modules/@controlpath/generated"));
 
     // Run new-flag command WITH --skip-sdk (should NOT auto-generate SDK)
     project.run_command_success(&[
@@ -651,7 +647,7 @@ fn test_new_flag_skip_sdk_flag() {
 
     // Verify SDK was NOT automatically generated
     assert!(
-        !project.file_exists("./flags"),
+        !project.file_exists("node_modules/@controlpath/generated"),
         "SDK should NOT be generated when --skip-sdk is used"
     );
 }
@@ -801,8 +797,8 @@ fn test_ci_runs_end_to_end() {
     // Verify AST was created
     assert!(project.ast_exists("production"));
 
-    // Verify SDK was generated (check for flags directory)
-    assert!(project.file_exists("flags") || project.file_exists("flags/index.ts"));
+    // Verify SDK was generated (default path is node_modules/@controlpath/generated)
+    assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
 }
 
 #[test]
@@ -813,15 +809,21 @@ fn test_ci_respects_env_filter() {
     // Create config with multiple environments
     project.write_file(
         "control-path.yaml",
-        r"mode: local
+        r"catalog:
+  id: test-service
+mode: local
 flags:
-  - name: test_flag
-    type: boolean
+  test_flag:
     default: false
-    environments:
-      production:
+    kind: release
+environments:
+  production:
+    rules:
+      test_flag:
         - serve: true
-      staging:
+  staging:
+    rules:
+      test_flag:
         - serve: false
 ",
     );
@@ -873,53 +875,56 @@ fn test_ci_respects_no_validate() {
 
 #[test]
 #[serial]
-fn test_ci_fails_on_invalid_definitions() {
+fn test_ci_fails_on_invalid_catalog() {
     let project = TestProject::new();
 
-    // Create invalid definitions file
-    project.write_file("flags.definitions.yaml", "invalid: yaml: content: [");
+    project.write_file("control-path.yaml", "invalid: yaml: content: [");
 
-    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
-    project.write_file(
-        ".controlpath/production.deployment.yaml",
-        &simple_deployment("production", "test_flag", true),
-    );
-
-    // CI should fail on invalid definitions
     let output = project.run_command(&["ci", "--no-sdk"]);
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(
-        stderr.contains("invalid") || stderr.contains("error") || stderr.contains("failed"),
-        "Should error about invalid definitions"
+        combined.contains("invalid") || combined.contains("error") || combined.contains("failed"),
+        "Should error about invalid catalog: {combined}"
     );
 }
 
 #[test]
 #[serial]
-fn test_ci_fails_on_invalid_deployment() {
+fn test_ci_fails_on_invalid_environment_rules() {
     let project = TestProject::new();
 
-    // Create valid definitions
     project.write_file(
-        "flags.definitions.yaml",
-        &simple_flag_definition("test_flag"),
+        "control-path.yaml",
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  test_flag:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      test_flag:
+        - serve: not_a_boolean
+",
     );
 
-    // Create invalid deployment file
-    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
-    project.write_file(
-        ".controlpath/production.deployment.yaml",
-        "invalid: yaml: content: [",
-    );
-
-    // CI should fail on invalid deployment
     let output = project.run_command(&["ci", "--no-sdk"]);
     assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(
-        stderr.contains("invalid") || stderr.contains("error") || stderr.contains("failed"),
-        "Should error about invalid deployment"
+        combined.contains("invalid") || combined.contains("error") || combined.contains("failed"),
+        "Should error about invalid environment rules: {combined}"
     );
 }
 
@@ -1061,7 +1066,7 @@ defaultEnv: production
     );
 
     // Enable without --env flag - should use staging from branch mapping
-    project.run_command_success(&["enable", "my_flag", "--all"]);
+    project.run_command_success(&["flag", "enable", "my_flag", "--all"]);
 
     // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "staging"]);
@@ -1095,7 +1100,7 @@ fn test_enable_smart_defaults_from_default_env() {
     project.write_file(".controlpath/config.yaml", "defaultEnv: production\n");
 
     // Enable without --env flag - should use production from defaultEnv
-    project.run_command_success(&["enable", "my_flag", "--all"]);
+    project.run_command_success(&["flag", "enable", "my_flag", "--all"]);
 
     // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "production"]);
@@ -1124,15 +1129,21 @@ fn test_deploy_smart_defaults_from_branch_mapping() {
     // Create config with staging environment
     project.write_file(
         "control-path.yaml",
-        r"mode: local
+        r"catalog:
+  id: test-service
+mode: local
 flags:
-  - name: my_flag
-    type: boolean
+  my_flag:
     default: false
-    environments:
-      staging:
+    kind: release
+environments:
+  staging:
+    rules:
+      my_flag:
         - serve: true
-      production:
+  production:
+    rules:
+      my_flag:
         - serve: false
 ",
     );
@@ -1211,15 +1222,21 @@ fn test_ci_smart_defaults_from_branch_mapping() {
     // Create config with staging environment
     project.write_file(
         "control-path.yaml",
-        r"mode: local
+        r"catalog:
+  id: test-service
+mode: local
 flags:
-  - name: test_flag
-    type: boolean
+  test_flag:
     default: false
-    environments:
-      staging:
+    kind: release
+environments:
+  staging:
+    rules:
+      test_flag:
         - serve: true
-      production:
+  production:
+    rules:
+      test_flag:
         - serve: false
 ",
     );
@@ -1280,11 +1297,16 @@ fn test_large_scale_flags() {
     project.run_command_success(&["setup", "--skip-install", "--no-examples"]);
 
     // Create a config with many flags
-    let mut flags_yaml = "mode: local\nflags:\n".to_string();
+    let mut flags_yaml = "catalog:\n  id: test-service\nmode: local\nflags:\n".to_string();
     for i in 0..50 {
         flags_yaml.push_str(&format!(
-            "  - name: flag_{}\n    type: boolean\n    default: false\n    environments:\n      production:\n        - serve: {}\n",
-            i,
+            "  flag_{i}:\n    default: false\n    kind: release\n"
+        ));
+    }
+    flags_yaml.push_str("environments:\n  production:\n    rules:\n");
+    for i in 0..50 {
+        flags_yaml.push_str(&format!(
+            "      flag_{i}:\n        - serve: {}\n",
             if i % 2 == 0 { "true" } else { "false" }
         ));
     }
@@ -1322,8 +1344,14 @@ fn test_error_recovery_on_invalid_flag_name() {
     );
 
     // Try to enable a non-existent flag - should fail gracefully
-    let output =
-        project.run_command(&["enable", "nonexistent_flag", "--env", "production", "--all"]);
+    let output = project.run_command(&[
+        "flag",
+        "enable",
+        "nonexistent_flag",
+        "--env",
+        "production",
+        "--all",
+    ]);
     assert!(
         !output.status.success(),
         "Should fail when enabling non-existent flag"
@@ -1333,7 +1361,7 @@ fn test_error_recovery_on_invalid_flag_name() {
     assert!(!project.ast_exists("production"));
 
     // Verify existing flag is still valid
-    project.run_command_success(&["enable", "my_flag", "--env", "production", "--all"]);
+    project.run_command_success(&["flag", "enable", "my_flag", "--env", "production", "--all"]);
     project.run_command_success(&["compile", "--env", "production"]);
     assert!(project.ast_exists("production"));
 }
@@ -1350,6 +1378,7 @@ fn test_error_recovery_on_invalid_expression() {
 
     // Try to enable with invalid expression - should fail gracefully
     let output = project.run_command(&[
+        "flag",
         "enable",
         "my_flag",
         "--env",
@@ -1378,11 +1407,10 @@ fn test_compile_with_many_rules() {
     project.run_command_success(&["setup", "--skip-install", "--no-examples"]);
 
     // Create a flag with many rules
-    let mut rules_yaml = "mode: local\nflags:\n  - name: complex_flag\n    type: boolean\n    default: false\n    environments:\n      production:\n".to_string();
+    let mut rules_yaml = "catalog:\n  id: test-service\nmode: local\nflags:\n  complex_flag:\n    default: false\n    kind: release\nenvironments:\n  production:\n    rules:\n      complex_flag:\n".to_string();
     for i in 0..20 {
         rules_yaml.push_str(&format!(
-            "        - when: \"role == 'role_{}'\"\n          serve: {}\n",
-            i,
+            "        - when: \"role == 'role_{i}'\"\n          serve: {}\n",
             if i % 2 == 0 { "true" } else { "false" }
         ));
     }
@@ -1405,4 +1433,120 @@ fn test_compile_with_many_rules() {
             "Should evaluate correctly even with many rules"
         );
     }
+}
+
+#[test]
+#[serial]
+fn test_v2_local_workflow_end_to_end() {
+    let project = TestProject::new();
+
+    project.run_command_success(&[
+        "init",
+        "--no-monorepo",
+        "--namespace",
+        "acme",
+        "--service-id",
+        "checkout-service",
+    ]);
+
+    assert!(project.file_exists("control-path.yaml"));
+    let config = project.read_file("control-path.yaml");
+    assert!(config.contains("namespace: acme"));
+    assert!(config.contains("checkout-service"));
+
+    project.write_file(
+        "control-path.yaml",
+        r"catalog:
+  id: checkout-service
+  namespace: acme
+mode: local
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+environments:
+  production:
+    rules: {}
+",
+    );
+
+    project.run_command_success(&["env", "list"]);
+    let env_output = project.run_command(&["env", "list"]);
+    let env_list = String::from_utf8_lossy(&env_output.stdout);
+    assert!(env_list.contains("production"));
+
+    project.run_command_success(&[
+        "flag",
+        "enable",
+        "new_dashboard",
+        "--env",
+        "production",
+        "--all",
+    ]);
+
+    project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
+    assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
+
+    project.run_command_success(&["deploy", "--env", "production"]);
+    assert!(project.ast_exists("production"));
+    assert!(project.file_exists(".controlpath/production.kill-switches.json"));
+
+    let kill_switches = project.read_file(".controlpath/production.kill-switches.json");
+    assert!(kill_switches.contains("\"version\""));
+    assert!(kill_switches.contains("\"flags\""));
+
+    project.run_command_success(&["flag", "deprecate", "--name", "new_dashboard"]);
+    let output = project.run_command(&[
+        "flag",
+        "enable",
+        "new_dashboard",
+        "--env",
+        "production",
+        "--all",
+    ]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("deprecated"));
+
+    project.run_command_success(&["ci", "--env", "production", "--no-sdk"]);
+}
+
+#[test]
+#[serial]
+fn test_kill_switch_updates_v2_artifact() {
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: checkout
+  namespace: acme
+mode: local
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      new_dashboard:
+        - serve: false
+",
+    );
+
+    fs::create_dir_all(project.path(".controlpath")).ok();
+    project.run_command_success(&[
+        "kill-switch",
+        "set",
+        "new_dashboard",
+        "true",
+        "--env",
+        "production",
+    ]);
+
+    let kill_path = project.read_file(".controlpath/production.kill-switches.json");
+    assert!(kill_path.contains("\"new_dashboard\": true"));
+
+    project.run_command_success(&["deploy", "--env", "production"]);
+    assert!(project.ast_exists("production"));
+    assert!(project.file_exists(".controlpath/production.kill-switches.json"));
+
+    project.run_command_success(&["ci", "--env", "production", "--no-sdk"]);
 }

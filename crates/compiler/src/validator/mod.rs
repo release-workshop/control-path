@@ -6,108 +6,52 @@
 
 pub mod common;
 pub mod constants;
-pub mod definitions;
-pub mod deployment;
 pub mod error;
 pub mod type_guards;
-pub mod unified;
 
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod tests;
 
-use serde_json::Value;
+use crate::validator::error::ValidationError;
 
-use crate::schemas;
-use crate::validator::definitions::validate_definitions as validate_definitions_impl;
-use crate::validator::deployment::validate_deployment as validate_deployment_impl;
-use crate::validator::error::{ValidationError, ValidationResult};
-use crate::validator::unified::validate_unified_config as validate_unified_config_impl;
+/// Format validation errors for display.
+pub fn format_errors(errors: &[ValidationError]) -> String {
+    if errors.is_empty() {
+        return String::new();
+    }
 
-/// Main validator for Control Path configuration files.
-/// Validates flag definitions, deployment files, and config against JSON schemas.
-pub struct Validator {
-    definitions_schema: Value,
-    deployment_schema: Value,
-    unified_schema: Value,
+    let mut output = String::new();
+    for error in errors {
+        if let Some(line) = error.line {
+            if let Some(column) = error.column {
+                output.push_str(&format!("  Line {line}, column {column}: "));
+            } else {
+                output.push_str(&format!("  Line {line}: "));
+            }
+        } else {
+            output.push_str("  ");
+        }
+        output.push_str(&error.message);
+        if let Some(suggestion) = &error.suggestion {
+            output.push_str(&format!("\n    Suggestion: {suggestion}"));
+        }
+        output.push('\n');
+    }
+    output
 }
 
+/// Legacy validator stub retained for test module layout compatibility.
+pub struct Validator;
+
 impl Validator {
-    /// Create a new Validator instance with embedded schemas.
-    ///
-    /// This constructor loads schemas embedded at compile time (WASM-compatible).
+    #[must_use]
     pub fn new() -> Self {
-        Self {
-            definitions_schema: schemas::load_definitions_schema(),
-            deployment_schema: schemas::load_deployment_schema(),
-            unified_schema: schemas::load_unified_schema(),
-        }
+        Self
     }
 
-    /// Create a new Validator instance with custom schemas.
-    ///
-    /// This is useful for testing or when schemas need to be provided dynamically.
-    pub fn with_schemas(
-        definitions_schema: Value,
-        deployment_schema: Value,
-        unified_schema: Value,
-    ) -> Self {
-        Self {
-            definitions_schema,
-            deployment_schema,
-            unified_schema,
-        }
-    }
-
-    /// Validate a flag definitions file.
-    pub fn validate_definitions(&self, file_path: &str, data: &Value) -> ValidationResult {
-        validate_definitions_impl(&self.definitions_schema, file_path, data)
-    }
-
-    /// Validate a deployment file.
-    pub fn validate_deployment(&self, file_path: &str, data: &Value) -> ValidationResult {
-        validate_deployment_impl(&self.deployment_schema, file_path, data)
-    }
-
-    /// Validate a unified control-path.yaml configuration file.
-    pub fn validate_unified_config(&self, file_path: &str, data: &Value) -> ValidationResult {
-        validate_unified_config_impl(&self.unified_schema, file_path, data)
-    }
-
-    /// Format validation errors for display.
     pub fn format_errors(&self, errors: &[ValidationError]) -> String {
-        if errors.is_empty() {
-            return String::new();
-        }
-
-        let mut error_lines = vec!["✗ Validation failed\n".to_string()];
-
-        for error in errors {
-            error_lines.push(self.format_error_location(error));
-            error_lines.push(format!("  Error: {}", error.message));
-
-            if let Some(path) = &error.path {
-                error_lines.push(format!("  Path: {path}"));
-            }
-
-            if let Some(suggestion) = &error.suggestion {
-                error_lines.push(format!("  Suggestion: {suggestion}"));
-            }
-
-            error_lines.push(String::new());
-        }
-
-        error_lines.join("\n")
-    }
-
-    /// Format error location with file path and optional line/column.
-    fn format_error_location(&self, error: &ValidationError) -> String {
-        if let Some(line) = error.line {
-            let column = error.column.map(|c| format!(":{c}")).unwrap_or_default();
-            format!("{}:{line}{column}", error.file)
-        } else {
-            error.file.clone()
-        }
+        format_errors(errors)
     }
 }
 

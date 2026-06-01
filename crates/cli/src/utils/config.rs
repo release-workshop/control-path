@@ -1,6 +1,7 @@
 //! Config file reading utilities
 
 use crate::error::{CliError, CliResult};
+use crate::utils::atomic_write::atomic_write_string;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -36,29 +37,7 @@ pub fn write_config_language(language: &str) -> CliResult<()> {
     }
 
     // Read existing config if it exists, otherwise create new one
-    let mut config: ConfigFile = if config_path.exists() {
-        let config_content = fs::read_to_string(&config_path)
-            .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
-        serde_yaml::from_str(&config_content).unwrap_or(ConfigFile {
-            language: None,
-            default_env: None,
-            default_env_alt: None,
-            sdk_output: None,
-            sign_key: None,
-            branch_environments: None,
-            mode: None,
-        })
-    } else {
-        ConfigFile {
-            language: None,
-            default_env: None,
-            default_env_alt: None,
-            sdk_output: None,
-            sign_key: None,
-            branch_environments: None,
-            mode: None,
-        }
-    };
+    let mut config: ConfigFile = read_or_default_config_file(&config_path)?;
 
     // Update language field
     config.language = Some(language.to_string());
@@ -66,7 +45,7 @@ pub fn write_config_language(language: &str) -> CliResult<()> {
     // Write updated config using proper YAML serialization
     let updated_content = serde_yaml::to_string(&config)
         .map_err(|e| CliError::Message(format!("Failed to serialize config file: {e}")))?;
-    fs::write(&config_path, updated_content)
+    atomic_write_string(&config_path, &updated_content)
         .map_err(|e| CliError::Message(format!("Failed to write config file: {e}")))?;
 
     Ok(())
@@ -90,29 +69,7 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
     }
 
     // Read existing config if it exists, otherwise create new one
-    let mut config: ConfigFile = if config_path.exists() {
-        let config_content = fs::read_to_string(&config_path)
-            .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
-        serde_yaml::from_str(&config_content).unwrap_or(ConfigFile {
-            language: None,
-            default_env: None,
-            default_env_alt: None,
-            sdk_output: None,
-            sign_key: None,
-            branch_environments: None,
-            mode: None,
-        })
-    } else {
-        ConfigFile {
-            language: None,
-            default_env: None,
-            default_env_alt: None,
-            sdk_output: None,
-            sign_key: None,
-            branch_environments: None,
-            mode: None,
-        }
-    };
+    let mut config: ConfigFile = read_or_default_config_file(&config_path)?;
 
     // Update default_env field (set both for compatibility)
     config.default_env = Some(default_env.to_string());
@@ -121,7 +78,7 @@ pub fn write_config_default_env(default_env: &str) -> CliResult<()> {
     // Write updated config using proper YAML serialization
     let updated_content = serde_yaml::to_string(&config)
         .map_err(|e| CliError::Message(format!("Failed to serialize config file: {e}")))?;
-    fs::write(&config_path, updated_content)
+    atomic_write_string(&config_path, &updated_content)
         .map_err(|e| CliError::Message(format!("Failed to write config file: {e}")))?;
 
     Ok(())
@@ -141,6 +98,33 @@ pub struct ConfigFile {
     pub branch_environments: Option<std::collections::HashMap<String, String>>,
     /// Operation mode: 'local' for local compilation, 'saas' for remote AST generation via SaaS API
     pub mode: Option<String>,
+}
+
+fn default_config() -> ConfigFile {
+    ConfigFile {
+        language: None,
+        default_env: None,
+        default_env_alt: None,
+        sdk_output: None,
+        sign_key: None,
+        branch_environments: None,
+        mode: None,
+    }
+}
+
+fn read_or_default_config_file(config_path: &Path) -> CliResult<ConfigFile> {
+    if !config_path.exists() {
+        return Ok(default_config());
+    }
+
+    let config_content = fs::read_to_string(config_path)
+        .map_err(|e| CliError::Message(format!("Failed to read config file: {e}")))?;
+    serde_yaml::from_str(&config_content).map_err(|e| {
+        CliError::Message(format!(
+            "Failed to parse config file '{}': {e}",
+            config_path.display()
+        ))
+    })
 }
 
 /// Read the full config file

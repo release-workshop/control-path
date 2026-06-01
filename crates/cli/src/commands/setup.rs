@@ -2,13 +2,15 @@
 
 use crate::error::{CliError, CliResult};
 use crate::ops::{compile as ops_compile, generate_sdk as ops_generate_sdk};
+use crate::utils::atomic_write::atomic_write_string;
 use crate::utils::config;
 use crate::utils::language;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-const SDK_OUTPUT_DIR: &str = "./flags";
+// Default SDK output is now node_modules/@controlpath/generated (phantom SDK)
+// This can be overridden via sdk.output in control-path.yaml
 const UNIFIED_CONFIG_FILE: &str = "control-path.yaml";
 
 pub struct Options {
@@ -27,8 +29,8 @@ fn create_example_usage_file(lang: &str) -> CliResult<()> {
     match lang {
         "typescript" | "ts" => {
             let example_content = r#"// Example usage of Control Path SDK
-import { evaluator } from './flags';
-import type { User } from './flags';
+import { evaluator } from '@controlpath/generated';
+import type { User } from '@controlpath/generated';
 
 async function main() {
   // Initialize the evaluator with the AST artifact
@@ -61,7 +63,7 @@ async function main() {
 
 main().catch(console.error);
 "#;
-            fs::write("example_usage.ts", example_content).map_err(|e| {
+            atomic_write_string(Path::new("example_usage.ts"), example_content).map_err(|e| {
                 CliError::Message(format!(
                     "Failed to write example_usage.ts: {}. \
                     Ensure you have write permissions in the current directory.",
@@ -77,9 +79,9 @@ main().catch(console.error);
 "#,
                 lang
             );
-            fs::write(
-                format!("example_usage.{}", get_file_extension(lang)),
-                example_content,
+            atomic_write_string(
+                Path::new(&format!("example_usage.{}", get_file_extension(lang))),
+                &example_content,
             )
             .map_err(|e| {
                 CliError::Message(format!(
@@ -102,6 +104,23 @@ fn get_file_extension(lang: &str) -> &str {
     }
 }
 
+/// Detect which package manager is being used based on lock files
+fn detect_package_manager() -> (&'static str, &'static [&'static str]) {
+    // Check for lock files in order of preference
+    if Path::new("pnpm-lock.yaml").exists() {
+        ("pnpm", &["add", "@controlpath/runtime"])
+    } else if Path::new("yarn.lock").exists() {
+        ("yarn", &["add", "@controlpath/runtime"])
+    } else if Path::new("bun.lockb").exists() {
+        ("bun", &["add", "@controlpath/runtime"])
+    } else if Path::new("package-lock.json").exists() {
+        ("npm", &["install", "@controlpath/runtime"])
+    } else {
+        // Default to npm if no lock file found
+        ("npm", &["install", "@controlpath/runtime"])
+    }
+}
+
 fn install_runtime_sdk(lang: &str) -> CliResult<()> {
     match lang {
         "typescript" | "ts" => {
@@ -117,7 +136,7 @@ fn install_runtime_sdk(lang: &str) -> CliResult<()> {
   }
 }
 "#;
-                fs::write("package.json", package_json).map_err(|e| {
+                atomic_write_string(Path::new("package.json"), package_json).map_err(|e| {
                     CliError::Message(format!(
                         "Failed to create package.json: {}. \
                         Ensure you have write permissions in the current directory.",
@@ -126,20 +145,22 @@ fn install_runtime_sdk(lang: &str) -> CliResult<()> {
                 })?;
             }
 
-            // Run npm install
-            let output = Command::new("npm")
-                .args(["install", "@controlpath/runtime"])
-                .output()
-                .map_err(|e| {
-                    CliError::Message(format!(
-                        "Failed to run npm install: {}. Make sure npm is installed and available in PATH.",
-                        e
-                    ))
-                })?;
+            // Detect package manager and run appropriate install command
+            let (pm_name, pm_args) = detect_package_manager();
+            let pm_args_str = pm_args.to_vec().join(" ");
+            let output = Command::new(pm_name).args(pm_args).output().map_err(|e| {
+                CliError::Message(format!(
+                    "Failed to run {} {}: {}. Make sure {} is installed and available in PATH.",
+                    pm_name, pm_args_str, e, pm_name
+                ))
+            })?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(CliError::Message(format!("npm install failed: {}", stderr)));
+                return Err(CliError::Message(format!(
+                    "{} {} failed: {}",
+                    pm_name, pm_args_str, stderr
+                )));
             }
 
             Ok(())
@@ -168,7 +189,7 @@ pub fn run(options: &Options) -> i32 {
             println!();
             println!("Next steps:");
             println!("  1. Add your first flag:    controlpath new-flag");
-            println!("  2. Enable a flag:          controlpath enable <flag> --env staging");
+            println!("  2. Enable a flag:          controlpath flag enable <flag> --env staging");
             println!("  3. Test flags:             controlpath test");
             println!("  4. Start watch mode:       controlpath watch");
             println!("  5. Get help:               controlpath help");
@@ -177,6 +198,12 @@ pub fn run(options: &Options) -> i32 {
         Err(e) => {
             eprintln!("✗ Setup failed");
             eprintln!("  Error: {e}");
+            eprintln!();
+            eprintln!("Recovery steps:");
+            eprintln!("  • Check error message above for specific issue");
+            eprintln!("  • Ensure you have write permissions in the current directory");
+            eprintln!("  • Remove control-path.yaml and .controlpath/ to start fresh");
+            eprintln!("  • Run 'controlpath setup --skip-install' to skip package installation");
             1
         }
     }
@@ -195,28 +222,37 @@ fn ensure_controlpath_directory() -> CliResult<()> {
 /// Create config file
 fn create_unified_config_file(with_examples: bool) -> CliResult<()> {
     let config_content = if with_examples {
-        r"mode: local
+        r"catalog:
+  id: example-service
+mode: local
 flags:
-  - name: example_flag
-    type: boolean
+  example_flag:
     default: false
+    kind: release
     description: An example feature flag
-    environments:
-      production:
+environments:
+  production:
+    rules:
+      example_flag:
         - serve: false
-      staging:
+  staging:
+    rules:
+      example_flag:
         - serve: false
 "
     } else {
-        r"mode: local
-flags: []
+        r"catalog:
+  id: example-service
+mode: local
+flags: {}
 "
     };
-    fs::write(UNIFIED_CONFIG_FILE, config_content).map_err(CliError::from)
+    atomic_write_string(Path::new(UNIFIED_CONFIG_FILE), config_content)
 }
 
 fn run_inner(options: &Options) -> CliResult<String> {
     println!("Setting up Control Path project...");
+    println!("This will create the project structure and generate initial files.");
     println!();
 
     // Check if project already exists
@@ -232,7 +268,7 @@ fn run_inner(options: &Options) -> CliResult<String> {
     println!();
 
     // Step 1: Initialize project structure
-    println!("1. Creating project structure...");
+    println!("Step 1/6: Creating project structure...");
     ensure_controlpath_directory()?;
     let create_examples = !options.no_examples;
     create_unified_config_file(create_examples)?;
@@ -250,18 +286,18 @@ fn run_inner(options: &Options) -> CliResult<String> {
     };
 
     // Step 2: Write config.yaml with language + defaultEnv
-    println!("2. Writing configuration...");
+    println!("Step 2/6: Writing configuration...");
     config::write_config_language(&lang)?;
     config::write_config_default_env("production")?;
-    println!("   ✓ Configuration written");
+    println!("   ✓ Configuration written to {}", UNIFIED_CONFIG_FILE);
     println!();
 
     // Step 3: Generate SDK (only if we have flags)
     if create_examples {
-        println!("3. Generating SDK...");
+        println!("Step 3/6: Generating SDK...");
         let generate_options = ops_generate_sdk::GenerateOptions {
             lang: Some(lang.clone()),
-            output: Some(SDK_OUTPUT_DIR.to_string()),
+            output: None, // Use default (node_modules/@controlpath/generated) or config
             skip_validation: false,
         };
         ops_generate_sdk::generate_sdk_helper(&generate_options).map_err(|e| {
@@ -274,12 +310,12 @@ fn run_inner(options: &Options) -> CliResult<String> {
         println!("   ✓ SDK generated");
         println!();
     } else {
-        println!("3. Skipping SDK generation (no flags defined)");
+        println!("Step 3/6: Skipping SDK generation (no flags defined)");
         println!();
     }
 
     // Step 4: Compile ASTs for all initial environments
-    println!("4. Compiling ASTs for initial environments...");
+    println!("Step 4/6: Compiling ASTs for initial environments...");
     let compile_options = ops_compile::CompileOptions {
         envs: Some(initial_envs.clone()),
         skip_validation: false,
@@ -297,7 +333,7 @@ fn run_inner(options: &Options) -> CliResult<String> {
 
     // Step 5: Install runtime SDK (conditional)
     if !options.skip_install {
-        println!("5. Installing runtime SDK...");
+        println!("Step 5/6: Installing runtime SDK...");
         install_runtime_sdk(&lang).map_err(|e| {
             CliError::Message(format!(
                 "Failed to install runtime SDK: {}. \
@@ -307,13 +343,13 @@ fn run_inner(options: &Options) -> CliResult<String> {
         })?;
         println!("   ✓ Runtime SDK installed");
     } else {
-        println!("5. Skipping runtime SDK installation (--skip-install)");
+        println!("Step 5/6: Skipping runtime SDK installation (--skip-install)");
     }
     println!();
 
     // Step 6: Create example usage file (only if not --no-examples)
     if !options.no_examples {
-        println!("6. Creating example usage file...");
+        println!("Step 6/6: Creating example usage file...");
         create_example_usage_file(&lang).map_err(|e| {
             CliError::Message(format!(
                 "Failed to create example usage file: {}. \

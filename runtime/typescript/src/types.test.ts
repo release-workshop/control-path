@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Artifact, Rule, Expression, Variation } from './types';
+import type { Artifact, Rule, Expression } from './types';
 import {
   RuleType,
   ExpressionType,
@@ -14,7 +14,6 @@ import {
   FuncCode,
   isArtifact,
   isRule,
-  isVariation,
   isExpression,
 } from './types';
 
@@ -74,31 +73,6 @@ describe('Type Guards', () => {
       expect(isRule(rule)).toBe(true);
     });
 
-    it('should return true for valid variations rule', () => {
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        undefined,
-        [
-          [0, 50],
-          [1, 50],
-        ],
-      ];
-      expect(isRule(rule)).toBe(true);
-    });
-
-    it('should return true for valid variations rule with when clause', () => {
-      const when: Expression = [ExpressionType.PROPERTY, 0];
-      const rule: Rule = [
-        RuleType.VARIATIONS,
-        when,
-        [
-          [0, 50],
-          [1, 50],
-        ],
-      ];
-      expect(isRule(rule)).toBe(true);
-    });
-
     it('should return true for valid rollout rule', () => {
       const rule: Rule = [RuleType.ROLLOUT, undefined, [0, 10]];
       expect(isRule(rule)).toBe(true);
@@ -116,30 +90,13 @@ describe('Type Guards', () => {
       expect(isRule([0])).toBe(false); // too short
       expect(isRule([99, undefined, 0])).toBe(false); // invalid type
       expect(isRule([RuleType.SERVE, undefined, {}])).toBe(false); // invalid payload type
-      expect(isRule([RuleType.VARIATIONS, undefined, 'not-array'])).toBe(false); // invalid payload
+      expect(isRule([1, undefined, [[0, 50]]])).toBe(false); // legacy multivariate type
       expect(isRule([RuleType.ROLLOUT, undefined, [0]])).toBe(false); // invalid rollout payload
     });
 
     it('should return false for rule with invalid when clause', () => {
       const rule = [RuleType.SERVE, 'not-expression', 0];
       expect(isRule(rule)).toBe(false);
-    });
-  });
-
-  describe('isVariation', () => {
-    it('should return true for valid variation', () => {
-      const variation: Variation = [0, 50];
-      expect(isVariation(variation)).toBe(true);
-    });
-
-    it('should return false for invalid variation', () => {
-      expect(isVariation(null)).toBe(false);
-      expect(isVariation(undefined)).toBe(false);
-      expect(isVariation([])).toBe(false);
-      expect(isVariation([0])).toBe(false); // too short
-      expect(isVariation(['string', 50])).toBe(false); // wrong type
-      expect(isVariation([0, 'string'])).toBe(false); // wrong type
-      expect(isVariation([0, 50, 100])).toBe(false); // too long
     });
   });
 

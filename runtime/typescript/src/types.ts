@@ -33,20 +33,18 @@ export interface Artifact {
 }
 
 /**
- * Rule structure: [type, when?, payload]
+ * Boolean rule structure: [type, when?, payload]
  *
- * Types:
- * - serve: [0, undefined, string | number] or [0, Expression, string | number]
- * - variations: [1, undefined, Variation[]] or [1, Expression, Variation[]]
- * - rollout: [2, undefined, [string | number, number]] or [2, Expression, [string | number, number]]
+ * - serve: `[0, undefined, string | number]` or `[0, Expression, string | number]`
+ * - rollout: `[2, undefined, [string | number, number]]` or `[2, Expression, [string | number, number]]`
+ *
+ * Legacy multivariate rule type `1` is not part of this union; `isRule` rejects it.
  */
 export type Rule =
-  | [0, undefined, string | number] // serve without when
-  | [0, Expression, string | number] // serve with when
-  | [1, undefined, Variation[]] // variations without when
-  | [1, Expression, Variation[]] // variations with when
-  | [2, undefined, [string | number, number]] // rollout without when
-  | [2, Expression, [string | number, number]]; // rollout with when
+  | [0, undefined, string | number]
+  | [0, Expression, string | number]
+  | [2, undefined, [string | number, number]]
+  | [2, Expression, [string | number, number]];
 
 /**
  * Expression node structure: [type, ...]
@@ -66,13 +64,6 @@ export type Expression =
   | [4, number, Expression[]]; // func
 
 /**
- * Variation structure: [var_index, pct]
- * - var_index: string table index (uint16)
- * - pct: percentage (uint8, 0-100)
- */
-export type Variation = [number, number];
-
-/**
  * Keys that are rejected to prevent prototype pollution attacks.
  * These keys should not be allowed in property paths or object keys.
  */
@@ -85,8 +76,6 @@ export const PROTOTYPE_POLLUTING_KEYS = ['__proto__', 'constructor', 'prototype'
 export const RuleType = {
   /** Serve rule - payload is string | number (string table index) */
   SERVE: 0,
-  /** Variations rule - payload is Variation[] */
-  VARIATIONS: 1,
   /** Rollout rule - payload is [value_index, pct] tuple */
   ROLLOUT: 2,
 } as const;
@@ -209,8 +198,8 @@ export function isRule(value: unknown): value is Rule {
   const when: unknown = value.length > 1 ? value[1] : undefined;
   const payload: unknown = value.length > 2 ? value[2] : undefined;
 
-  // Type must be a valid RuleType
-  if (typeof type !== 'number' || type < 0 || type > 2) {
+  // v2 boolean AST: serve (0) and rollout (2) only
+  if (typeof type !== 'number' || (type !== RuleType.SERVE && type !== RuleType.ROLLOUT)) {
     return false;
   }
 
@@ -224,10 +213,6 @@ export function isRule(value: unknown): value is Rule {
     return typeof payload === 'string' || typeof payload === 'number';
   }
 
-  if (type === RuleType.VARIATIONS) {
-    return Array.isArray(payload) && payload.every(isVariation);
-  }
-
   if (type === RuleType.ROLLOUT) {
     return (
       Array.isArray(payload) &&
@@ -238,18 +223,6 @@ export function isRule(value: unknown): value is Rule {
   }
 
   return false;
-}
-
-/**
- * Type guard to check if a value is a Variation
- */
-export function isVariation(value: unknown): value is Variation {
-  return (
-    Array.isArray(value) &&
-    value.length === 2 &&
-    typeof value[0] === 'number' &&
-    typeof value[1] === 'number'
-  );
 }
 
 /**
@@ -326,41 +299,13 @@ export interface Attributes {
 }
 
 /**
- * Override file format - supports both simple and full formats
+ * Kill switch file format (v2 boolean map).
  */
-export interface OverrideFile {
-  /** Format version (e.g., "1.0") */
+export interface KillSwitchFile {
+  /** Format version (e.g., "2.0") */
   version: string;
-  /** Map of flag names to override values */
-  overrides: Record<string, OverrideValue>;
-}
-
-/**
- * Override value - can be a simple string or a full object with metadata
- */
-export type OverrideValue =
-  | string // Simple format: "ON", "OFF", "V1", etc.
-  | {
-      /** Override value (required) */
-      value: string;
-      /** ISO 8601 timestamp when override was set (optional) */
-      timestamp?: string;
-      /** Reason for override (optional) */
-      reason?: string;
-      /** Operator who set the override (optional) */
-      operator?: string;
-    };
-
-/**
- * Override state - internal state for managing overrides
- */
-export interface OverrideState {
-  /** Map of flag names to override values */
-  overrides: Record<string, string>; // Normalized to simple string values
-  /** ETag from last successful load (for HTTP conditional requests) */
-  etag?: string;
-  /** Timestamp of last successful load */
-  lastLoadTime?: number;
+  /** Map of qualified flag names to boolean values */
+  flags: Record<string, boolean>;
 }
 
 /**

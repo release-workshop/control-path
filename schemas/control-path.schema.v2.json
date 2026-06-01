@@ -1,0 +1,328 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://controlpath.dev/schemas/control-path.schema.v2.json",
+  "title": "Control Path Configuration Schema v2",
+  "description": "Boolean-only flag catalog with explicit catalog identity, namespaced imports, and optional local environment rules. SaaS mode owns environment rules remotely.",
+  "type": "object",
+  "required": ["catalog", "flags"],
+  "properties": {
+    "catalog": {
+      "$ref": "#/$defs/catalog"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["local", "saas"],
+      "description": "Rule authority: 'local' compiles environment rules from this file; 'saas' rejects local environment rules and uses the remote SaaS project.",
+      "default": "local"
+    },
+    "saas": {
+      "$ref": "#/$defs/saasConfig"
+    },
+    "imports": {
+      "type": "object",
+      "description": "Explicit references to shared flag catalogs. Each key is the import namespace used in SDK and rule references (e.g. platform.emergency_kill_switch).",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/catalogImport"
+        }
+      },
+      "additionalProperties": false
+    },
+    "flags": {
+      "type": "object",
+      "description": "Boolean flag catalog keyed by flag name. Map keys must be unique valid identifiers.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/flagDefinition"
+        }
+      },
+      "additionalProperties": false
+    },
+    "environments": {
+      "type": "object",
+      "description": "Local-mode environment rules only. Invalid when mode is 'saas'. Optional in local mode when no targeting is defined yet.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/environment"
+        }
+      },
+      "additionalProperties": false
+    },
+    "segments": {
+      "type": "object",
+      "description": "Optional reusable targeting predicates for local-mode rules.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/segment"
+        }
+      },
+      "additionalProperties": false
+    },
+    "kill_switches": {
+      "type": "object",
+      "description": "Local mode only: per-environment URLs hosting the kill switch file. Omit in SaaS mode — the platform CDN serves kill switches after sync.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/killSwitchTarget"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "description": "Local mode only: per-environment URLs hosting the compiled artifact (environment rules). Omit in SaaS mode — the platform CDN serves artifacts after sync.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/artifactTarget"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "mode": { "const": "saas" } },
+        "required": ["mode"]
+      },
+      "then": {
+        "required": ["saas"]
+      }
+    }
+  ],
+  "$defs": {
+    "catalog": {
+      "type": "object",
+      "description": "Stable identity for this flag catalog. Used for SaaS sync, imports, and telemetry attribution. Effective id is {namespace}.{id} when a namespace is resolved, otherwise id alone.",
+      "required": ["id"],
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "description": "Optional domain-boundary prefix (e.g. acme). Explicit here for multi-repo; in monorepos may be omitted when control-path.workspace.yaml supplies it via walk-up. File value takes precedence over workspace.",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "id": {
+          "type": "string",
+          "description": "Catalog identifier within the namespace (e.g. checkout-service).",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "saasConfig": {
+      "type": "object",
+      "description": "Non-secret SaaS project identity. Auth tokens and cached artifacts live outside Git.",
+      "required": ["project"],
+      "properties": {
+        "project": {
+          "type": "string",
+          "description": "SaaS project slug or identifier (e.g. acme/checkout).",
+          "minLength": 1
+        },
+        "api_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional Control Path API base URL for self-hosted deployments (catalog sync). Not used for SDK runtime polls."
+        },
+        "cdn_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Optional CDN origin for SDK runtime polls (kill switch file and compiled artifact URLs embedded at generate-sdk). Defaults to the platform CDN when omitted."
+        },
+        "ast_public_key": {
+          "type": "string",
+          "description": "Optional base64-encoded Ed25519 public key for verifying downloaded AST artifacts."
+        },
+        "require_ast_signature": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, downloaded AST artifacts must carry a valid signature."
+        }
+      },
+      "additionalProperties": false
+    },
+    "catalogImport": {
+      "type": "object",
+      "description": "Reference to a shared flag catalog file.",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Path to the imported control-path.yaml, relative to this file.",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "flagDefinition": {
+      "type": "object",
+      "description": "Boolean flag definition with product semantics and declared metadata.",
+      "required": ["default", "kind"],
+      "properties": {
+        "default": {
+          "type": "boolean",
+          "description": "Fallback value when no environment rule matches."
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["release", "kill_switch", "entitlement"],
+          "description": "Product semantics: why this flag exists."
+        },
+        "lifecycle": {
+          "type": "string",
+          "enum": ["active", "deprecated"],
+          "description": "Repo-owned lifecycle signal. Defaults to active when omitted.",
+          "default": "active"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description."
+        },
+        "owner": {
+          "type": "string",
+          "description": "Owning team or individual. Warn when missing."
+        },
+        "ticket": {
+          "type": "string",
+          "description": "Tracking ticket reference (e.g. JIRA-123)."
+        },
+        "expires": {
+          "type": "string",
+          "format": "date",
+          "description": "Intended cleanup date. Warn for kind: release when missing."
+        },
+        "tags": {
+          "type": "array",
+          "description": "Optional classification tags.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Free-form team-specific annotations. Must not contain SaaS telemetry.",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "description": "Environment with optional metadata and required rules map.",
+      "required": ["rules"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Optional human-readable environment description."
+        },
+        "rules": {
+          "type": "object",
+          "description": "Flag rules keyed by local flag name only. Imported flags must not appear here in consuming service catalogs.",
+          "patternProperties": {
+            "^[a-z][a-z0-9_]*$": {
+              "type": "array",
+              "description": "Ordered rules evaluated first-match-wins; unmatched flags fall back to catalog default.",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/rule"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "segment": {
+      "type": "object",
+      "required": ["when"],
+      "properties": {
+        "when": {
+          "type": "string",
+          "description": "Expression defining segment membership."
+        }
+      },
+      "additionalProperties": false
+    },
+    "rule": {
+      "type": "object",
+      "description": "Boolean targeting rule. Provide either serve directly or rollout with embedded serve.",
+      "properties": {
+        "when": {
+          "type": "string",
+          "description": "Optional expression. When true (or omitted), this rule is eligible."
+        },
+        "serve": {
+          "type": "boolean",
+          "description": "Boolean value to serve when this rule matches."
+        },
+        "rollout": {
+          "$ref": "#/$defs/rollout"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional audit note for why this rule exists."
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["serve"],
+          "not": {
+            "required": ["rollout"]
+          }
+        },
+        {
+          "required": ["rollout"]
+        }
+      ]
+    },
+    "rollout": {
+      "type": "object",
+      "description": "Boolean percentage rollout. Serves the embedded value to a percentage of matching identities.",
+      "required": ["percentage", "serve"],
+      "properties": {
+        "percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percentage of matching identities (0-100)."
+        },
+        "serve": {
+          "type": "boolean",
+          "description": "Boolean value served to the rollout bucket."
+        }
+      },
+      "additionalProperties": false
+    },
+    "killSwitchTarget": {
+      "type": "object",
+      "description": "Where the SDK loads the kill switch file for this environment.",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "HTTP(S) URL to the kill switch JSON file (e.g. S3 or CDN)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifactTarget": {
+      "type": "object",
+      "description": "Where the SDK polls the compiled artifact for this environment.",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "HTTP(S) URL to the compiled artifact (MessagePack binary, e.g. S3 or CDN)."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -4,6 +4,7 @@ mod integration_test_helpers;
 
 use integration_test_helpers::*;
 use serial_test::serial;
+use std::fs;
 
 #[test]
 #[serial]
@@ -70,8 +71,10 @@ fn test_generate_sdk_command() {
     // Generate TypeScript SDK
     project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
 
-    // Verify SDK was generated
-    assert!(project.file_exists("./flags"));
+    // Verify SDK was generated (default path is node_modules/@controlpath/generated)
+    assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/types.ts"));
+    assert!(project.file_exists("node_modules/@controlpath/generated/package.json"));
 }
 
 #[test]
@@ -96,6 +99,34 @@ fn test_explain_command() {
         "my_flag",
         "--user",
         "user.json",
+        "--env",
+        "production",
+    ]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("my_flag") || stdout.contains("Flag"));
+}
+
+#[test]
+#[serial]
+fn test_explain_command_with_inline_user_json() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "production",
+        &simple_deployment("production", "my_flag", true),
+    );
+
+    // Compile first
+    project.run_command_success(&["compile", "--env", "production"]);
+
+    // Explain flag with inline JSON user input
+    let output = project.run_command(&[
+        "explain",
+        "--flag",
+        "my_flag",
+        "--user",
+        r#"{"id":"user-1","role":"admin"}"#,
         "--env",
         "production",
     ]);
@@ -140,23 +171,67 @@ fn test_explain_command_with_trace() {
 
 #[test]
 #[serial]
-fn test_init_command() {
+fn test_setup_command() {
     let project = TestProject::new();
 
-    // Run setup with example flags to create config
     project.run_command_success(&["setup", "--skip-install"]);
 
-    // Verify config file was created
     assert!(project.file_exists("control-path.yaml"));
-
-    // Verify config has flags (setup creates example flags by default)
     let content = project.read_file("control-path.yaml");
     assert!(content.contains("flags"));
 }
 
 #[test]
 #[serial]
-fn test_init_command_with_force() {
+fn test_init_multi_repo() {
+    let project = TestProject::new();
+    project.run_command_success(&[
+        "init",
+        "--no-monorepo",
+        "--namespace",
+        "acme",
+        "--service-id",
+        "checkout",
+    ]);
+    let content = project.read_file("control-path.yaml");
+    assert!(content.contains("namespace: acme"));
+    assert!(content.contains("checkout"));
+    assert!(!project.file_exists("control-path.workspace.yaml"));
+}
+
+#[test]
+#[serial]
+fn test_init_monorepo_workspace() {
+    let project = TestProject::new();
+    project.run_command_success(&["init", "--monorepo", "--namespace", "acme"]);
+    assert!(project.file_exists("control-path.workspace.yaml"));
+    let content = project.read_file("control-path.workspace.yaml");
+    assert!(content.contains("namespace: acme"));
+}
+
+#[test]
+#[serial]
+fn test_init_service_scaffold_from_workspace() {
+    let project = TestProject::new();
+    project.run_command_success(&["init", "--monorepo", "--namespace", "acme"]);
+    let service = project.path("checkout-service");
+    fs::create_dir_all(&service).unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_controlpath"))
+        .current_dir(&service)
+        .args(["init", "--service-id", "checkout-service"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(service.join("control-path.yaml").exists());
+}
+
+#[test]
+#[serial]
+fn test_setup_command_with_force() {
     let project = TestProject::new();
 
     // Create existing config file
@@ -177,51 +252,29 @@ fn test_flag_list_command() {
         &simple_deployment("production", "flag1", true),
     );
 
-    // Add another flag to both config and legacy file (flag command uses legacy)
-    let config_content = r"mode: local
+    // Add another flag to config
+    let config_content = r"catalog:
+  id: test-service
+mode: local
 flags:
-  - name: flag1
-    type: boolean
+  flag1:
     default: false
-    environments:
-      production:
-        - serve: true
-  - name: flag2
-    type: boolean
+    kind: release
+  flag2:
     default: true
-    environments:
-      production:
+    kind: release
+environments:
+  production:
+    rules:
+      flag1:
+        - serve: true
+      flag2:
         - serve: true
 "
     .to_string();
     project.write_file("control-path.yaml", &config_content);
 
-    // Also update legacy files for flag command (which doesn't support config yet)
-    let legacy_definitions = r"flags:
-  - name: flag1
-    type: boolean
-    default: false
-    defaultValue: false
-  - name: flag2
-    type: boolean
-    default: true
-    defaultValue: true
-";
-    project.write_file("flags.definitions.yaml", legacy_definitions);
-
-    // Update deployment file to include both flags
-    let legacy_deployment = r"environment: production
-rules:
-  flag1:
-    rules:
-      - serve: true
-  flag2:
-    rules:
-      - serve: true
-";
-    project.write_file(".controlpath/production.deployment.yaml", legacy_deployment);
-
-    // List flags (flag command uses legacy files)
+    // List flags
     let output = project.run_command(&["flag", "list"]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -241,15 +294,6 @@ rules:
 fn test_flag_list_json_format() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
-    // Also create legacy file for flag command
-    let legacy_definitions = r"flags:
-  - name: my_flag
-    type: boolean
-    default: false
-    defaultValue: false
-";
-    project.write_file("flags.definitions.yaml", legacy_definitions);
-
     let output = project.run_command(&["flag", "list", "--format", "json"]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -262,15 +306,6 @@ fn test_flag_list_json_format() {
 fn test_flag_list_yaml_format() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
-    // Also create legacy file for flag command
-    let legacy_definitions = r"flags:
-  - name: my_flag
-    type: boolean
-    default: false
-    defaultValue: false
-";
-    project.write_file("flags.definitions.yaml", legacy_definitions);
-
     let output = project.run_command(&["flag", "list", "--format", "yaml"]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -282,15 +317,6 @@ fn test_flag_list_yaml_format() {
 #[serial]
 fn test_flag_list_table_format() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
-
-    // Also create legacy file for flag command
-    let legacy_definitions = r"flags:
-  - name: my_flag
-    type: boolean
-    default: false
-    defaultValue: false
-";
-    project.write_file("flags.definitions.yaml", legacy_definitions);
 
     let output = project.run_command(&["flag", "list", "--format", "table"]);
     assert!(output.status.success());
@@ -308,15 +334,13 @@ fn test_env_list_command() {
         &simple_deployment("production", "my_flag", true),
     );
 
-    // Add another environment
-    project.run_command_success(&["env", "add", "--name", "staging"]);
-
     // List environments
     let output = project.run_command(&["env", "list"]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("production"));
-    assert!(stdout.contains("staging"));
+    // env add is readiness-only in unified mode, so staging is not listed until rules exist.
+    assert!(!stdout.contains("staging"));
 }
 
 #[test]
@@ -328,20 +352,13 @@ fn test_env_remove_command() {
         &simple_deployment("production", "my_flag", true),
     );
 
-    // Add a test environment to remove (env command uses legacy files)
-    project.run_command_success(&["env", "add", "--name", "test_env"]);
+    // Remove existing environment from unified config.
+    project.run_command_success(&["env", "remove", "--name", "production"]);
 
-    // Verify it exists as a legacy deployment file
-    assert!(project.file_exists(".controlpath/test_env.deployment.yaml"));
-
-    // Remove the environment (name is a flag, not positional)
-    project.run_command_success(&["env", "remove", "--name", "test_env", "--force"]);
-
-    // Verify it was removed (legacy deployment file)
-    assert!(!project.file_exists(".controlpath/test_env.deployment.yaml"));
-
-    // Verify production still exists (legacy deployment file)
-    assert!(project.file_exists(".controlpath/production.deployment.yaml"));
+    let output = project.run_command(&["env", "list"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("production"));
 }
 
 #[test]

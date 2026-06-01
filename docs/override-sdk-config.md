@@ -1,300 +1,102 @@
-# SDK Configuration for Overrides
+# SDK runtime configuration (kill switches and artifacts)
 
-This guide explains how to configure the Control Path SDK to load and poll override files (kill switches).
+Boolean kill switch files override compiled AST rules at runtime. Evaluation order: **kill switch file → AST → catalog default**.
 
-## Quick Start
+## Deploy velocities
+
+| Change | Ship path |
+| --- | --- |
+| **Flag catalog** | `controlpath generate-sdk` + app deploy |
+| **Environment rules** only | Upload new `.controlpath/<env>.ast` to `artifacts.<env>.url`; SDK hot-swaps on poll |
+| **Kill switch** | Upload kill switch JSON to `kill_switches.<env>.url` (faster poll) |
+
+## Generated SDK (recommended)
+
+In **local mode**, when `kill_switches.<env>.url` and/or `artifacts.<env>.url` are declared in `control-path.yaml`, `controlpath generate-sdk` embeds them as `KILL_SWITCH_URLS` and `ARTIFACT_URLS`.
+
+In **SaaS mode**, the same constants are embedded from the platform CDN contract (`saas.project`, effective catalog id, environment) for each `.controlpath/<env>.ast` present when you run `generate-sdk` (usually after `controlpath ci` / SaaS sync). Avoid leaving stray `*.ast` from local `compile` unless you intend those environments embedded. Use `saas.cdn_url` for a self-hosted CDN origin; `saas.api_url` is for catalog sync only. See `docs/adr/0001-compiled-artifact-runtime-delivery.md` and `crates/compiler/src/catalog/cdn.rs`.
 
 ```typescript
-import { Provider } from '@controlpath/runtime';
+import { evaluator } from '@controlpath/generated';
 
-// Override file is loaded and polled automatically during initialization
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
+// Loads AST; starts kill switch polling (~30s) and artifact polling (~60s) when URLs exist.
+await evaluator.init({
+  artifact: './.controlpath/production.ast',
+  // Optional: warn when CDN refresh fails (keeps last good artifact / kill switch file)
+  logger: myLogger,
 });
 
-// Load AST artifact (required for flag evaluation)
-await provider.loadArtifact('./flags/production.ast');
+const enabled = await evaluator.newDashboard({ id: 'user-1', role: 'admin' });
 ```
 
-That's it! The override file is loaded automatically when the Provider is created, and polling starts in the background.
+**Requirements:**
 
-## Configuration Options
+- Pass `artifact` to `init()` — polling is tied to `artifact.env` and does not run without an AST path or URL.
+- Remote refresh is **non-blocking** during `init()`. Kill switches poll about every 30s; compiled artifacts about every 60s (independent timers). Until the first fetch succeeds, flags use the bundled artifact and catalog defaults.
+- Artifact polls use ETag / 304: unchanged remote copies do not replace or re-verify the in-memory artifact. Failed or rejected polls keep the last good artifact (rejected when `env` mismatches or zero flag-name overlap with the SDK).
+- **Init guardrails** (env match + SDK flag overlap) run only when `artifacts.<env>.url` is declared for the resolved environment. Catalogs with no `artifacts` block skip strict init checks — use that for local-only workflows; add `artifacts` when you want wrong-file / wrong-object failures at startup.
+- Ed25519 verification on polled artifact bytes is not wired in the generated SDK `init()` yet; configure `saas.ast_public_key` / `require_ast_signature` for download-time verification during CI sync.
+- Flag keys in the kill switch JSON must match **qualified** catalog names (e.g. `platform.emergency_kill_switch` for imported flags).
 
-### Basic Configuration
+### Incident runbooks
 
-```typescript
-const provider = new Provider({
-  // Override file URL (HTTP/HTTPS, file://, or file path)
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  
-  // Polling interval in milliseconds (default: 3000ms / 3 seconds)
-  pollingInterval: 3000,
-  
-  // Enable/disable polling (default: true when overrideUrl is set)
-  enablePolling: true,
-});
-```
+After deploy or scale-up, new processes call `init()` before the first kill switch download finishes. During that window, evaluation uses **AST + catalog defaults**, not the CDN file. Existing pods with a successful prior refresh are unaffected. For incident toggles that must apply on the first request after cold start, wait for the first successful refresh or load a local kill switch file via the low-level runtime API.
 
-### URL Types
+Failed CDN refreshes keep the previous in-memory file and do not throw; pass `logger` to `init()` if you want warnings in application logs.
 
-The SDK supports three types of URLs:
+## Low-level runtime (`@controlpath/runtime`)
 
-#### 1. HTTP/HTTPS URLs (Production)
+For custom integrations, use `loadKillSwitchFromURL` / `loadKillSwitchFromFile` and `resolveBooleanFlag`:
 
 ```typescript
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  // Polling starts automatically for HTTP/HTTPS URLs
-});
-```
+import {
+  loadFromFile,
+  loadFromURL,
+  loadKillSwitchFromURL,
+  buildFlagNameMapFromArtifact,
+  resolveBooleanFlag,
+} from '@controlpath/runtime';
 
-**Features:**
-- Automatic polling (checks for updates every 3 seconds by default)
-- ETag support (only fetches if file changed)
-- Works with CDN, web server, S3 public URLs, etc.
+const artifact = await loadFromFile('./.controlpath/production.ast');
+const { artifact: remoteArtifact, etag } = await loadFromURL(
+  'https://cdn.example.com/production/rules.ast'
+);
+// Pass `etag` on later polls via loadOptions; HTTP 304 yields ArtifactNotModifiedError.
 
-#### 2. File URLs (Local Development)
+const { killSwitchFile } = await loadKillSwitchFromURL(
+  'https://cdn.example.com/production/kill-switches.json'
+);
 
-```typescript
-const provider = new Provider({
-  overrideUrl: 'file:///absolute/path/to/overrides.json',
-  // Or: overrideUrl: './overrides.json' (Node.js only)
-});
-```
-
-**Features:**
-- Loads once during initialization
-- No polling (file changes require reload or restart)
-- Useful for local development
-
-#### 3. Direct File Paths (Node.js Only)
-
-```typescript
-const provider = new Provider({
-  overrideUrl: './overrides.json', // Relative to current working directory
-  // Or: overrideUrl: '/absolute/path/to/overrides.json'
-});
-```
-
-**Features:**
-- Same as file:// URLs (no polling)
-- Only works in Node.js (not browsers)
-- Useful for local development
-
-## Polling Configuration
-
-### Automatic Polling
-
-Polling starts automatically when you provide an HTTP/HTTPS URL:
-
-```typescript
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  // Polling starts automatically (no manual call needed)
+const flagIndex = buildFlagNameMapFromArtifact(artifact)['new_dashboard'];
+const value = resolveBooleanFlag({
+  qualifiedName: 'new_dashboard',
+  flagIndex,
+  artifact,
+  catalogDefault: false,
+  killSwitchFile,
+  attributes: { id: 'user-1' },
 });
 ```
 
-### Custom Polling Interval
+Use `KillSwitchRefreshCoordinator` / `ArtifactRefreshCoordinator` with `startKillSwitchPoll` or the generic aliases `startJitteredPoll` / `pollInitDelayMs` if you implement polling yourself (same pattern as the generated SDK). Coordinators serialize overlapping fetches and only apply CDN data on successful refresh.
 
-Adjust the polling interval (1-5 seconds recommended):
+### v0.2 breaking change
 
-```typescript
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  pollingInterval: 5000, // Poll every 5 seconds
-});
-```
+`evaluate()` and `evaluateRule()` now coerce boolean serve payloads (`ON`/`OFF`) to `true`/`false`. Use `evaluateBoolean` or `resolveBooleanFlag` for boolean flags. See `runtime/typescript/CHANGELOG.md`.
 
-### Disable Polling
+## Local development
 
-Disable automatic polling if you want manual control:
-
-```typescript
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  enablePolling: false, // Disable automatic polling
-});
-
-// Manually start polling later
-provider.startPolling();
-
-// Or manually reload override file
-await provider.reloadOverrideFile();
-```
-
-### Manual Polling Control
-
-Start and stop polling programmatically:
-
-```typescript
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  enablePolling: false, // Don't start automatically
-});
-
-// Start polling
-provider.startPolling();
-
-// Later, stop polling
-provider.stopPolling();
-```
-
-## Error Handling
-
-The SDK handles errors gracefully (never throws during evaluation):
-
-```typescript
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  logger: {
-    // Optional: Custom logger for override loading errors
-    error: (message) => console.error('Override error:', message),
-    warn: (message) => console.warn('Override warning:', message),
-    debug: (message) => console.debug('Override debug:', message),
-  },
-});
-```
-
-**Error Scenarios:**
-- **Network errors**: Logged as warnings, polling continues
-- **Invalid JSON**: Logged as warnings, falls back to AST evaluation
-- **File not found**: Logged as warnings, falls back to AST evaluation
-- **Invalid override values**: Logged as warnings, falls back to AST evaluation
-
-The application continues running even if override file is unavailable.
-
-## Complete Example
-
-```typescript
-import { Provider } from '@controlpath/runtime';
-
-// Configure provider with override file
-const provider = new Provider({
-  // Override file URL
-  overrideUrl: process.env.OVERRIDE_URL || 'https://cdn.example.com/overrides.json',
-  
-  // Polling configuration
-  pollingInterval: 3000, // 3 seconds (default)
-  enablePolling: true, // Start polling automatically (default)
-  
-  // Optional: Custom logger
-  logger: {
-    error: (msg) => console.error('[Override]', msg),
-    warn: (msg) => console.warn('[Override]', msg),
-    debug: (msg) => console.debug('[Override]', msg),
-  },
-});
-
-// Load AST artifact (required for flag evaluation)
-await provider.loadArtifact('./flags/production.ast');
-
-// Evaluate flags (override takes precedence over AST)
-const context = { id: 'user123', role: 'admin' };
-const result = provider.resolveBooleanEvaluation('new_dashboard', false, context);
-
-if (result.value) {
-  console.log('New dashboard enabled');
-}
-```
-
-## Multi-Environment Setup
-
-Use different override URLs per environment:
-
-```typescript
-// Production
-const prodProvider = new Provider({
-  overrideUrl: 'https://flags.example.com/production/overrides.json',
-});
-
-// Staging
-const stagingProvider = new Provider({
-  overrideUrl: 'https://flags.example.com/staging/overrides.json',
-});
-
-// Development
-const devProvider = new Provider({
-  overrideUrl: './overrides.json', // Local file
-});
-```
-
-Or use environment variables:
-
-```typescript
-const provider = new Provider({
-  overrideUrl: process.env.OVERRIDE_URL || './overrides.json',
-  pollingInterval: parseInt(process.env.OVERRIDE_POLLING_INTERVAL || '3000', 10),
-  enablePolling: process.env.OVERRIDE_ENABLE_POLLING !== 'false',
-});
-```
-
-## Evaluation Priority
-
-Override values take precedence over AST evaluation:
-
-1. **Override** (if present in override file)
-2. **AST** (from compiled deployment file)
-3. **Default** (from flag definitions)
-
-```typescript
-// Override file: { "new_dashboard": "OFF" }
-// AST: new_dashboard = true (for user123)
-// Result: false (override takes precedence)
-const result = provider.resolveBooleanEvaluation('new_dashboard', false, context);
-// result.value = false (override wins)
-```
-
-## Performance Considerations
-
-### Polling Impact
-
-- **Default interval**: 3 seconds (configurable)
-- **ETag support**: Only fetches if file changed (reduces bandwidth)
-- **Background polling**: Non-blocking, doesn't affect evaluation performance
-- **Cache**: Override values are cached in memory (no re-parsing on each evaluation)
-
-### Bandwidth Usage
-
-With ETag support, polling is very efficient:
-- **First request**: Full file download (~1KB typical)
-- **Subsequent requests**: 304 Not Modified (no body, just headers)
-- **On change**: Full file download again
-
-Typical bandwidth: < 1KB per 3 seconds (only when file changes).
+Serve `.controlpath/<env>.kill-switches.json` from a local HTTP server and point `kill_switches.<env>.url` at it in the catalog, then regenerate the SDK.
 
 ## Troubleshooting
 
-### Override not loading
+- **Kill switch ignored:** JSON must use `"version": "2.0"` and boolean values under `flags`
+- **Stale values:** CDN cache headers; polls run every 30s plus 0–10s jitter (and the first fetch is staggered 0–5s after `init()`)
+- **Imported flag not found:** Use the qualified name (`namespace.flag_key`), not the local method name
+- **Slow cold start:** `init()` no longer waits on the kill switch URL; values apply after the first successful background fetch
 
-```typescript
-// Check if override file loaded
-console.log('Override state:', provider.getOverrideState());
+## See Also
 
-// Check logs for errors
-const provider = new Provider({
-  overrideUrl: 'https://cdn.example.com/overrides.json',
-  logger: {
-    error: (msg) => console.error('Error:', msg),
-    warn: (msg) => console.warn('Warning:', msg),
-  },
-});
-```
-
-### Polling not working
-
-- **Check URL type**: Polling only works for HTTP/HTTPS URLs (not `file://` or direct paths)
-- **Check enablePolling**: Ensure `enablePolling: true` (default when overrideUrl is set)
-- **Check network**: Verify URL is accessible (try in browser)
-
-### Override not taking effect
-
-- **Check priority**: Override → AST → Default (override should win)
-- **Check flag name**: Ensure flag name matches exactly (case-sensitive)
-- **Check value format**: Boolean flags use `"ON"`/`"OFF"`, multivariate use variation name
-- **Check logs**: SDK logs warnings for invalid overrides
-
-## Next Steps
-
-- [Storage Setup Guide](./override-setup.md) - Set up override file storage
-- [CLI Usage Guide](./override-cli-usage.md) - Manage override files with CLI
-- [Use Cases and Examples](./override-examples.md) - Real-world scenarios
+- [Storage Setup Guide](./override-setup.md)
+- [CLI Usage Guide](./override-cli-usage.md)
+- [Runtime README](../runtime/typescript/README.md)
