@@ -47,6 +47,16 @@ export function validateFilePath(filePath: string, allowedDirectory?: string): s
 }
 
 /**
+ * Build request headers for conditional GET (If-None-Match).
+ */
+export function buildConditionalGetHeaders(etag?: string): Record<string, string> {
+  if (!etag) {
+    return {};
+  }
+  return { 'If-None-Match': etag };
+}
+
+/**
  * Validate that a URL uses an allowed protocol.
  */
 export function validateHttpUrl(url: string): void {
@@ -103,6 +113,8 @@ export async function fetchWithRedirects(options: FetchWithRedirectsOptions): Pr
         } catch {
           throw new Error(`Invalid redirect URL: ${location}`);
         }
+
+        validateHttpUrl(currentUrl);
 
         redirectCount++;
         continue;

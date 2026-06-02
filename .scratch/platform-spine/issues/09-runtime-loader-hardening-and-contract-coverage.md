@@ -1,6 +1,6 @@
 # Runtime loader hardening and generated SDK contract coverage
 
-Status: ready-for-agent
+Status: done
 Type: AFK
 
 ## Parent
@@ -17,12 +17,12 @@ Lock in generated SDK behavior with regression tests for per-instance evaluator 
 
 ## Acceptance criteria
 
-- [ ] Runtime loaders share a common helper for overlapping URL/path handling concerns (timeouts, redirects, conditional request plumbing, path-validation primitives) while preserving current loader-specific errors and payload validation.
-- [ ] ADR-0001 runtime behavior is unchanged: kill-switch and artifact polling remain independent loops with existing interval/jitter defaults.
-- [ ] Generated SDK contract tests cover multi-instance isolation (`new Evaluator()` instances and `evaluator` export) so state/timers do not leak across instances.
-- [ ] Generated/runtime tests explicitly protect `init()` no-artifact behavior to avoid accidental state clearing regressions.
-- [ ] Runtime docs and issue wording reflect delivered `0.3` shape (thin generated delegation, `SDK_QUALIFIED_FLAG_NAMES` naming, and this follow-up scope).
-- [ ] Verification passes: `runtime/typescript` lint/typecheck/test and required Rust workspace checks used by this repo.
+- [x] Runtime loaders share a common helper for overlapping URL/path handling concerns (timeouts, redirects, conditional request plumbing, path-validation primitives) while preserving current loader-specific errors and payload validation.
+- [x] ADR-0001 runtime behavior is unchanged: kill-switch and artifact polling remain independent loops with existing interval/jitter defaults.
+- [x] Generated SDK contract tests cover multi-instance isolation (`new Evaluator()` instances and `evaluator` export) so state/timers do not leak across instances.
+- [x] Generated/runtime tests explicitly protect `init()` no-artifact behavior to avoid accidental state clearing regressions.
+- [x] Runtime docs and issue wording reflect delivered `0.3` shape (thin generated delegation, `SDK_QUALIFIED_FLAG_NAMES` naming, and this follow-up scope).
+- [x] Verification passes: `runtime/typescript` lint/typecheck/test and required Rust workspace checks used by this repo.
 
 ## Blocked by
 

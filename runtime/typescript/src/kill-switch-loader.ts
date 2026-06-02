@@ -10,7 +10,7 @@
 
 import { readFile } from 'fs/promises';
 import type { KillSwitchFile } from './types';
-import { fetchWithRedirects, validateFilePath } from './loader-utils';
+import { buildConditionalGetHeaders, fetchWithRedirects, validateFilePath } from './loader-utils';
 
 /** Thrown when the remote kill switch file has not changed (HTTP 304). */
 export class KillSwitchFileNotModifiedError extends Error {
@@ -65,17 +65,13 @@ export async function loadKillSwitchFromURL(
   }
 ): Promise<KillSwitchLoadResult> {
   const effectiveTimeout = Math.min(timeout, MAX_URL_TIMEOUT);
-  const headers: Record<string, string> = {};
-  if (etag) {
-    headers['If-None-Match'] = etag;
-  }
 
   try {
     const response = await fetchWithRedirects({
       url,
       effectiveTimeoutMs: effectiveTimeout,
       maxRedirects: MAX_REDIRECTS,
-      headers,
+      headers: buildConditionalGetHeaders(etag),
     });
 
     if (response.status === 304) {

@@ -27,6 +27,8 @@ fn generated_sdk_delegates_orchestration_to_runtime() {
 
     let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
     assert!(index_content.contains("private readonly runtime = new GeneratedEvaluatorRuntime"));
+    assert!(index_content.contains("SDK_QUALIFIED_FLAG_NAMES"));
+    assert!(index_content.contains("sdkQualifiedFlagNames: SDK_QUALIFIED_FLAG_NAMES"));
     assert!(index_content.contains("this.runtime.evaluateBooleanFlag"));
     assert!(!index_content.contains("const runtime = new GeneratedEvaluatorRuntime"));
     assert!(!index_content.contains("private async refreshKillSwitch"));

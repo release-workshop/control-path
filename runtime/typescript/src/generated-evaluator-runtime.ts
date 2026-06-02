@@ -14,6 +14,7 @@ import {
   ArtifactRefreshCoordinator,
   resolveExpectedArtifactEnv,
   shouldValidateArtifactAtInit,
+  type ArtifactRefreshState,
 } from './artifact-polling';
 import {
   KillSwitchRefreshCoordinator,
@@ -21,6 +22,7 @@ import {
   pollInitDelayMs,
   startJitteredPoll,
   startKillSwitchPoll,
+  type KillSwitchRefreshState,
 } from './kill-switch-polling';
 import { resolveBooleanFlag } from './resolve-flag';
 import { buildFlagNameMapFromArtifact } from './utils';
@@ -57,6 +59,14 @@ export interface EvaluateBooleanFlagOptions {
   qualifiedName: string;
   catalogDefault: boolean;
   attributes?: Attributes;
+}
+
+interface InitSnapshot {
+  artifact: Artifact | null;
+  artifactEnv: string | null;
+  flagNameMap: Record<string, number>;
+  killSwitchState: KillSwitchRefreshState;
+  artifactCoordinatorState: ArtifactRefreshState;
 }
 
 /**
@@ -103,42 +113,38 @@ export class GeneratedEvaluatorRuntime {
   async init(options?: GeneratedEvaluatorInitOptions): Promise<void> {
     this.stopKillSwitchPolling();
     this.stopArtifactPolling();
-    this.killSwitchLogger = options?.logger;
-    this.artifactLogger = options?.logger;
-    this.killSwitchCoordinator.reset();
-    this.artifactCoordinator.reset();
+
+    if (options?.logger !== undefined) {
+      this.killSwitchLogger = options.logger;
+      this.artifactLogger = options.logger;
+    }
 
     if (options?.artifact) {
-      const artifactSource = options.artifact;
-      if (artifactSource.startsWith('http://') || artifactSource.startsWith('https://')) {
-        const loaded = await loadFromURL(artifactSource, undefined, options.logger);
-        this.applyInitialArtifact(loaded.artifact, artifactSource, loaded.etag);
-      } else {
-        const loadedArtifact = await loadFromFile(artifactSource);
-        this.applyInitialArtifact(loadedArtifact, artifactSource);
-      }
+      const snapshot = this.captureInitSnapshot();
+      this.killSwitchCoordinator.reset();
+      this.artifactCoordinator.reset();
 
-      setTimeout(
-        () => void this.refreshKillSwitch(),
-        killSwitchInitDelayMs(this.config.killSwitchInitJitterMs)
-      );
-      this.stopKillSwitchPoll = startKillSwitchPoll(
-        () => this.refreshKillSwitch(),
-        this.config.killSwitchPollMs,
-        { jitterMs: this.config.killSwitchPollJitterMs }
-      );
+      try {
+        const artifactSource = options.artifact;
+        if (artifactSource.startsWith('http://') || artifactSource.startsWith('https://')) {
+          const loaded = await loadFromURL(artifactSource, undefined, options.logger);
+          this.applyInitialArtifact(loaded.artifact, artifactSource, loaded.etag);
+        } else {
+          const loadedArtifact = await loadFromFile(artifactSource);
+          this.applyInitialArtifact(loadedArtifact, artifactSource);
+        }
 
-      if (this.artifactEnv !== null && this.config.artifactUrls[this.artifactEnv] !== undefined) {
-        setTimeout(
-          () => void this.refreshArtifact(),
-          pollInitDelayMs(this.config.artifactInitJitterMs)
-        );
-        this.stopArtifactPoll = startJitteredPoll(
-          () => this.refreshArtifact(),
-          this.config.artifactPollMs,
-          { jitterMs: this.config.artifactPollJitterMs }
-        );
+        this.startBackgroundPolling();
+      } catch (error) {
+        this.restoreInitSnapshot(snapshot);
+        throw error;
       }
+    } else if (this.artifact !== null) {
+      // Logger-only or no-arg re-init: keep artifact, coordinators, and flag index.
+      this.startBackgroundPolling();
+    } else {
+      this.killSwitchCoordinator.reset();
+      this.artifactCoordinator.reset();
     }
 
     this.initialized = true;
@@ -249,6 +255,52 @@ export class GeneratedEvaluatorRuntime {
       this.artifact = result.state.artifact;
       this.artifactEnv = result.state.artifact.env;
       this.flagNameMap = result.state.flagNameMap;
+    }
+  }
+
+  private captureInitSnapshot(): InitSnapshot {
+    return {
+      artifact: this.artifact,
+      artifactEnv: this.artifactEnv,
+      flagNameMap: { ...this.flagNameMap },
+      killSwitchState: this.killSwitchCoordinator.getState(),
+      artifactCoordinatorState: this.artifactCoordinator.getState(),
+    };
+  }
+
+  private restoreInitSnapshot(snapshot: InitSnapshot): void {
+    this.artifact = snapshot.artifact;
+    this.artifactEnv = snapshot.artifactEnv;
+    this.flagNameMap = { ...snapshot.flagNameMap };
+    this.killSwitchCoordinator.reset(snapshot.killSwitchState);
+    this.artifactCoordinator.reset(snapshot.artifactCoordinatorState);
+  }
+
+  private startBackgroundPolling(): void {
+    if (this.artifact === null) {
+      return;
+    }
+
+    setTimeout(
+      () => void this.refreshKillSwitch(),
+      killSwitchInitDelayMs(this.config.killSwitchInitJitterMs)
+    );
+    this.stopKillSwitchPoll = startKillSwitchPoll(
+      () => this.refreshKillSwitch(),
+      this.config.killSwitchPollMs,
+      { jitterMs: this.config.killSwitchPollJitterMs }
+    );
+
+    if (this.artifactEnv !== null && this.config.artifactUrls[this.artifactEnv] !== undefined) {
+      setTimeout(
+        () => void this.refreshArtifact(),
+        pollInitDelayMs(this.config.artifactInitJitterMs)
+      );
+      this.stopArtifactPoll = startJitteredPoll(
+        () => this.refreshArtifact(),
+        this.config.artifactPollMs,
+        { jitterMs: this.config.artifactPollJitterMs }
+      );
     }
   }
 

@@ -13,7 +13,7 @@ import { unpack, pack } from 'msgpackr';
 import { readFile } from 'fs/promises';
 import { verify } from '@noble/ed25519';
 import type { Artifact } from './types';
-import { fetchWithRedirects, validateFilePath } from './loader-utils';
+import { buildConditionalGetHeaders, fetchWithRedirects, validateFilePath } from './loader-utils';
 
 /**
  * Maximum size for AST artifacts (10MB)
@@ -111,17 +111,13 @@ export async function loadFromURL(
 ): Promise<ArtifactLoadResult> {
   // Cap timeout at maximum allowed
   const effectiveTimeout = Math.min(timeout, MAX_URL_TIMEOUT);
-  const headers: Record<string, string> = {};
-  if (options?.etag) {
-    headers['If-None-Match'] = options.etag;
-  }
 
   try {
     const response = await fetchWithRedirects({
       url,
       effectiveTimeoutMs: effectiveTimeout,
       maxRedirects: MAX_REDIRECTS,
-      headers,
+      headers: buildConditionalGetHeaders(options?.etag),
     });
 
     if (response.status === 304) {

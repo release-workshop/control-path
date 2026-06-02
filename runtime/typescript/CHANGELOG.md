@@ -14,6 +14,8 @@
 ### Changed
 
 - Generated `index.ts` is mostly embedded URLs, flag metadata, and thin delegation to the runtime module
+- `GeneratedEvaluatorRuntime.init()` without `artifact` after a loaded artifact preserves kill-switch coordinator state and restarts polling (logger-only re-init)
+- Failed `init({ artifact })` restores the prior artifact, coordinators, and flag index instead of leaving empty coordinators with stale runtime fields
 
 ## 0.2.0
 

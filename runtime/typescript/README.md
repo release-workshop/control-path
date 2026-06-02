@@ -8,6 +8,12 @@ Low-level runtime SDK for Control Path. Loads compiled AST artifacts and kill sw
 npm install @controlpath/runtime
 ```
 
+## Migrating to 0.3
+
+Generated SDKs (`@controlpath/generated`) now depend on `^0.3.0` and delegate init, polling, and evaluation to `GeneratedEvaluatorRuntime`. Generated `index.ts` embeds `KILL_SWITCH_URLS`, `ARTIFACT_URLS`, and `SDK_QUALIFIED_FLAG_NAMES` (passed to the runtime as `sdkQualifiedFlagNames` for init/poll guardrails).
+
+After `init({ artifact })`, calling `init()` or `init({ logger })` without `artifact` keeps the loaded artifact, kill-switch file state, and artifact poll ETag, and restarts background polling (logger-only re-init). A failed `init({ artifact })` rolls back to the prior runtime and coordinator state. See [SDK configuration](../docs/override-sdk-config.md).
+
 ## Migrating to 0.2
 
 `evaluate()` now returns booleans for v2 serve/rollout rules instead of `'ON'`/`'OFF'`. Update comparisons or switch to:

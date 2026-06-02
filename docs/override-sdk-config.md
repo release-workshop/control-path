@@ -78,7 +78,9 @@ const value = resolveBooleanFlag({
 });
 ```
 
-Generated SDKs use `GeneratedEvaluatorRuntime` from `@controlpath/runtime` (init, polling, and `evaluateBooleanFlag`). For custom integrations without codegen, use `KillSwitchRefreshCoordinator` / `ArtifactRefreshCoordinator` with `startKillSwitchPoll` or the generic aliases `startJitteredPoll` / `pollInitDelayMs`. Coordinators serialize overlapping fetches and only apply CDN data on successful refresh.
+Generated SDKs use `GeneratedEvaluatorRuntime` from `@controlpath/runtime` (init, polling, and `evaluateBooleanFlag`). Codegen embeds catalog qualified flag names as `SDK_QUALIFIED_FLAG_NAMES` for environment/overlap guardrails at init and on artifact poll. For custom integrations without codegen, use `KillSwitchRefreshCoordinator` / `ArtifactRefreshCoordinator` with `startKillSwitchPoll` or the generic aliases `startJitteredPoll` / `pollInitDelayMs`. Coordinators serialize overlapping fetches and only apply CDN data on successful refresh.
+
+Calling `init()` again **without** `artifact`, after a prior `init({ artifact })`, **keeps** the in-memory compiled artifact, flag index, and kill-switch file state (coordinators are not cleared). Background kill-switch and artifact polling are restarted. Use this for a **logger-only** refresh: `init({ logger: myLogger })`. Poll intervals are fixed at construction time (`GeneratedEvaluatorRuntime` / generated `Evaluator`); they cannot be changed via `init()` without constructing a new evaluator instance.
 
 ### v0.2 breaking change
 
