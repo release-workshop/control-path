@@ -16,10 +16,9 @@ mod test_helpers;
 
 use clap::{ArgAction, CommandFactory, Parser, Subcommand};
 use commands::{
-    ci, compile, completion, debug, dev, env, explain, flag, generate_sdk, init,
-    r#override as override_cmd, setup, validate, watch, workflow,
+    ci, compile, completion, debug, dev, env, explain, flag, generate_sdk, init, kill_switch,
+    setup, validate, watch, workflow,
 };
-use std::path::PathBuf;
 use utils::runtime::{init_runtime_options, RuntimeOptions};
 
 // Version from VERSION file (set by build.rs) or fallback to Cargo.toml version
@@ -81,7 +80,7 @@ Core Commands:
 Management Commands:
   flag - Manage flags (add, list, show, remove)
   env - Manage environments (add, sync, list, remove)
-  kill-switch - Manage runtime kill switches (alias: override)
+  kill-switch - Manage runtime kill switches
 
 Debug Commands:
   explain - Explain flag evaluation with user/context
@@ -513,10 +512,10 @@ enum Commands {
     ///
     ///   # List all kill switches
     ///   controlpath kill-switch list --env production
-    #[command(name = "kill-switch", alias = "override")]
-    Override {
+    #[command(name = "kill-switch")]
+    KillSwitch {
         #[command(subcommand)]
-        subcommand: OverrideSubcommand,
+        subcommand: KillSwitchSubcommand,
     },
     /// Generate shell completion scripts
     Completion {
@@ -671,63 +670,35 @@ enum FlagSubcommand {
 }
 
 #[derive(Subcommand)]
-enum OverrideSubcommand {
+enum KillSwitchSubcommand {
     /// Set a kill switch for a flag
     ///
     /// Sets a runtime boolean kill switch. Stored in `.controlpath/<env>.kill-switches.json`.
     ///
     /// Examples:
     ///   controlpath kill-switch set new_dashboard false --env production
-    ///   controlpath kill-switch set new_dashboard true --env production --reason "Emergency rollback"
+    ///   controlpath kill-switch set new_dashboard true --env production
     Set {
         #[arg(value_name = "FLAG")]
         flag: String,
         /// Boolean value (true/false, or ON/OFF)
         #[arg(value_name = "VALUE")]
         value: String,
-        /// Reason (not persisted in kill switch files; shown for compatibility)
+        /// Environment to update
         #[arg(long)]
-        reason: Option<String>,
-        /// Operator (not persisted; shown for compatibility)
-        #[arg(long)]
-        operator: Option<String>,
-        /// Deprecated: ignored; kill switches use `.controlpath/<env>.kill-switches.json`
-        #[arg(long, hide = true)]
-        file: Option<String>,
-        /// Deprecated: ignored
-        #[arg(long)]
-        definitions: Option<String>,
-        /// Environment (default: defaultEnv or first environment)
-        #[arg(long)]
-        env: Option<String>,
+        env: String,
     },
     /// Clear a kill switch for a flag
     Clear {
         #[arg(value_name = "FLAG")]
         flag: String,
-        /// Deprecated: ignored
-        #[arg(long, hide = true)]
-        file: Option<String>,
         #[arg(long)]
-        env: Option<String>,
+        env: String,
     },
     /// List kill switches for an environment
     List {
-        /// Deprecated: ignored
-        #[arg(long, hide = true)]
-        file: Option<String>,
         #[arg(long)]
-        env: Option<String>,
-    },
-    /// Show current kill switch state (alias for list; no audit history is stored)
-    History {
-        #[arg(value_name = "FLAG")]
-        flag: Option<String>,
-        /// Deprecated: ignored
-        #[arg(long, hide = true)]
-        file: Option<String>,
-        #[arg(long)]
-        env: Option<String>,
+        env: String,
     },
 }
 
@@ -1106,49 +1077,23 @@ fn main() {
             let opts = workflow::DeployOptions { env, dry_run };
             workflow::run_deploy(&opts)
         }
-        Commands::Override { subcommand } => {
-            let override_subcommand = match subcommand {
-                OverrideSubcommand::Set {
-                    flag,
-                    value,
-                    reason,
-                    operator,
-                    file,
-                    definitions,
-                    env,
-                } => override_cmd::OverrideSubcommand::Set {
-                    flag,
-                    value,
-                    reason,
-                    operator,
-                    file: file.map(PathBuf::from),
-                    definitions: definitions.map(PathBuf::from),
-                    env,
-                },
-                OverrideSubcommand::Clear { flag, file, env } => {
-                    override_cmd::OverrideSubcommand::Clear {
-                        flag,
-                        file: file.map(PathBuf::from),
-                        env,
-                    }
+        Commands::KillSwitch { subcommand } => {
+            let kill_switch_subcommand = match subcommand {
+                KillSwitchSubcommand::Set { flag, value, env } => {
+                    kill_switch::KillSwitchSubcommand::Set { flag, value, env }
                 }
-                OverrideSubcommand::List { file, env } => override_cmd::OverrideSubcommand::List {
-                    file: file.map(PathBuf::from),
-                    env,
-                },
-                OverrideSubcommand::History { flag, file, env } => {
-                    override_cmd::OverrideSubcommand::History {
-                        flag,
-                        file: file.map(PathBuf::from),
-                        env,
-                    }
+                KillSwitchSubcommand::Clear { flag, env } => {
+                    kill_switch::KillSwitchSubcommand::Clear { flag, env }
+                }
+                KillSwitchSubcommand::List { env } => {
+                    kill_switch::KillSwitchSubcommand::List { env }
                 }
             };
 
-            let opts = override_cmd::Options {
-                subcommand: override_subcommand,
+            let opts = kill_switch::Options {
+                subcommand: kill_switch_subcommand,
             };
-            override_cmd::run(&opts)
+            kill_switch::run(&opts)
         }
         Commands::Completion { shell } => {
             let opts = completion::Options { shell };

@@ -37,7 +37,7 @@ fn write_import_fixture(project: &TestProject) {
 
 #[test]
 #[serial]
-fn explain_kill_switch_override_skips_ast_rules() {
+fn explain_kill_switch_skips_ast_rules() {
     let project = TestProject::with_definitions(
         r"catalog:
   id: svc
@@ -45,7 +45,7 @@ mode: local
 flags:
   my_flag:
     default: false
-    kind: release
+    kind: kill_switch
 environments:
   production:
     rules:

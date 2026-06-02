@@ -12,7 +12,7 @@ npm install @controlpath/runtime
 
 Generated SDKs (`@controlpath/generated`) now depend on `^0.3.0` and delegate init, polling, and evaluation to `GeneratedEvaluatorRuntime`. Generated `index.ts` embeds `KILL_SWITCH_URLS`, `ARTIFACT_URLS`, and `SDK_QUALIFIED_FLAG_NAMES` (passed to the runtime as `sdkQualifiedFlagNames` for init/poll guardrails).
 
-After `init({ artifact })`, calling `init()` or `init({ logger })` without `artifact` keeps the loaded artifact, kill-switch file state, and artifact poll ETag, and restarts background polling (logger-only re-init). A failed `init({ artifact })` rolls back to the prior runtime and coordinator state. See [SDK configuration](../docs/override-sdk-config.md).
+After `init({ artifact })`, calling `init()` or `init({ logger })` without `artifact` keeps the loaded artifact, kill-switch file state, and artifact poll ETag, and restarts background polling (logger-only re-init). A failed `init({ artifact })` rolls back to the prior runtime and coordinator state. See [user kill-switch docs](../../docs/user/kill-switches.md).
 
 ## Migrating to 0.2
 
@@ -83,7 +83,7 @@ Poll with the returned `etag` on later requests; `KillSwitchFileNotModifiedError
 
 Prefer the generated `@controlpath/generated` evaluator: it embeds `kill_switches.<env>.url` as `KILL_SWITCH_URLS` and `artifacts.<env>.url` as `ARTIFACT_URLS`, then delegates init, polling, and flag resolution to `GeneratedEvaluatorRuntime` (thin generated `index.ts`).
 
-`init()` does not wait for the first remote fetch. Kill switches poll about every 30s (+ jitter); compiled artifacts poll about every 60s (+ jitter) on an independent timer. Until a refresh succeeds, flags use the last loaded artifact and kill switch state (or AST/catalog defaults on cold start). See [SDK configuration](../docs/override-sdk-config.md).
+`init()` does not wait for the first remote fetch. Kill switches poll about every 30s (+ jitter); compiled artifacts poll about every 60s (+ jitter) on an independent timer. Until a refresh succeeds, flags use the last loaded artifact and kill switch state (or AST/catalog defaults on cold start). See [user kill-switch docs](../../docs/user/kill-switches.md).
 
 Pass an optional `logger` to `init({ artifact, logger })` to emit warnings when a refresh fails (prior state is retained).
 

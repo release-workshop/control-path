@@ -172,6 +172,100 @@ fn test_explain_missing_ast() {
 }
 
 #[test]
+fn test_kill_switch_legacy_override_command_rejected() {
+    let project = TestProject::new();
+    let output = project.run_command_failure(&["override", "list", "--env", "production"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unrecognized subcommand")
+            || stderr.contains("unexpected argument")
+            || stderr.contains("Usage"),
+        "expected clap rejection for legacy override command, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_kill_switch_set_requires_env() {
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test
+mode: local
+flags:
+  emergency_stop:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_stop:
+        - serve: false
+",
+    );
+    let output = project.run_command_failure(&["kill-switch", "set", "emergency_stop", "true"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--env")
+            || stderr.contains("required arguments were not provided")
+            || stderr.contains("Usage"),
+        "expected clap rejection for missing --env, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_kill_switch_clear_requires_env() {
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test
+mode: local
+flags:
+  emergency_stop:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_stop:
+        - serve: false
+",
+    );
+    let output = project.run_command_failure(&["kill-switch", "clear", "emergency_stop"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--env")
+            || stderr.contains("required arguments were not provided")
+            || stderr.contains("Usage"),
+        "expected clap rejection for missing --env, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_kill_switch_list_requires_env() {
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test
+mode: local
+flags:
+  emergency_stop:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_stop:
+        - serve: false
+",
+    );
+    let output = project.run_command_failure(&["kill-switch", "list"]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--env")
+            || stderr.contains("required arguments were not provided")
+            || stderr.contains("Usage"),
+        "expected clap rejection for missing --env, got: {stderr}"
+    );
+}
+
+#[test]
 fn test_flag_add_invalid_name() {
     let project = TestProject::new();
 

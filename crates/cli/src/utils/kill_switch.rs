@@ -10,6 +10,7 @@ use crate::error::{CliError, CliResult};
 use crate::utils::atomic_write::atomic_write_string;
 use crate::utils::catalog;
 use crate::utils::unified_config;
+use controlpath_compiler::catalog::FlagKind;
 use serde_json::{json, Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -36,7 +37,7 @@ fn validate_env_in_catalog(env: &str) -> CliResult<()> {
     Ok(())
 }
 
-/// Resolve environment for kill-switch commands (config defaultEnv, else first env, else production).
+/// Resolve environment for commands that infer env from config defaults.
 pub fn resolve_kill_switch_env(explicit: Option<&str>) -> CliResult<String> {
     if let Some(env) = explicit {
         validate_env_in_catalog(env)?;
@@ -68,6 +69,17 @@ pub fn resolve_kill_switch_env(explicit: Option<&str>) -> CliResult<String> {
     }
 
     Ok("production".to_string())
+}
+
+/// Resolve environment for mutating kill-switch operations.
+///
+/// Incident controls require explicit targeting to avoid accidental writes.
+pub fn require_kill_switch_env(explicit: Option<&str>) -> CliResult<String> {
+    let env = explicit.ok_or_else(|| {
+        CliError::Message("Missing required --env for kill-switch command.".to_string())
+    })?;
+    validate_env_in_catalog(env)?;
+    Ok(env.to_string())
 }
 
 pub fn read_kill_switch_file(path: &Path) -> CliResult<Value> {
@@ -122,11 +134,17 @@ pub fn set_kill_switch_flag(path: &Path, flag: &str, value: &str) -> CliResult<(
     let base_dir = std::env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
     let sdk = catalog::load_for_explain(&base_dir)?.sdk;
-    if !sdk.flags.iter().any(|f| f.qualified_name == flag) {
+    let Some(flag_meta) = sdk.flags.iter().find(|f| f.qualified_name == flag) else {
         return Err(CliError::Message(format!(
             "Flag '{flag}' not found in control-path.yaml catalog"
         )));
-    }
+    };
+    if flag_meta.kind != FlagKind::KillSwitch {
+        return Err(CliError::Message(format!(
+            "Flag '{flag}' is kind '{:?}' and cannot be used as a kill switch. Use kind 'kill_switch'.",
+            flag_meta.kind
+        )));
+    };
 
     let mut file = read_kill_switch_file(path)?;
     let flags = file

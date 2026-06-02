@@ -1447,7 +1447,7 @@ mode: local
 flags:
   new_dashboard:
     default: false
-    kind: release
+    kind: kill_switch
 environments:
   production:
     rules: {}
@@ -1506,7 +1506,7 @@ mode: local
 flags:
   new_dashboard:
     default: false
-    kind: release
+    kind: kill_switch
 environments:
   production:
     rules:
