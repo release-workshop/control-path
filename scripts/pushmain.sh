@@ -224,7 +224,7 @@ main() {
 
   echo ""
   echo "✓ Merged into origin/main (${land_sha:0:7})"
-  echo "  Post-merge checks on main are not waited on."
+  echo "  Main CI (smoke, TS tests, coverage) and post-merge E2E run on main — not waited on."
   echo "  Sync local main when ready: git pull --ff-only origin main"
 }
 

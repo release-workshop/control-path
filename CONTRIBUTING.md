@@ -103,8 +103,9 @@ The `pushmain` command (`scripts/pushmain.sh`):
 - Syncs your local `main` with `origin/main`
 - Pushes to a temporary `validation/*` branch
 - Waits until the **Merge into main** job succeeds (requires [GitHub CLI](https://cli.github.com/) with `gh auth login`)
+- Validation pre-merge is minimal (Rust unit gates + TS lint/typecheck); **Main CI** on `main` runs smoke, TS tests, and coverage after merge
 - Exits non-zero if validation or merge fails (prints the failed run URL and jobs)
-- Does not wait for post-merge workflows on `main`; sync locally with `git pull --ff-only origin main` when ready
+- Does not wait for Main CI or post-merge E2E; sync locally with `git pull --ff-only origin main` when ready
 - Use `git pushmain --no-wait` to push without waiting (legacy behavior)
 
 ### Pull Request Workflow (Contributors)

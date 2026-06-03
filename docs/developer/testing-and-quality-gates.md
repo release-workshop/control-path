@@ -88,7 +88,7 @@ When behavior changes:
 
 Gate-to-workflow mapping (commands, job names, post-merge E2E): **[Testing in Control Path — CI workflows and gates](./testing.md#ci-workflows-and-gates)**.
 
-`main-ci` runs all gates on every push (no path filters). `auto-merge-validation` is the fast, package-affected land path for `validation/**` (see [hub — CI workflows](./testing.md#ci-workflows-and-gates)); TypeScript-only pushes skip Rust land jobs there.
+`main-ci` runs all gates on every push to `main` (and on PRs). `auto-merge-validation` only blocks merge with Rust unit gates + TS lint/typecheck; smoke, TS tests, and coverage run on `main` after merge (see [hub — CI workflows](./testing.md#ci-workflows-and-gates)).
 
 **Post-merge** (`post-merge-e2e` after `Main CI` succeeds on `main`): runs `npm test` in `tests/e2e` (full suite). Failures require follow-up on `main` but do not block the merge that already landed.
 

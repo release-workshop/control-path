@@ -58,7 +58,7 @@ detect_staged_affected() {
   done < <(git diff --cached --name-only)
 }
 
-run_rust_land_gates() {
+run_rust_pre_merge_checks() {
   echo "🦀 Rust (affected packages)..."
 
   echo "  Checking code formatting..."
@@ -154,7 +154,7 @@ main() {
     if ! command -v cargo &>/dev/null; then
       echo "⚠️  Warning: cargo not found. Skipping Rust checks."
     else
-      run_rust_land_gates
+      run_rust_pre_merge_checks
     fi
   fi
 

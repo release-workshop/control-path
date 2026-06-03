@@ -43,15 +43,16 @@ const MAIN_CI_PRE_MERGE_RUST_GATES: &[&str] = &[
     "cargo build --release --bin controlpath",
 ];
 
-/// Fast land gates for maintainer validation/* pushes (package-affected tests, no coverage upload).
+/// Pre-merge validation branch gates (integration tests run on main via main-ci.yml).
 const VALIDATION_LAND_RUST_GATES: &[&str] = &[
     "cargo fmt --all -- --check",
     "cargo clippy --workspace --all-targets --all-features -- -D warnings",
     "cargo test -p controlpath-compiler",
     "cargo test -p controlpath-cli -p controlpath-compiler",
     "cargo test --workspace",
-    "cargo build --release --bin controlpath",
 ];
+
+const VALIDATION_LAND_TYPESCRIPT_GATES: &[&str] = &["npm run lint", "npm run typecheck"];
 
 #[test]
 fn main_ci_enforces_documented_pre_merge_rust_gates() {
@@ -69,37 +70,49 @@ fn main_ci_enforces_documented_pre_merge_rust_gates() {
 }
 
 #[test]
-fn auto_merge_validation_uses_fast_land_rust_gates() {
+fn auto_merge_validation_uses_pre_merge_gates_only() {
     let workflow = read_workflow("auto-merge-validation.yml");
     for gate in VALIDATION_LAND_RUST_GATES {
         assert_workflow_contains(&workflow, "auto-merge-validation.yml", gate);
     }
-    assert_workflow_lacks(&workflow, "auto-merge-validation.yml", "cargo llvm-cov");
-    assert_workflow_lacks(
-        &workflow,
-        "auto-merge-validation.yml",
+    for gate in VALIDATION_LAND_TYPESCRIPT_GATES {
+        assert_workflow_contains(&workflow, "auto-merge-validation.yml", gate);
+    }
+    for needle in [
+        "cargo llvm-cov",
         "codecov/codecov-action",
-    );
-    assert_workflow_contains(&workflow, "auto-merge-validation.yml", "npm run test:smoke");
-    assert_workflow_contains(
-        &workflow,
-        "auto-merge-validation.yml",
+        "npm run test:smoke",
+        "run: npm test",
         "controlpath-cli-release",
-    );
+        "upload-artifact@v4",
+        "pre-merge-e2e-smoke:",
+        "typescript-tests:",
+        "build-cli:",
+    ] {
+        assert_workflow_lacks(&workflow, "auto-merge-validation.yml", needle);
+    }
     assert_workflow_contains(&workflow, "auto-merge-validation.yml", "base: main");
 }
 
 #[test]
-fn auto_merge_validation_does_not_run_rust_land_on_typescript_only() {
+fn main_ci_runs_deferred_integration_gates() {
+    let workflow = read_workflow("main-ci.yml");
+    assert_workflow_contains(&workflow, "main-ci.yml", "npm run test:smoke");
+    assert_workflow_contains(&workflow, "main-ci.yml", "npm test -- --coverage");
+    assert_workflow_contains(&workflow, "main-ci.yml", "controlpath-cli-release");
+}
+
+#[test]
+fn auto_merge_validation_does_not_run_rust_checks_on_typescript_only() {
     let workflow = read_workflow("auto-merge-validation.yml");
-    let rust_land = workflow
-        .split("rust-land:")
+    let rust_checks = workflow
+        .split("rust-checks:")
         .nth(1)
-        .and_then(|s| s.split("\n  build-cli:").next())
-        .expect("rust-land job block");
+        .and_then(|s| s.split("\n  lint-and-typecheck:").next())
+        .expect("rust-checks job block");
     assert!(
-        !rust_land.contains("needs.changes.outputs.typescript == 'true'"),
-        "typescript-only validation pushes must not run rust-land"
+        !rust_checks.contains("needs.changes.outputs.typescript == 'true'"),
+        "typescript-only validation pushes must not run rust-checks"
     );
 }
 
@@ -113,7 +126,7 @@ fn auto_merge_validation_wires_package_path_filters() {
         "needs.changes.outputs.compiler",
         "needs.changes.outputs.cli",
         "needs.changes.outputs.workspace",
-        "docs-land:",
+        "docs-format:",
     ] {
         assert!(
             workflow.contains(needle),
@@ -166,7 +179,7 @@ fn canonical_testing_doc_lists_layers_and_pre_merge_gates() {
     }
     assert!(
         doc.contains("cargo test -p controlpath-compiler"),
-        "canonical testing doc must describe validation land affected tests"
+        "canonical testing doc must describe validation affected Rust tests"
     );
     assert!(
         doc.contains("npm run test:smoke"),
