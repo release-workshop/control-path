@@ -1,56 +1,210 @@
 # Configuration
 
-Control Path uses a single catalog file: `control-path.yaml`.
+Control Path uses a service catalog file, `control-path.yaml`, as the Git source of truth for boolean flag definitions and (in local mode) environment rules. Monorepos may also have `control-path.workspace.yaml` at the repository root.
+
+Environment rule syntax and expressions: [`rules.md`](rules.md).
 
 ## What the catalog contains
 
-- Catalog identity (`catalog.id`, optional namespace)
-- Flag definitions (boolean, defaults, kind, metadata)
-- Local-mode environments and ordered rules
-- Optional shared catalog imports
-- Optional local-mode remote URLs for artifacts and kill switches
+| Section | Purpose |
+| --- | --- |
+| `catalog` | Stable catalog identity (`id`, optional `namespace`) |
+| `flags` | Boolean flag definitions (defaults, kind, metadata) |
+| `mode` | `local` (rules in Git) or `saas` (rules on platform) |
+| `environments` | Local-mode ordered rules per environment |
+| `segments` | Local-mode reusable `when` predicates |
+| `imports` | Shared catalogs by namespace |
+| `artifacts` / `kill_switches` | Local-mode per-environment poll URLs |
+| `saas` | SaaS project identity when `mode: saas` |
+
+Tooling also writes under `.controlpath/` (compiled `.ast` files, CLI config). Treat that directory as **generated output**, not hand-edited configuration.
 
 ## Mental model
 
-- **Flag catalog changes** (new flags/defaults/kinds/imports): regenerate SDK and redeploy app.
-- **Environment rule changes** only: publish a new compiled artifact for that environment.
-- **Kill switch changes**: update kill switch file, picked up by runtime poll.
+Three change speeds:
 
-## Environments and rules
+- **Flag catalog** (new flags, defaults, kinds, imports): regenerate SDK and redeploy the application.
+- **Environment rules** only: publish a new **compiled artifact** for that environment (no SDK rebuild if the catalog unchanged).
+- **Kill switches**: update the kill switch file; fastest runtime propagation ([`kill-switches.md`](kill-switches.md)).
 
-Rules are ordered and first-match wins. If no rule matches, evaluation falls back to catalog default.
+## Catalog identity
 
-For local mode:
+```yaml
+catalog:
+  id: checkout-service
+  # namespace: acme   # optional; see Monorepos below
+```
 
-- environments are declared in `control-path.yaml`
-- compile output is `.controlpath/<env>.ast`
+- **`catalog.id`** (required): stable id for sync, imports, and telemetry.
+- **`catalog.namespace`** (optional): prefix for effective id `namespace.id`. In monorepos, namespace often comes from the workspace file instead of each service file.
 
-For SaaS mode:
+## Mode: local vs SaaS
 
-- environment rules are owned by platform control plane
-- local catalog remains source for definitions, defaults, metadata, and imports
+```yaml
+mode: local   # default
+```
 
-## Validation and compile
+| `mode` | Rules in Git | Typical workflow |
+| --- | --- | --- |
+| `local` | `environments`, `segments`, `artifacts`, `kill_switches` allowed | Edit YAML → `validate` → `deploy` / upload artifact URLs |
+| `saas` | `environments` / `segments` / local URLs **not** allowed | Edit flags in Git → platform owns rules → `controlpath sync` for `.controlpath/*.ast` |
 
-Validate after edits:
+SaaS example: [`schemas/examples/saas.control-path.yaml`](../../schemas/examples/saas.control-path.yaml).
+
+```yaml
+mode: saas
+saas:
+  project: acme/checkout
+```
+
+## Flag definitions (`flags`)
+
+Each key is a flag name (`^[a-z][a-z0-9_]*$`). Minimal shape:
+
+```yaml
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+```
+
+### Essentials
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `kind` | yes | `release`, `kill_switch`, or `entitlement` |
+| `default` | yes | Boolean when no rule matches (`true` / `false`) |
+
+### Governance and metadata (recommended)
+
+Validation can **warn** when recommended fields are missing; CI may enforce stricter checks.
+
+| Field | Notes |
+| --- | --- |
+| `owner` | Owning team or contact |
+| `description` | Human-readable intent |
+| `ticket` | Tracking ticket (e.g. `JIRA-456`) |
+| `expires` | Intended cleanup date (`YYYY-MM-DD`); especially important for `kind: release` |
+| `lifecycle` | `active` (default) or `deprecated` — deprecated flags block rule changes unless `flag enable --force` |
+| `tags` | Optional classification strings |
+| `metadata` | Free-form object; must not contain SaaS telemetry |
+
+**Kill switch flags** (`kind: kill_switch`): environment rules may only use plain `serve` (no `when` / `rollout`). Incidents use the kill switch file or SaaS dashboard toggles.
+
+Full machine-readable schema: [`schemas/control-path.schema.v2.json`](../../schemas/control-path.schema.v2.json).
+
+## Local mode: environments and compile
+
+Rules are documented in [`rules.md`](rules.md). Summary:
+
+- Declared under `environments.<name>.rules`
+- Ordered, first-match wins; fallback to flag `default`
+- Compile output: `.controlpath/<env>.ast`
 
 ```bash
 controlpath validate
-```
-
-Compile one environment:
-
-```bash
 controlpath compile --env production
-```
-
-Compile via workflow command:
-
-```bash
+# or
 controlpath deploy --env production
 ```
 
-## Imports
+Snippet (staging always on, production with segment + rollout):
 
-Imported shared catalogs are namespace-qualified in generated SDK surfaces and reporting.
-Environment rules for imported flags are owned by their source catalog.
+```yaml
+environments:
+  staging:
+    rules:
+      new_dashboard:
+        - serve: true
+  production:
+    rules:
+      new_dashboard:
+        - when: "segment('beta_users')"
+          serve: true
+        - rollout:
+            percentage: 10
+            serve: true
+```
+
+Complete example: [`schemas/examples/local-only.control-path.yaml`](../../schemas/examples/local-only.control-path.yaml).
+
+## Remote URLs (local mode)
+
+When pods should poll for updated rules or kill switches, declare URLs per environment:
+
+```yaml
+artifacts:
+  production:
+    url: https://flags.example.com/production/rules.ast
+kill_switches:
+  production:
+    url: https://flags.example.com/production/kill-switches.json
+```
+
+Omit these sections for purely local workflows without remote polling. Invalid when `mode: saas` (platform CDN serves URLs after sync).
+
+## Imports and shared catalogs
+
+Import shared flag catalogs by namespace:
+
+```yaml
+imports:
+  platform:
+    path: ../../platform/control-path.yaml
+```
+
+- SDK and `explain` use qualified names such as `platform.emergency_kill_switch`.
+- The **consumer** catalog must **not** define `environments.*.rules` for imported flags—rules belong in the source catalog only.
+
+Example: [`schemas/examples/imported-global.control-path.yaml`](../../schemas/examples/imported-global.control-path.yaml).
+
+## Monorepos and workspace file
+
+At the repo root, `control-path.workspace.yaml` supplies namespace fallback and scaffold defaults for `controlpath init` in service directories. It is **not** merged at compile time; values are copied when scaffolding new service catalogs.
+
+```yaml
+namespace: acme
+
+scaffold:
+  imports:
+    platform:
+      path: ../../platform/control-path.yaml
+  mode: saas
+  saas:
+    project: acme/{{service-id}}
+```
+
+Example: [`schemas/examples/control-path.workspace.yaml`](../../schemas/examples/control-path.workspace.yaml).
+
+**Service catalog in a monorepo:**
+
+- Often omits `catalog.namespace` on the service file; runtime resolves namespace from the workspace file via walk-up.
+- File-level `catalog.namespace` overrides workspace when both are set.
+
+**Commands:**
+
+```bash
+controlpath init --monorepo          # workspace file at repo root
+controlpath init --service-id checkout-service   # service catalog in a package directory
+```
+
+## Example catalogs
+
+| File | Shows |
+| --- | --- |
+| [`local-only.control-path.yaml`](../../schemas/examples/local-only.control-path.yaml) | Local rules, segments, rollout, artifact/kill-switch URLs |
+| [`imported-global.control-path.yaml`](../../schemas/examples/imported-global.control-path.yaml) | `imports` and consumer rule boundaries |
+| [`saas.control-path.yaml`](../../schemas/examples/saas.control-path.yaml) | SaaS mode catalog without local environments |
+| [`shared-platform.control-path.yaml`](../../schemas/examples/shared-platform.control-path.yaml) | Shared platform catalog for import |
+| [`control-path.workspace.yaml`](../../schemas/examples/control-path.workspace.yaml) | Monorepo workspace scaffold |
+
+## Validation
+
+After editing `control-path.yaml`:
+
+```bash
+controlpath validate
+controlpath validate --all
+```
+
+Common failures: invalid YAML, unknown fields, expression parse errors, rules for imported flags in the wrong catalog, SaaS-forbidden sections in local-only fields (and vice versa). See [`troubleshooting.md`](troubleshooting.md).

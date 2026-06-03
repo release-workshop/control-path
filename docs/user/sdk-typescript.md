@@ -25,7 +25,14 @@ Typical flow:
 
 1. Load artifact for target environment.
 2. Initialize evaluator runtime.
-3. Call generated methods with user/context attributes.
+3. Call generated methods with **evaluation attributes** (one object per request).
+
+### Evaluation attributes
+
+Pass a single attributes object (for example `{ id: 'user-42', role: 'admin', plan: 'beta' }`). Rule `when` clauses read properties from this object. Stable `id` is required for consistent rollout bucketing.
+
+- Field names, expression syntax, and `explain` usage: [`rules.md`](rules.md#evaluation-attributes)
+- Generated SDK type: `Attributes` in `types.ts` (base fields plus index signature until catalog-driven typing ships)
 
 Generated runtime supports:
 
@@ -48,6 +55,7 @@ Generated runtime supports:
 
 ## See also
 
-- `docs/user/configuration.md`
-- `docs/user/kill-switches.md`
-- `runtime/typescript/README.md`
+- [`configuration.md`](configuration.md)
+- [`rules.md`](rules.md)
+- [`kill-switches.md`](kill-switches.md)
+- [`runtime/typescript/README.md`](../../runtime/typescript/README.md)

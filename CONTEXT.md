@@ -40,6 +40,10 @@ _Avoid_: Deployment file
 Ordered targeting rules under `environments.<name>.rules`, keyed by local flag name only (not imported flags). Each rule may have optional `when`, optional boolean `rollout` (`percentage` + `serve`), required `serve`, and optional `reason`. Flags with `kind: kill_switch` may only use plain `serve` rules (no `when` or `rollout`). No match falls back to the catalog `default`. Changing **environment rules** alone is published by replacing the **compiled artifact** at the **artifact URL** (and does not require an SDK rebuild when the **flag catalog** is unchanged).
 _Avoid_: Deployment, targeting config
 
+**Evaluation attributes**:
+The single object passed at runtime (and to `explain`) whose fields rule `when` expressions read — identity (`id`), opinionated defaults (`role`, `environment`, …), and service-specific properties. Not a nested **user** inside a separate **context** bag: `user.` and `context.` prefixes in rule strings are optional authoring sugar, compiled to top-level keys on this object. The generated SDK types a base shape today; a future catalog-declared attribute schema will extend that base so call sites must pass a satisfying object.
+_Avoid_: User object, context object (as parallel runtime bags), evaluation context (unqualified)
+
 **Declared metadata**:
 Git-authored fields on flags expressing intent: required `kind`; optional `owner`, `ticket`, `expires`, `tags`, `description`, `lifecycle` (defaults to `active`), and free-form `metadata`. Validation warns on missing recommended fields; strict enforcement is optional in CI.
 _Avoid_: Telemetry, observed data

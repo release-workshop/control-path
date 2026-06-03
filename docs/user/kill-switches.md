@@ -42,5 +42,7 @@ controlpath kill-switch clear emergency_stop --env production
 
 ## Related docs
 
-- `docs/user/cli.md`
-- `docs/user/troubleshooting.md`
+- [`cli.md`](cli.md)
+- [`configuration.md`](configuration.md)
+- [`rules.md`](rules.md)
+- [`troubleshooting.md`](troubleshooting.md)

@@ -15,16 +15,16 @@ Use this as the default rollout loop for release safety:
 
 ```bash
 controlpath new-flag checkout_revamp --type boolean --default false
-controlpath flag enable checkout_revamp --env staging --rule "user.id % 100 < 10"
+controlpath flag enable checkout_revamp --env staging --rule "role == 'admin'"
 controlpath explain --flag checkout_revamp --user user.json --env staging --trace
 controlpath ci --env staging
 controlpath deploy --env staging
 ```
 
-When promoting:
+When promoting, prefer a `rollout` rule in `control-path.yaml` for percentage changes (see [`rules.md`](rules.md)). For a CLI-only slice, you can use a `when` expression with `HASHED_PARTITION`:
 
 ```bash
-controlpath flag enable checkout_revamp --env production --rule "user.id % 100 < 5"
+controlpath flag enable checkout_revamp --env production --rule "HASHED_PARTITION(id, 100) < 5"
 controlpath ci --env production
 controlpath deploy --env production
 ```
@@ -34,6 +34,8 @@ Important boolean DX notes:
 - `new-flag --default` now rejects invalid values (use `true` / `false`, also accepts `ON` / `OFF`).
 - `flag enable --value` now rejects invalid values (use `true` / `false`, also accepts `ON` / `OFF`).
 - If `flag enable` is run without `--rule`, it configures a catch-all rule for the target environment.
+- `flag enable` appends a `serve` rule; it does not replace the full rule list. Use YAML for `rollout` rules.
+- Expression syntax does not support `%`; use `rollout` or `HASHED_PARTITION` (see [`rules.md`](rules.md)).
 - Prefer explicit `--env` in production workflows.
 
 ## Top-level commands

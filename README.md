@@ -25,6 +25,7 @@ For full steps and examples, use the user docs below.
 - `docs/user/quickstart.md`
 - `docs/user/cli.md`
 - `docs/user/configuration.md`
+- `docs/user/rules.md`
 - `docs/user/sdk-typescript.md`
 - `docs/user/kill-switches.md`
 - `docs/user/troubleshooting.md`

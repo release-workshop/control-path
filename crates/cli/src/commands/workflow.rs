@@ -421,7 +421,7 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
             println!();
             println!("Rule expression examples:");
             println!("  • Enable for admins:        user.role == 'admin'");
-            println!("  • Enable for percentage:     user.id % 100 < 10");
+            println!("  • Enable for percentage:     HASHED_PARTITION(id, 100) < 10 (or use rollout in YAML — see docs/user/rules.md)");
             println!("  • Enable for specific users: user.id IN ['user1', 'user2']");
             println!("  • Enable for all users:      (leave empty)");
             println!();

@@ -65,6 +65,7 @@ See `docs/user/sdk-typescript.md` for full integration details.
 
 ## Next
 
-- Command reference: `docs/user/cli.md`
-- Catalog structure: `docs/user/configuration.md`
-- Runtime integration: `docs/user/sdk-typescript.md`
+- Command reference: [`cli.md`](cli.md)
+- Catalog structure: [`configuration.md`](configuration.md)
+- Environment rules and expressions: [`rules.md`](rules.md)
+- Runtime integration: [`sdk-typescript.md`](sdk-typescript.md)

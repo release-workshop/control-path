@@ -45,7 +45,7 @@ Use trace mode:
 controlpath explain --flag <flag> --user user.json --env <env> --trace
 ```
 
-Confirm inputs include attributes referenced by rules.
+Confirm evaluation attributes include fields referenced by rules (see [`rules.md`](rules.md#evaluation-attributes)).
 
 ## Runtime not updating after remote change
 
