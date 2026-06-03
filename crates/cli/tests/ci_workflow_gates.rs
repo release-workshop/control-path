@@ -92,6 +92,11 @@ fn auto_merge_validation_uses_pre_merge_gates_only() {
         assert_workflow_lacks(&workflow, "auto-merge-validation.yml", needle);
     }
     assert_workflow_contains(&workflow, "auto-merge-validation.yml", "base: main");
+    assert_workflow_contains(
+        &workflow,
+        "auto-merge-validation.yml",
+        "Build TypeScript runtime (CLI integration tests)",
+    );
 }
 
 #[test]

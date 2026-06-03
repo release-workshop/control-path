@@ -95,6 +95,38 @@ jobs:
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+      # CLI integration tests evaluate flags via runtime/typescript/dist (see integration_test_helpers.rs).
+      - name: Use Node.js 24
+        if: |
+          needs.changes.outputs.cli == 'true' ||
+          needs.changes.outputs.workspace == 'true' ||
+          needs.changes.outputs.workflows == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Cache npm dependencies (runtime)
+        if: |
+          needs.changes.outputs.cli == 'true' ||
+          needs.changes.outputs.workspace == 'true' ||
+          needs.changes.outputs.workflows == 'true'
+        uses: actions/cache@v4
+        with:
+          path: runtime/typescript/node_modules
+          key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
+          restore-keys: |
+            npm-runtime-${{ runner.os }}-
+
+      - name: Build TypeScript runtime (CLI integration tests)
+        if: |
+          needs.changes.outputs.cli == 'true' ||
+          needs.changes.outputs.workspace == 'true' ||
+          needs.changes.outputs.workflows == 'true'
+        working-directory: runtime/typescript
+        run: |
+          npm ci
+          npm run build
+
       - name: Run affected Rust tests
         env:
           WORKFLOWS: ${{ needs.changes.outputs.workflows }}

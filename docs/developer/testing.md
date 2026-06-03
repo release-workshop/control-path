@@ -98,7 +98,7 @@ Results land under `target/criterion/`. Use for local profiling or before large 
 | Rust format | `cargo fmt --all -- --check` | Run Rust tests and clippy | Run Rust tests and clippy / Check Rust formatting |
 | Workspace build | `cargo build --workspace` | Run Rust tests and clippy | — |
 | Clippy | `cargo clippy --workspace …` | Run Rust tests and clippy | Run Rust tests and clippy (Rust paths) |
-| Rust tests | `llvm-cov` / `cargo test --workspace` | Run Rust tests and clippy | affected `cargo test -p controlpath-compiler` / `-p controlpath-cli` |
+| Rust tests | `llvm-cov` / `cargo test --workspace` | Run Rust tests and clippy | affected `cargo test -p controlpath-compiler` / `-p controlpath-cli`; builds `runtime/typescript` before CLI/workspace tests |
 | Release CLI | `cargo build --release --bin controlpath` | Build CLI binary | — (main-ci on `main`) |
 | Runtime TS lint / typecheck | `npm run lint`, `npm run typecheck` | Lint and typecheck | Lint and typecheck |
 | Runtime TS tests | `npm test` (+ coverage) | Run TypeScript tests | — (main-ci on `main`) |

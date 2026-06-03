@@ -58,6 +58,21 @@ detect_staged_affected() {
   done < <(git diff --cached --name-only)
 }
 
+ensure_typescript_runtime_for_cli_tests() {
+  if [ "${PRE_COMMIT_FULL:-}" != "1" ] && [ "$CLI" != true ] && [ "$WORKSPACE" != true ] && [ "$WORKFLOWS" != true ]; then
+    return 0
+  fi
+  if [ -f runtime/typescript/dist/ast-loader.js ]; then
+    return 0
+  fi
+  if ! command -v npm &>/dev/null; then
+    echo "⚠️  Warning: npm not found; CLI integration tests may skip TypeScript evaluation."
+    return 0
+  fi
+  echo "  Building TypeScript runtime (required for CLI integration tests)..."
+  (cd runtime/typescript && npm ci && npm run build)
+}
+
 run_rust_pre_merge_checks() {
   echo "🦀 Rust (affected packages)..."
 
@@ -71,6 +86,7 @@ run_rust_pre_merge_checks() {
     if cargo clippy --version &>/dev/null; then
       cargo clippy --workspace --all-targets --all-features -- -D warnings
     fi
+    ensure_typescript_runtime_for_cli_tests
     cargo test --workspace
     return 0
   fi
@@ -97,6 +113,7 @@ run_rust_pre_merge_checks() {
     cargo clippy "${cargo_args[@]}" --all-targets --all-features -- -D warnings
   fi
 
+  ensure_typescript_runtime_for_cli_tests
   echo "  cargo test ${cargo_args[*]}"
   cargo test "${cargo_args[@]}"
 }
