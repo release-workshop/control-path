@@ -87,18 +87,21 @@ Results land under `target/criterion/`. Use for local profiling or before large 
 
 ## CI workflows and gates
 
-Pre-merge workflows **`main-ci.yml`** (PRs, merge queue, pushes to `main`) and **`auto-merge-validation.yml`** (`validation/**` branches) enforce the same Rust gates when Rust-relevant paths change. `main-ci` runs all jobs on every push (no path filters). `auto-merge-validation` uses path filters for speed but still runs **Rust pre-merge gates** when `runtime/typescript/**` changes alone.
+**`main-ci.yml`** (PRs, merge queue, pushes to `main`) runs the **full** pre-merge matrix on every push (no path filters), including `cargo llvm-cov --workspace --all-features --lcov --output-path rust-lcov.info` and TypeScript coverage.
 
-| Gate | Command / artifact | `main-ci.yml` job | `auto-merge-validation.yml` |
-|------|-------------------|-------------------|----------------------------|
-| Rust format | `cargo fmt --all -- --check` | Run Rust tests and clippy (`rust-tests`) | `rust-tests` |
-| Workspace build | `cargo build --workspace` | `rust-tests` | `rust-tests` |
-| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | `rust-tests` | `rust-tests` |
-| Rust tests + coverage | `cargo llvm-cov --workspace --all-features --lcov --output-path rust-lcov.info` | `rust-tests` | `rust-tests` |
-| Release CLI | `cargo build --release --bin controlpath` | Build CLI binary (`build-cli`) | `build-cli` |
-| Runtime TS lint / typecheck | `npm run lint`, `npm run typecheck` | Lint and typecheck | `lint-and-typecheck` (when TS paths change) |
-| Runtime TS tests + coverage | `npm test -- --coverage ...` | Run TypeScript tests (`typescript-tests`) | `typescript-tests` |
-| E2E smoke | `npm run test:smoke` in `tests/e2e` | E2E smoke (pre-merge) | `pre-merge-e2e-smoke` |
+**`auto-merge-validation.yml`** (`validation/**`, maintainer `git pushmain`) is a **fast land path**: diffs against `main`, runs **package-affected** Rust tests (`cargo test -p …`), skips coverage upload, and does not run Rust land jobs on TypeScript-only changes. Full gates still apply on PRs; post-merge E2E on `main` catches regressions after land.
+
+| Gate | Command / artifact | `main-ci.yml` | `auto-merge-validation.yml` |
+|------|-------------------|---------------|----------------------------|
+| Rust format | `cargo fmt --all -- --check` | `rust-tests` | `rust-land` / `docs-land` |
+| Workspace build | `cargo build --workspace` | `rust-tests` | — (land uses targeted `cargo test`) |
+| Clippy | `cargo clippy --workspace …` | `rust-tests` | `rust-land` (when Rust paths change) |
+| Rust tests | `cargo test --workspace` or `llvm-cov` | `llvm-cov` + upload | `cargo test -p controlpath-compiler`, `-p controlpath-cli`, or `--workspace` in `rust-land` (by path) |
+| Release CLI | `cargo build --release --bin controlpath` | `build-cli` | `rust-land` or `build-cli` |
+| Runtime TS lint / typecheck | `npm run lint`, `npm run typecheck` | Lint and typecheck | `lint-and-typecheck` |
+| Runtime TS tests | `npm test` (+ coverage on main-ci) | coverage in `typescript-tests` | `npm test` only |
+| E2E smoke | `npm run test:smoke` | E2E smoke (pre-merge) | `pre-merge-e2e-smoke` |
+| Docs-only land | `cargo fmt --all -- --check` | — | `docs-land` |
 
 **Post-merge:** `post-merge-e2e.yml` runs after Main CI succeeds on `main` and executes the **full** `tests/e2e` suite (`npm test`). Failures require follow-up on `main` but do not block the merge that already landed.
 

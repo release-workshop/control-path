@@ -6,17 +6,19 @@ on:
       - 'validation/**'
 
 jobs:
-  # Detect what changed to conditionally run jobs
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      rust: ${{ steps.filter.outputs.rust }}
+      compiler: ${{ steps.filter.outputs.compiler }}
+      cli: ${{ steps.filter.outputs.cli }}
+      workspace: ${{ steps.filter.outputs.workspace }}
       typescript: ${{ steps.filter.outputs.typescript }}
       workflows: ${{ steps.filter.outputs.workflows }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,34 +26,40 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
-      - name: Detect changes
+      - name: Detect changes (vs main)
         uses: dorny/paths-filter@v3
         id: filter
         with:
+          base: main
           filters: |
-            rust:
+            compiler:
+              - 'crates/compiler/**'
+              - 'schemas/**'
+            cli:
+              - 'crates/cli/**'
+            workspace:
               - 'Cargo.toml'
               - 'Cargo.lock'
-              - 'crates/**'
-              - 'schemas/**'
             typescript:
               - 'runtime/typescript/**'
             workflows:
               - '.github/workflows/**'
             e2e:
               - 'tests/e2e/**'
+            docs:
+              - 'docs/**'
+              - '**/*.md'
 
-  # Run Rust tests in parallel with CLI build and lint/typecheck
-  rust-tests:
-    name: Run Rust tests and clippy
+  # Fast Rust gates: fmt, clippy, affected package tests, release CLI (no coverage upload).
+  rust-land:
+    name: Rust land gates
     runs-on: ubuntu-latest
     needs: changes
-    # Match main-ci Rust gates on TS/runtime changes too (runtime tests depend on the Rust CLI).
     if: |
-      needs.changes.outputs.rust == 'true' ||
-      needs.changes.outputs.typescript == 'true' ||
-      needs.changes.outputs.workflows == 'true' ||
-      needs.changes.outputs.e2e == 'true'
+      needs.changes.outputs.compiler == 'true' ||
+      needs.changes.outputs.cli == 'true' ||
+      needs.changes.outputs.workspace == 'true' ||
+      needs.changes.outputs.workflows == 'true'
     permissions:
       contents: read
     steps:
@@ -65,25 +73,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Cache npm dependencies (runtime)
-        uses: actions/cache@v4
-        with:
-          path: runtime/typescript/node_modules
-          key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
-          restore-keys: |
-            npm-runtime-${{ runner.os }}-
-
-      - name: Build TypeScript runtime (CLI integration evaluation)
-        working-directory: runtime/typescript
-        run: |
-          npm ci
-          npm run build
 
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
@@ -101,34 +90,55 @@ jobs:
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
-      - name: Build workspace
-        run: cargo build --workspace
-
       - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Run affected Rust tests
+        env:
+          WORKFLOWS: ${{ needs.changes.outputs.workflows }}
+          WORKSPACE: ${{ needs.changes.outputs.workspace }}
+          CLI: ${{ needs.changes.outputs.cli }}
+          COMPILER: ${{ needs.changes.outputs.compiler }}
+        run: |
+          set -euo pipefail
+          if [ "$WORKFLOWS" = "true" ] || [ "$WORKSPACE" = "true" ]; then
+            echo "Running full workspace tests (workflows or workspace manifest changed)"
+            cargo test --workspace
+          elif [ "$CLI" = "true" ]; then
+            echo "Running CLI + compiler tests"
+            cargo test -p controlpath-cli -p controlpath-compiler
+          elif [ "$COMPILER" = "true" ]; then
+            echo "Running compiler tests"
+            cargo test -p controlpath-compiler
+          else
+            echo "No Rust packages selected for test"
+            exit 1
+          fi
 
-      - name: Run Rust tests with coverage
-        run: cargo llvm-cov --workspace --all-features --lcov --output-path rust-lcov.info
+      - name: Build release CLI binary
+        run: cargo build --release --bin controlpath
 
-      - name: Upload Rust coverage report
-        uses: codecov/codecov-action@v4
+      - name: Upload release CLI binary
+        uses: actions/upload-artifact@v4
         with:
-          files: rust-lcov.info
-          flags: rust
-          fail_ci_if_error: false
+          name: controlpath-cli-release
+          path: target/release/controlpath
+          retention-days: 1
 
+  # Release CLI only when TypeScript/e2e changed without a Rust-land job.
   build-cli:
     name: Build CLI binary
     runs-on: ubuntu-latest
     needs: changes
     if: |
-      needs.changes.outputs.rust == 'true' ||
-      needs.changes.outputs.typescript == 'true' ||
-      needs.changes.outputs.e2e == 'true' ||
-      needs.changes.outputs.workflows == 'true'
+      (
+        needs.changes.outputs.typescript == 'true' ||
+        needs.changes.outputs.e2e == 'true'
+      ) &&
+      needs.changes.outputs.compiler != 'true' &&
+      needs.changes.outputs.cli != 'true' &&
+      needs.changes.outputs.workspace != 'true' &&
+      needs.changes.outputs.workflows != 'true'
     permissions:
       contents: read
     steps:
@@ -166,14 +176,18 @@ jobs:
           path: target/release/controlpath
           retention-days: 1
 
-  # TypeScript tests reuse the CLI artifact from build-cli (same as main-ci smoke path)
   typescript-tests:
     name: Run TypeScript tests
     runs-on: ubuntu-latest
-    needs: [changes, build-cli]
+    needs: [changes, rust-land, build-cli]
     if: |
-      needs.changes.outputs.typescript == 'true' ||
-      needs.changes.outputs.workflows == 'true'
+      always() &&
+      (needs.rust-land.result == 'success' || needs.rust-land.result == 'skipped') &&
+      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
+      (
+        needs.changes.outputs.typescript == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      )
     permissions:
       contents: read
     steps:
@@ -196,9 +210,6 @@ jobs:
           restore-keys: |
             npm-${{ runner.os }}-
 
-      # Install dependencies for TypeScript runtime SDK only
-      # Note: This is not a workspace - only runtime/typescript uses npm
-      # Using npm ci for consistent, reproducible builds in CI
       - name: Install dependencies
         working-directory: runtime/typescript
         run: npm ci
@@ -223,14 +234,10 @@ jobs:
           fi
           chmod +x target/release/controlpath
 
-      - name: Run runtime SDK tests with coverage
+      - name: Run runtime SDK tests
         working-directory: runtime/typescript
-        run: |
-          npm test -- --coverage --reporter=default --coverage.reporter=lcov
-          # Coverage thresholds are enforced automatically by Vitest
-          # If thresholds are not met, vitest will exit with code 1
+        run: npm test
 
-  # Run lint and typecheck in parallel (separate job for TypeScript SDK only)
   lint-and-typecheck:
     name: Lint and typecheck
     runs-on: ubuntu-latest
@@ -252,8 +259,6 @@ jobs:
         with:
           node-version: 24
 
-      # npm is only needed for the TypeScript runtime SDK (runtime/typescript/)
-      # The compiler and CLI are now Rust-based and use Cargo
       - name: Cache npm dependencies
         uses: actions/cache@v4
         with:
@@ -262,14 +267,10 @@ jobs:
           restore-keys: |
             npm-${{ runner.os }}-
 
-      # Install dependencies for TypeScript runtime SDK only
-      # Note: This is not a workspace - only runtime/typescript uses npm
-      # Using npm ci for consistent, reproducible builds in CI
       - name: Install dependencies
         working-directory: runtime/typescript
         run: npm ci
 
-      # Lint and typecheck only affect the TypeScript runtime SDK
       - name: Lint
         working-directory: runtime/typescript
         run: npm run lint
@@ -278,16 +279,22 @@ jobs:
         working-directory: runtime/typescript
         run: npm run typecheck
 
-  # Fast SDK-generator smoke before merge (full E2E runs post-merge on main)
   pre-merge-e2e-smoke:
     name: E2E smoke (pre-merge)
     runs-on: ubuntu-latest
-    needs: [changes, build-cli]
+    needs: [changes, rust-land, build-cli]
     if: |
-      needs.changes.outputs.rust == 'true' ||
-      needs.changes.outputs.typescript == 'true' ||
-      needs.changes.outputs.e2e == 'true' ||
-      needs.changes.outputs.workflows == 'true'
+      always() &&
+      (needs.rust-land.result == 'success' || needs.rust-land.result == 'skipped') &&
+      (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
+      (
+        needs.changes.outputs.compiler == 'true' ||
+        needs.changes.outputs.cli == 'true' ||
+        needs.changes.outputs.workspace == 'true' ||
+        needs.changes.outputs.typescript == 'true' ||
+        needs.changes.outputs.e2e == 'true' ||
+        needs.changes.outputs.workflows == 'true'
+      )
     permissions:
       contents: read
     steps:
@@ -354,24 +361,70 @@ jobs:
         working-directory: tests/e2e
         run: npm run test:smoke
 
-  # Merge job runs only if all validations pass
-  # Uses always() to run even if some jobs were skipped, but only if required jobs succeeded
+  docs-land:
+    name: Docs land gate
+    runs-on: ubuntu-latest
+    needs: changes
+    if: |
+      needs.changes.outputs.docs == 'true' &&
+      needs.changes.outputs.compiler != 'true' &&
+      needs.changes.outputs.cli != 'true' &&
+      needs.changes.outputs.workspace != 'true' &&
+      needs.changes.outputs.typescript != 'true' &&
+      needs.changes.outputs.e2e != 'true' &&
+      needs.changes.outputs.workflows != 'true'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
   merge:
     name: Merge into main
     runs-on: ubuntu-latest
-    needs: [changes, build-cli, rust-tests, typescript-tests, lint-and-typecheck, pre-merge-e2e-smoke]
+    needs:
+      - changes
+      - rust-land
+      - build-cli
+      - typescript-tests
+      - lint-and-typecheck
+      - pre-merge-e2e-smoke
+      - docs-land
     if: |
       always() &&
+      (needs.rust-land.result == 'success' || needs.rust-land.result == 'skipped') &&
       (needs.build-cli.result == 'success' || needs.build-cli.result == 'skipped') &&
-      (needs.rust-tests.result == 'success' || needs.rust-tests.result == 'skipped') &&
       (needs.typescript-tests.result == 'success' || needs.typescript-tests.result == 'skipped') &&
       (needs.lint-and-typecheck.result == 'success' || needs.lint-and-typecheck.result == 'skipped') &&
       (needs.pre-merge-e2e-smoke.result == 'success' || needs.pre-merge-e2e-smoke.result == 'skipped') &&
+      (needs.docs-land.result == 'success' || needs.docs-land.result == 'skipped') &&
       (
-        needs.changes.outputs.rust == 'true' ||
+        needs.changes.outputs.compiler == 'true' ||
+        needs.changes.outputs.cli == 'true' ||
+        needs.changes.outputs.workspace == 'true' ||
         needs.changes.outputs.typescript == 'true' ||
+        needs.changes.outputs.e2e == 'true' ||
         needs.changes.outputs.workflows == 'true' ||
-        needs.changes.outputs.e2e == 'true'
+        (
+          needs.changes.outputs.docs == 'true' &&
+          needs.changes.outputs.compiler != 'true' &&
+          needs.changes.outputs.cli != 'true' &&
+          needs.changes.outputs.workspace != 'true' &&
+          needs.changes.outputs.typescript != 'true' &&
+          needs.changes.outputs.e2e != 'true' &&
+          needs.changes.outputs.workflows != 'true'
+        )
       )
     permissions:
       contents: write
@@ -387,14 +440,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
         run: |
-          # Rebase the validation branch onto main to enable fast-forward merge
-          # This ensures no merge commit is created - just your original commits
-          # git rebase preserves the original commit author by default
-
-          # Configure git to use the token for authentication
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          # Set git config for the rebase operation (committer will be bot, author is preserved)
           git config user.name "chrisbot-release-workshop"
           git config user.email "chris+bot@releaseworkshop.com"
 
@@ -402,7 +449,6 @@ jobs:
           MAX_RETRIES=3
           RETRY_DELAY=5
 
-          # Function to retry git operations
           retry_git_operation() {
             local operation="$1"
             local max_attempts=$2
@@ -416,7 +462,6 @@ jobs:
               if [ $attempt -lt $max_attempts ]; then
                 echo "Operation failed, waiting ${RETRY_DELAY}s before retry..."
                 sleep $RETRY_DELAY
-                # Fetch latest changes before retry
                 git fetch origin main --quiet || true
               fi
               attempt=$((attempt + 1))
@@ -424,26 +469,21 @@ jobs:
             return 1
           }
 
-          # Fetch latest main to ensure we're up to date
           echo "Fetching latest changes from main..."
           retry_git_operation "git fetch origin main" $MAX_RETRIES || {
             echo "❌ Failed to fetch main after $MAX_RETRIES attempts"
             exit 1
           }
 
-          # Check if validation branch is already up to date with main
           if git merge-base --is-ancestor origin/main "origin/${VALIDATION_BRANCH}"; then
             echo "✓ Validation branch is already up to date with main, skipping rebase"
           else
-            # Rebase - author information is automatically preserved from original commits
             echo "Rebasing ${VALIDATION_BRANCH} onto main..."
             retry_git_operation "git rebase origin/main" $MAX_RETRIES || {
-              echo "❌ Rebase failed after $MAX_RETRIES attempts. This should not happen if validation branch was created from main."
-              echo "This might indicate a conflict or that main has diverged significantly."
+              echo "❌ Rebase failed after $MAX_RETRIES attempts."
               exit 1
             }
 
-            # Force push the rebased branch (safe since it's a temporary validation branch)
             echo "Pushing rebased branch..."
             retry_git_operation "git push origin HEAD:${VALIDATION_BRANCH} --force-with-lease" $MAX_RETRIES || {
               echo "❌ Failed to push rebased branch after $MAX_RETRIES attempts"
@@ -455,17 +495,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.MAINLINE_MERGE_TOKEN }}
         run: |
-          # Use git directly to do a fast-forward only merge
-          # This ensures no merge commit is created
-
           VALIDATION_BRANCH="${{ github.ref_name }}"
           MAX_RETRIES=3
           RETRY_DELAY=5
 
-          # Configure git to use the token for authentication
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          # Function to retry git operations
           retry_git_operation() {
             local operation="$1"
             local max_attempts=$2
@@ -479,7 +514,6 @@ jobs:
               if [ $attempt -lt $max_attempts ]; then
                 echo "Operation failed, waiting ${RETRY_DELAY}s before retry..."
                 sleep $RETRY_DELAY
-                # Fetch latest changes before retry
                 git fetch origin main "${VALIDATION_BRANCH}" --quiet || true
               fi
               attempt=$((attempt + 1))
@@ -487,7 +521,6 @@ jobs:
             return 1
           }
 
-          # Fetch latest changes before merge
           echo "Fetching latest changes..."
           retry_git_operation "git fetch origin main ${VALIDATION_BRANCH}" $MAX_RETRIES || {
             echo "❌ Failed to fetch latest changes after $MAX_RETRIES attempts"
@@ -501,38 +534,29 @@ jobs:
             exit 1
           }
 
-          # Verify validation branch exists and is ahead of main
           if ! git rev-parse --verify "origin/${VALIDATION_BRANCH}" >/dev/null 2>&1; then
             echo "❌ Validation branch origin/${VALIDATION_BRANCH} does not exist"
             exit 1
           fi
 
-          # Check if merge is needed (validation branch might already be merged)
           if git merge-base --is-ancestor "origin/${VALIDATION_BRANCH}" origin/main; then
             echo "✓ Validation branch is already merged into main, skipping merge"
           else
             echo "Attempting fast-forward merge of ${VALIDATION_BRANCH} into main..."
             retry_git_operation "git merge --ff-only \"origin/${VALIDATION_BRANCH}\"" $MAX_RETRIES || {
               echo "❌ Fast-forward merge failed after $MAX_RETRIES attempts."
-              echo "This might indicate:"
-              echo "  - Main has moved forward since rebase"
-              echo "  - There are conflicts that need resolution"
-              echo "  - The rebase step may have failed silently"
               exit 1
             }
 
             echo "Pushing main with fast-forward merge..."
             retry_git_operation "git push origin main --no-verify" $MAX_RETRIES || {
               echo "❌ Failed to push main after $MAX_RETRIES attempts"
-              echo "This might indicate a race condition with another merge"
               exit 1
             }
 
             echo "✓ Fast-forward merge successful - no merge commit created"
-            echo "Your original commits are now in main with their original messages"
           fi
 
-          # Delete the validation branch after successful merge
           echo "Deleting validation branch ${VALIDATION_BRANCH}..."
           git push origin --delete "${VALIDATION_BRANCH}" || {
             echo "⚠️  Warning: Failed to delete validation branch (may have already been deleted)"

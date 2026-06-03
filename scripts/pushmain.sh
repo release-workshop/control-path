@@ -1,6 +1,7 @@
 #!/bin/bash
-# Push local main through validation/* CI, wait for auto-merge, sync origin/main.
+# Push local main through validation/* CI and wait until land completes or fails.
 #
+# Success: "Merge into main" job succeeded. Does not wait for post-merge workflows on main.
 # Phase A: still uses .github/workflows/auto-merge-validation.yml to land on main.
 # Requires: git, GitHub CLI (gh) authenticated for this repository.
 
@@ -11,15 +12,17 @@
 set -euo pipefail
 
 readonly VALIDATION_WORKFLOW_FILE="auto-merge-validation.yml"
+readonly MERGE_JOB_NAME="Merge into main"
 readonly WAIT_RUN_ATTEMPTS=45
 readonly WAIT_RUN_SLEEP_SECS=2
+readonly POLL_LAND_INTERVAL_SECS=5
 
 usage() {
   cat <<'EOF'
 Usage: git pushmain [--no-wait]
 
-  Push local main to a temporary validation/* branch, run pre-merge CI, and on
-  success wait for auto-merge into origin/main then fast-forward local main.
+  Push local main to a temporary validation/* branch, run pre-merge CI, and wait
+  until the "Merge into main" job succeeds or the validation run fails.
 
 Options:
   --no-wait   Push validation branch and exit (legacy fire-and-forget behavior)
@@ -94,13 +97,56 @@ print_failed_run_summary() {
   conclusion="$(gh run view "$run_id" --json conclusion --jq .conclusion 2>/dev/null || true)"
 
   echo "" >&2
-  echo "Validation workflow did not succeed (conclusion: ${conclusion:-unknown})." >&2
+  echo "Validation did not land on main (run conclusion: ${conclusion:-unknown})." >&2
   if [ -n "$url" ]; then
     echo "Run: $url" >&2
   fi
   echo "" >&2
   echo "Failed jobs:" >&2
   gh run view "$run_id" --json jobs --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "  - \(.name): \(.conclusion)"' 2>/dev/null >&2 || true
+}
+
+# Exit 0 when MERGE_JOB_NAME succeeds; exit 1 on failed/cancelled gate or merge jobs.
+wait_for_merge_into_main() {
+  local run_id="$1"
+  local run_url="$2"
+
+  while true; do
+    local merge_conclusion run_status
+    merge_conclusion="$(
+      gh run view "$run_id" --json jobs --jq \
+        --arg name "$MERGE_JOB_NAME" \
+        '.jobs[] | select(.name == $name) | .conclusion' 2>/dev/null | head -1 || true
+    )"
+
+    case "$merge_conclusion" in
+      success)
+        return 0
+        ;;
+      failure | cancelled)
+        print_failed_run_summary "$run_id"
+        return 1
+        ;;
+    esac
+
+    if gh run view "$run_id" --json jobs --jq \
+      '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name' 2>/dev/null |
+      grep -q .; then
+      print_failed_run_summary "$run_id"
+      return 1
+    fi
+
+    run_status="$(gh run view "$run_id" --json status --jq .status 2>/dev/null || true)"
+    if [ "$run_status" = "completed" ]; then
+      echo "" >&2
+      echo "Workflow finished but \"${MERGE_JOB_NAME}\" did not succeed (merge job: ${merge_conclusion:-not run})." >&2
+      echo "Run: ${run_url}" >&2
+      echo "This often happens for docs-only changes where path filters skip the merge job." >&2
+      return 1
+    fi
+
+    sleep "$POLL_LAND_INTERVAL_SECS"
+  done
 }
 
 main() {
@@ -170,31 +216,16 @@ main() {
 
   local run_url
   run_url="$(gh run view "$run_id" --json url --jq .url)"
-  echo "Watching run: ${run_url}"
+  echo "Waiting for \"${MERGE_JOB_NAME}\" (run: ${run_url})..."
 
-  if ! gh run watch "$run_id" --exit-status; then
-    print_failed_run_summary "$run_id"
+  if ! wait_for_merge_into_main "$run_id" "$run_url"; then
     exit 1
   fi
 
   echo ""
-  echo "Workflow succeeded. Checking that ${land_sha:0:7} landed on origin/main..."
-  git fetch origin main
-
-  if ! git merge-base --is-ancestor "$land_sha" origin/main; then
-    die "CI finished but your commits are not on origin/main yet.
-This often happens for docs-only or path-filtered changes where auto-merge does not run.
-Branch: ${remote_branch}
-Run: ${run_url}"
-  fi
-
-  echo "Fast-forwarding local main from origin/main..."
-  git checkout main >/dev/null 2>&1
-  git pull --ff-only origin main
-
-  echo ""
-  echo "✓ Landed on origin/main at $(git rev-parse --short origin/main)"
-  echo "  Your commits: $(git rev-parse --short "$land_sha")"
+  echo "✓ Merged into origin/main (${land_sha:0:7})"
+  echo "  Post-merge checks on main are not waited on."
+  echo "  Sync local main when ready: git pull --ff-only origin main"
 }
 
 main "$@"

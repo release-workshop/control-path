@@ -20,4 +20,4 @@ Remove the bot merge job from `auto-merge-validation.yml` once we prove that req
 ## Risks
 
 - Race if another land happens between CI green and push (script should fetch/rebase/retry).
-- Docs-only pushes: path filters skip merge today; Phase B must define behavior (always run gates or block land).
+- Docs-only land: `docs-land` job (fmt) + merge — implemented in fast validation workflow.

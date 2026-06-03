@@ -1,4 +1,4 @@
-//! Ensures root merge CI workflows enforce the same gates documented for contributors.
+//! Ensures root merge CI workflows enforce the gates documented for contributors.
 
 use std::fs;
 use std::path::PathBuf;
@@ -27,7 +27,15 @@ fn assert_workflow_contains(workflow: &str, label: &str, needle: &str) {
     );
 }
 
-const PRE_MERGE_RUST_GATES: &[&str] = &[
+fn assert_workflow_lacks(workflow: &str, label: &str, needle: &str) {
+    assert!(
+        !workflow.contains(needle),
+        "{label} must not reference `{needle}`"
+    );
+}
+
+/// Full pre-merge gates for PRs, merge queue, and pushes to main.
+const MAIN_CI_PRE_MERGE_RUST_GATES: &[&str] = &[
     "cargo fmt --all -- --check",
     "cargo build --workspace",
     "cargo clippy",
@@ -35,10 +43,20 @@ const PRE_MERGE_RUST_GATES: &[&str] = &[
     "cargo build --release --bin controlpath",
 ];
 
+/// Fast land gates for maintainer validation/* pushes (package-affected tests, no coverage upload).
+const VALIDATION_LAND_RUST_GATES: &[&str] = &[
+    "cargo fmt --all -- --check",
+    "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+    "cargo test -p controlpath-compiler",
+    "cargo test -p controlpath-cli -p controlpath-compiler",
+    "cargo test --workspace",
+    "cargo build --release --bin controlpath",
+];
+
 #[test]
 fn main_ci_enforces_documented_pre_merge_rust_gates() {
     let workflow = read_workflow("main-ci.yml");
-    for gate in PRE_MERGE_RUST_GATES {
+    for gate in MAIN_CI_PRE_MERGE_RUST_GATES {
         assert_workflow_contains(&workflow, "main-ci.yml", gate);
     }
     assert_workflow_contains(&workflow, "main-ci.yml", "npm run test:smoke");
@@ -51,59 +69,60 @@ fn main_ci_enforces_documented_pre_merge_rust_gates() {
 }
 
 #[test]
-fn auto_merge_validation_enforces_documented_pre_merge_rust_gates() {
+fn auto_merge_validation_uses_fast_land_rust_gates() {
     let workflow = read_workflow("auto-merge-validation.yml");
-    for gate in PRE_MERGE_RUST_GATES {
+    for gate in VALIDATION_LAND_RUST_GATES {
         assert_workflow_contains(&workflow, "auto-merge-validation.yml", gate);
     }
+    assert_workflow_lacks(&workflow, "auto-merge-validation.yml", "cargo llvm-cov");
+    assert_workflow_lacks(
+        &workflow,
+        "auto-merge-validation.yml",
+        "codecov/codecov-action",
+    );
     assert_workflow_contains(&workflow, "auto-merge-validation.yml", "npm run test:smoke");
     assert_workflow_contains(
         &workflow,
         "auto-merge-validation.yml",
         "controlpath-cli-release",
     );
-    assert_workflow_contains(
-        &workflow,
-        "auto-merge-validation.yml",
-        "Build TypeScript runtime (CLI integration evaluation)",
-    );
+    assert_workflow_contains(&workflow, "auto-merge-validation.yml", "base: main");
 }
 
 #[test]
-fn auto_merge_validation_runs_rust_gates_on_typescript_changes() {
+fn auto_merge_validation_does_not_run_rust_land_on_typescript_only() {
     let workflow = read_workflow("auto-merge-validation.yml");
-    let rust_job = workflow
-        .split("rust-tests:")
+    let rust_land = workflow
+        .split("rust-land:")
         .nth(1)
         .and_then(|s| s.split("\n  build-cli:").next())
-        .expect("rust-tests job block");
+        .expect("rust-land job block");
     assert!(
-        rust_job.contains("needs.changes.outputs.typescript == 'true'"),
-        "typescript-only validation pushes must still run Rust pre-merge gates"
+        !rust_land.contains("needs.changes.outputs.typescript == 'true'"),
+        "typescript-only validation pushes must not run rust-land"
     );
 }
 
 #[test]
-fn auto_merge_validation_wires_workflows_filter_and_blocks_empty_merge() {
+fn auto_merge_validation_wires_package_path_filters() {
     let workflow = read_workflow("auto-merge-validation.yml");
-    assert_workflow_contains(
-        &workflow,
-        "auto-merge-validation.yml",
-        "needs.changes.outputs.workflows == 'true'",
-    );
-    assert_workflow_contains(
-        &workflow,
-        "auto-merge-validation.yml",
-        "needs.changes.outputs.e2e == 'true'",
-    );
-    assert_workflow_contains(
-        &workflow,
-        "auto-merge-validation.yml",
-        "needs.changes.outputs.typescript == 'true'",
-    );
+    for needle in [
+        "crates/compiler/**",
+        "crates/cli/**",
+        "Cargo.toml",
+        "needs.changes.outputs.compiler",
+        "needs.changes.outputs.cli",
+        "needs.changes.outputs.workspace",
+        "docs-land:",
+    ] {
+        assert!(
+            workflow.contains(needle),
+            "auto-merge-validation.yml must reference `{needle}`"
+        );
+    }
     assert!(
         !workflow.contains("outputs.schemas"),
-        "schemas/** is covered by the rust path filter; do not reference a dead schemas output"
+        "schemas/** is under the compiler filter; do not reference a dead schemas output"
     );
 }
 
@@ -139,12 +158,16 @@ fn read_repo_file(relative: &str) -> String {
 #[test]
 fn canonical_testing_doc_lists_layers_and_pre_merge_gates() {
     let doc = read_developer_doc("testing.md");
-    for gate in PRE_MERGE_RUST_GATES {
+    for gate in MAIN_CI_PRE_MERGE_RUST_GATES {
         assert!(
             doc.contains(gate),
-            "docs/developer/testing.md must document pre-merge gate `{gate}`"
+            "docs/developer/testing.md must document main-ci gate `{gate}`"
         );
     }
+    assert!(
+        doc.contains("cargo test -p controlpath-compiler"),
+        "canonical testing doc must describe validation land affected tests"
+    );
     assert!(
         doc.contains("npm run test:smoke"),
         "canonical testing doc must describe E2E smoke"
