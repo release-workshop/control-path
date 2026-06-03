@@ -16,8 +16,7 @@ readonly MERGE_JOB_NAME="Merge into main"
 readonly WAIT_RUN_ATTEMPTS=45
 readonly WAIT_RUN_SLEEP_SECS=2
 readonly POLL_LAND_INTERVAL_SECS=5
-# GitHub may mark a run completed before every job conclusion is visible in the API.
-readonly MERGE_JOB_GRACE_ATTEMPTS=12
+readonly LAND_ON_MAIN_ATTEMPTS=24
 
 usage() {
   cat <<'EOF'
@@ -110,9 +109,9 @@ print_failed_run_summary() {
 
 merge_job_conclusion() {
   local run_id="$1"
+  # gh run view --jq accepts a single expression only (not jq --arg).
   gh run view "$run_id" --json jobs --jq \
-    --arg name "$MERGE_JOB_NAME" \
-    '.jobs[] | select(.name == $name) | .conclusion' 2>/dev/null | head -1 || true
+    ".jobs[] | select(.name == \"${MERGE_JOB_NAME}\") | .conclusion" 2>/dev/null | head -1 || true
 }
 
 landed_on_origin_main() {
@@ -145,15 +144,27 @@ wait_for_merge_into_main() {
   local run_id="$1"
   local run_url="$2"
   local land_sha="$3"
-  local completed_grace_attempts=0
+  local attempt merge_conclusion
 
-  while true; do
-    local merge_conclusion run_status
+  echo "Watching workflow (job output streams below)..."
+  if ! gh run watch "$run_id" --exit-status; then
+    print_failed_run_summary "$run_id"
+    return 1
+  fi
+
+  for attempt in $(seq 1 "$LAND_ON_MAIN_ATTEMPTS"); do
+    if landed_on_origin_main "$land_sha"; then
+      return 0
+    fi
+
     merge_conclusion="$(merge_job_conclusion "$run_id")"
-
     case "$merge_conclusion" in
       success)
         return 0
+        ;;
+      skipped)
+        print_merge_not_landed "$merge_conclusion" "$run_url" "$land_sha"
+        return 1
         ;;
       failure | cancelled)
         print_failed_run_summary "$run_id"
@@ -161,52 +172,15 @@ wait_for_merge_into_main() {
         ;;
     esac
 
-    if gh run view "$run_id" --json jobs --jq \
-      '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name' 2>/dev/null |
-      grep -q .; then
-      print_failed_run_summary "$run_id"
-      return 1
-    fi
-
-    run_status="$(gh run view "$run_id" --json status --jq .status 2>/dev/null || true)"
-    if [ "$run_status" = "completed" ]; then
-      if [ -z "$merge_conclusion" ]; then
-        completed_grace_attempts=$((completed_grace_attempts + 1))
-        if [ "$completed_grace_attempts" -le "$MERGE_JOB_GRACE_ATTEMPTS" ]; then
-          sleep "$POLL_LAND_INTERVAL_SECS"
-          continue
-        fi
-        merge_conclusion="$(merge_job_conclusion "$run_id")"
-      fi
-
-      case "$merge_conclusion" in
-        success)
-          return 0
-          ;;
-        skipped | failure | cancelled)
-          if landed_on_origin_main "$land_sha"; then
-            return 0
-          fi
-          if [ "$merge_conclusion" = "failure" ] || [ "$merge_conclusion" = "cancelled" ]; then
-            print_failed_run_summary "$run_id"
-            return 1
-          fi
-          print_merge_not_landed "$merge_conclusion" "$run_url" "$land_sha"
-          return 1
-          ;;
-      esac
-
-      if landed_on_origin_main "$land_sha"; then
-        return 0
-      fi
-
-      print_merge_not_landed "$merge_conclusion" "$run_url" "$land_sha"
-      return 1
-    fi
-
-    completed_grace_attempts=0
     sleep "$POLL_LAND_INTERVAL_SECS"
   done
+
+  if landed_on_origin_main "$land_sha"; then
+    return 0
+  fi
+
+  print_merge_not_landed "$(merge_job_conclusion "$run_id")" "$run_url" "$land_sha"
+  return 1
 }
 
 main() {
