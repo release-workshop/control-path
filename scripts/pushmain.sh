@@ -16,6 +16,8 @@ readonly MERGE_JOB_NAME="Merge into main"
 readonly WAIT_RUN_ATTEMPTS=45
 readonly WAIT_RUN_SLEEP_SECS=2
 readonly POLL_LAND_INTERVAL_SECS=5
+# GitHub may mark a run completed before every job conclusion is visible in the API.
+readonly MERGE_JOB_GRACE_ATTEMPTS=12
 
 usage() {
   cat <<'EOF'
@@ -106,18 +108,29 @@ print_failed_run_summary() {
   gh run view "$run_id" --json jobs --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "  - \(.name): \(.conclusion)"' 2>/dev/null >&2 || true
 }
 
+merge_job_conclusion() {
+  local run_id="$1"
+  gh run view "$run_id" --json jobs --jq \
+    --arg name "$MERGE_JOB_NAME" \
+    '.jobs[] | select(.name == $name) | .conclusion' 2>/dev/null | head -1 || true
+}
+
+landed_on_origin_main() {
+  local land_sha="$1"
+  git fetch origin main >/dev/null 2>&1 || true
+  git merge-base --is-ancestor "$land_sha" origin/main 2>/dev/null
+}
+
 # Exit 0 when MERGE_JOB_NAME succeeds; exit 1 on failed/cancelled gate or merge jobs.
 wait_for_merge_into_main() {
   local run_id="$1"
   local run_url="$2"
+  local land_sha="$3"
+  local completed_grace_attempts=0
 
   while true; do
     local merge_conclusion run_status
-    merge_conclusion="$(
-      gh run view "$run_id" --json jobs --jq \
-        --arg name "$MERGE_JOB_NAME" \
-        '.jobs[] | select(.name == $name) | .conclusion' 2>/dev/null | head -1 || true
-    )"
+    merge_conclusion="$(merge_job_conclusion "$run_id")"
 
     case "$merge_conclusion" in
       success)
@@ -125,6 +138,13 @@ wait_for_merge_into_main() {
         ;;
       failure | cancelled)
         print_failed_run_summary "$run_id"
+        return 1
+        ;;
+      skipped)
+        echo "" >&2
+        echo "Workflow finished but \"${MERGE_JOB_NAME}\" was skipped." >&2
+        echo "Run: ${run_url}" >&2
+        echo "This often happens when path filters exclude your changes from auto-merge." >&2
         return 1
         ;;
     esac
@@ -138,13 +158,26 @@ wait_for_merge_into_main() {
 
     run_status="$(gh run view "$run_id" --json status --jq .status 2>/dev/null || true)"
     if [ "$run_status" = "completed" ]; then
+      if [ -z "$merge_conclusion" ]; then
+        completed_grace_attempts=$((completed_grace_attempts + 1))
+        if [ "$completed_grace_attempts" -le "$MERGE_JOB_GRACE_ATTEMPTS" ]; then
+          sleep "$POLL_LAND_INTERVAL_SECS"
+          continue
+        fi
+      fi
+
+      if landed_on_origin_main "$land_sha"; then
+        return 0
+      fi
+
       echo "" >&2
       echo "Workflow finished but \"${MERGE_JOB_NAME}\" did not succeed (merge job: ${merge_conclusion:-not run})." >&2
       echo "Run: ${run_url}" >&2
-      echo "This often happens for docs-only changes where path filters skip the merge job." >&2
+      echo "This often happens when path filters exclude your changes from auto-merge." >&2
       return 1
     fi
 
+    completed_grace_attempts=0
     sleep "$POLL_LAND_INTERVAL_SECS"
   done
 }
@@ -218,7 +251,7 @@ main() {
   run_url="$(gh run view "$run_id" --json url --jq .url)"
   echo "Waiting for \"${MERGE_JOB_NAME}\" (run: ${run_url})..."
 
-  if ! wait_for_merge_into_main "$run_id" "$run_url"; then
+  if ! wait_for_merge_into_main "$run_id" "$run_url" "$land_sha"; then
     exit 1
   fi
 
