@@ -8,7 +8,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::catalog::model::{CatalogDocument, FlagDefinition, FlagKind, FlagLifecycle};
+use crate::catalog::model::{
+    AttributeScalarType, CatalogDocument, FlagDefinition, FlagKind, FlagLifecycle,
+};
 
 /// One boolean flag exposed through the generated SDK.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +25,22 @@ pub struct SdkFlag {
     pub description: Option<String>,
     /// Imported from another catalog; rules are compiled from the source catalog.
     pub is_imported: bool,
+    /// Import namespace when [`SdkFlag::is_imported`] is true.
+    pub import_namespace: Option<String>,
+}
+
+/// Declared attribute fields for one import namespace (when that catalog opted in).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SdkAttributeNamespace {
+    pub namespace: String,
+    pub fields: BTreeMap<String, AttributeScalarType>,
+}
+
+/// Closed attribute schema for SDK generation when the service catalog opts in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SdkAttributeSchema {
+    pub service_fields: BTreeMap<String, AttributeScalarType>,
+    pub import_namespaces: Vec<SdkAttributeNamespace>,
 }
 
 /// SDK input derived from catalog flag definitions and kill switch URL configuration.
@@ -33,6 +51,8 @@ pub struct SdkCatalog {
     pub kill_switch_urls: BTreeMap<String, String>,
     /// Per-environment compiled artifact URLs (`artifacts.<env>.url` in local mode).
     pub artifact_urls: BTreeMap<String, String>,
+    /// Present when the service catalog opts in to `attributes:` (closed SDK typing).
+    pub attribute_schema: Option<SdkAttributeSchema>,
 }
 
 /// Build the SDK catalog from a local catalog and resolved import documents.
@@ -81,10 +101,44 @@ pub fn build_sdk_catalog(
         .map(|(env, target)| (env.clone(), target.url.clone()))
         .collect();
 
+    let attribute_schema = build_attribute_schema(catalog, imports);
+
     Ok(SdkCatalog {
         flags,
         kill_switch_urls,
         artifact_urls,
+        attribute_schema,
+    })
+}
+
+fn build_attribute_schema(
+    catalog: &CatalogDocument,
+    imports: &BTreeMap<String, CatalogDocument>,
+) -> Option<SdkAttributeSchema> {
+    if !catalog.attribute_schema_opted_in() {
+        return None;
+    }
+
+    let service_fields = catalog
+        .attribute_schema_fields()
+        .cloned()
+        .unwrap_or_default();
+
+    let mut import_namespaces = Vec::new();
+    for (namespace, imported) in imports {
+        let Some(fields) = imported.attribute_schema_fields() else {
+            continue;
+        };
+        import_namespaces.push(SdkAttributeNamespace {
+            namespace: namespace.clone(),
+            fields: fields.clone(),
+        });
+    }
+    import_namespaces.sort_by(|a, b| a.namespace.cmp(&b.namespace));
+
+    Some(SdkAttributeSchema {
+        service_fields,
+        import_namespaces,
     })
 }
 
@@ -121,6 +175,7 @@ fn push_flag(
         lifecycle: flag.lifecycle,
         description: flag.description.clone(),
         is_imported,
+        import_namespace: import_namespace.clone(),
     });
     Ok(())
 }

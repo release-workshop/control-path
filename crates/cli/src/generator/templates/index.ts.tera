@@ -23,7 +23,10 @@ import {
   DEFAULT_GENERATED_ARTIFACT_POLL_JITTER_MS,
   type Logger,
 } from '@controlpath/runtime';
-import type { Attributes, FlagName, FlagReturnTypes } from './types.js';
+import type { Attributes, FlagName, FlagReturnTypes{% if attribute_schema %}{% for ns in attribute_schema.namespaces %}, {{ ns.interface_name }}{% endfor %}{% endif %} } from './types.js';
+{% if uses_per_flag_namespace_types %}
+import type { BaseAttributes } from '@controlpath/runtime';
+{% endif %}
 
 /** Kill switch poll URLs (local: `kill_switches.<env>.url`; SaaS: platform CDN contract). */
 export const KILL_SWITCH_URLS: Record<string, string> = {
@@ -85,8 +88,8 @@ export class Evaluator {
   /** {{ flag.description }} */
 {% endif %}
   async {{ flag.method_name }}(): Promise<boolean>;
-  async {{ flag.method_name }}(attributes: Attributes): Promise<boolean>;
-  async {{ flag.method_name }}(attributes?: Attributes): Promise<boolean> {
+  async {{ flag.method_name }}(attributes: {{ flag.attributes_param_type }}): Promise<boolean>;
+  async {{ flag.method_name }}(attributes?: {{ flag.attributes_param_type }}): Promise<boolean> {
     await this.runtime.ensureInitialized();
 
     return this.runtime.evaluateBooleanFlag({
@@ -162,4 +165,4 @@ export class Evaluator {
 
 export const evaluator = new Evaluator();
 
-export type { Attributes, FlagName, FlagReturnTypes } from './types.js';
+export type { Attributes, FlagName, FlagReturnTypes{% if attribute_schema %}, EvaluationAttributes{% endif %} } from './types.js';

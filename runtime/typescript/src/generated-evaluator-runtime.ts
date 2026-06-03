@@ -26,7 +26,7 @@ import {
 } from './kill-switch-polling';
 import { resolveBooleanFlag } from './resolve-flag';
 import { buildFlagNameMapFromArtifact } from './utils';
-import type { Artifact, Attributes, Logger } from './types';
+import type { Artifact, AttributesInput, Logger } from './types';
 
 export const DEFAULT_GENERATED_KILL_SWITCH_POLL_MS = 30_000;
 /** Spread deploy-time fetches across pods (0..5s before first background refresh). */
@@ -58,7 +58,7 @@ export interface GeneratedEvaluatorInitOptions {
 export interface EvaluateBooleanFlagOptions {
   qualifiedName: string;
   catalogDefault: boolean;
-  attributes?: Attributes;
+  attributes?: AttributesInput;
 }
 
 interface InitSnapshot {
@@ -90,7 +90,7 @@ export class GeneratedEvaluatorRuntime {
   private artifactEnv: string | null = null;
   private flagNameMap: Record<string, number> = {};
   private initialized = false;
-  private storedAttributes?: Attributes;
+  private storedAttributes?: AttributesInput;
   private killSwitchCoordinator = new KillSwitchRefreshCoordinator();
   private artifactCoordinator = new ArtifactRefreshCoordinator();
   private killSwitchLogger?: Logger;
@@ -156,7 +156,7 @@ export class GeneratedEvaluatorRuntime {
     }
   }
 
-  setAttributes(attributes: Attributes): void {
+  setAttributes(attributes: AttributesInput): void {
     this.storedAttributes = attributes;
   }
 
@@ -323,13 +323,20 @@ export class GeneratedEvaluatorRuntime {
     });
   }
 
-  private resolveAttributes(attributes?: Attributes): Attributes | null {
+  private resolveAttributes(attributes?: AttributesInput): AttributesInput | null {
     const resolvedAttributes = attributes ?? this.storedAttributes;
 
+    if (!resolvedAttributes) {
+      return null;
+    }
+
+    const attrs = resolvedAttributes as Record<string, unknown>;
+    const id = attrs.id;
     if (
-      !resolvedAttributes ||
-      !resolvedAttributes.id ||
-      (typeof resolvedAttributes.id === 'string' && resolvedAttributes.id.trim() === '')
+      id === undefined ||
+      id === null ||
+      id === '' ||
+      (typeof id === 'string' && id.trim() === '')
     ) {
       return null;
     }

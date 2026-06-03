@@ -9,7 +9,7 @@
  */
 
 import { evaluateBoolean } from './evaluator';
-import type { Artifact, Attributes, KillSwitchFile } from './types';
+import type { Artifact, AttributesInput, KillSwitchFile } from './types';
 
 export interface ResolveBooleanFlagOptions {
   /** Qualified flag name (`flag` or `namespace.flag`). */
@@ -20,7 +20,7 @@ export interface ResolveBooleanFlagOptions {
   /** Catalog default when kill switch and AST do not apply. */
   catalogDefault: boolean;
   killSwitchFile?: KillSwitchFile | null;
-  attributes?: Attributes;
+  attributes?: AttributesInput;
 }
 
 function killSwitchValue(

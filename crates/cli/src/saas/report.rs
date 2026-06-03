@@ -174,6 +174,11 @@ mod tests {
             lifecycle,
             description: None,
             is_imported: imported,
+            import_namespace: if imported {
+                qualified_name.split('.').next().map(str::to_string)
+            } else {
+                None
+            },
         }
     }
 
@@ -183,6 +188,7 @@ mod tests {
             flags: vec![sdk_flag("stale_feature", FlagLifecycle::Active, false)],
             kill_switch_urls: BTreeMap::new(),
             artifact_urls: BTreeMap::new(),
+            attribute_schema: None,
         };
         let telemetry = vec![FlagTelemetry {
             flag_key: "stale_feature".to_string(),
@@ -210,6 +216,7 @@ mod tests {
             ],
             kill_switch_urls: BTreeMap::new(),
             artifact_urls: BTreeMap::new(),
+            attribute_schema: None,
         };
         let telemetry = vec![FlagTelemetry {
             flag_key: "platform.emergency_kill_switch".to_string(),

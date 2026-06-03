@@ -194,6 +194,59 @@ flags:
 }
 
 #[test]
+fn build_sdk_catalog_includes_attribute_schema_when_service_opts_in() {
+    let catalog = parse_catalog(
+        r#"
+catalog:
+  id: svc
+attributes:
+  plan: string
+imports:
+  platform:
+    path: platform.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#,
+        Some("svc.yaml"),
+    )
+    .unwrap();
+    let platform = parse_catalog(
+        r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  org_gold_feature:
+    default: false
+    kind: release
+"#,
+        Some("platform.yaml"),
+    )
+    .unwrap();
+    let mut imports = BTreeMap::new();
+    imports.insert("platform".to_string(), platform);
+
+    let sdk = build_sdk_catalog(&catalog, &imports).unwrap();
+    let schema = sdk.attribute_schema.as_ref().expect("opted in");
+    assert_eq!(
+        schema.service_fields.get("plan").copied(),
+        Some(crate::catalog::AttributeScalarType::String)
+    );
+    assert_eq!(schema.import_namespaces.len(), 1);
+    assert_eq!(schema.import_namespaces[0].namespace, "platform");
+    assert_eq!(
+        schema.import_namespaces[0].fields.get("org_tier").copied(),
+        Some(crate::catalog::AttributeScalarType::String)
+    );
+
+    let imported = local_flag(&sdk, "platform.org_gold_feature");
+    assert_eq!(imported.import_namespace.as_deref(), Some("platform"));
+}
+
+#[test]
 fn build_sdk_catalog_rejects_duplicate_sdk_method_name() {
     let catalog = parse_catalog(
         r#"

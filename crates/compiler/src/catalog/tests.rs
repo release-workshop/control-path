@@ -700,6 +700,41 @@ flags:
 }
 
 #[test]
+fn rejects_attribute_schema_key_colliding_with_import_namespace() {
+    let content = r#"
+catalog:
+  id: svc
+imports:
+  platform:
+    path: ../platform.yaml
+attributes:
+  platform: string
+flags:
+  f:
+    default: false
+    kind: release
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
+    for mode in [ValidationMode::SdkGenerate, ValidationMode::Compile] {
+        let result = validate_catalog_value(
+            "bad.yaml",
+            &value,
+            &CatalogValidationContext::default(),
+            mode,
+        );
+        assert!(!result.valid, "expected rejection in {mode:?}");
+        assert!(
+            result
+                .errors
+                .iter()
+                .any(|e| e.message.contains("import namespace")),
+            "{mode:?}: {:?}",
+            result.errors
+        );
+    }
+}
+
+#[test]
 fn rejects_attribute_schema_unknown_type() {
     let content = r#"
 catalog:

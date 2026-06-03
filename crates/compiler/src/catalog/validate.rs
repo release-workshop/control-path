@@ -614,6 +614,20 @@ fn attribute_schema_errors(file_path: &str, data: &Value) -> Vec<ValidationError
             ));
         }
     }
+    if let Some(imports_obj) = data.get("imports").and_then(|i| i.as_object()) {
+        for key in attrs_obj.keys() {
+            if imports_obj.contains_key(key.as_str()) {
+                errors.push(validation_error(
+                    file_path,
+                    format!("Attribute schema key '{key}' collides with import namespace '{key}'"),
+                    Some(format!("attributes.{key}")),
+                    Some(format!(
+                        "Rename the service attribute or change the import namespace '{key}'"
+                    )),
+                ));
+            }
+        }
+    }
     errors
 }
 

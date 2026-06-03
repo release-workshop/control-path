@@ -5,7 +5,9 @@
 use crate::error::{CliError, CliResult};
 use crate::generator::Generator;
 use crate::utils::atomic_write::atomic_write_string;
-use controlpath_compiler::{FlagLifecycle, SdkCatalog, SdkFlag};
+use controlpath_compiler::{
+    AttributeScalarType, FlagLifecycle, SdkAttributeSchema, SdkCatalog, SdkFlag,
+};
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -25,6 +27,26 @@ struct TemplateFlag {
     default_value: String,
     is_deprecated: bool,
     description: Option<String>,
+    attributes_param_type: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TemplateAttributeField {
+    name: String,
+    ts_type: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TemplateAttributeNamespace {
+    namespace: String,
+    interface_name: String,
+    fields: Vec<TemplateAttributeField>,
+}
+
+#[derive(Debug, Serialize)]
+struct TemplateAttributeSchema {
+    service_fields: Vec<TemplateAttributeField>,
+    namespaces: Vec<TemplateAttributeNamespace>,
 }
 
 #[derive(Debug, Serialize)]
@@ -42,6 +64,36 @@ struct TemplateArtifactUrl {
 
 pub(crate) fn to_ts_string_literal(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+fn scalar_type_to_ts(scalar: AttributeScalarType) -> &'static str {
+    match scalar {
+        AttributeScalarType::String => "string",
+        AttributeScalarType::Number => "number",
+        AttributeScalarType::Boolean => "boolean",
+    }
+}
+
+fn template_attribute_fields(
+    fields: &std::collections::BTreeMap<String, AttributeScalarType>,
+) -> Vec<TemplateAttributeField> {
+    fields
+        .iter()
+        .map(
+            |(name, scalar): (&String, &AttributeScalarType)| TemplateAttributeField {
+                name: name.clone(),
+                ts_type: scalar_type_to_ts(*scalar).to_string(),
+            },
+        )
+        .collect()
+}
+
+fn namespace_attributes_interface_name(namespace: &str) -> String {
+    let mut chars = namespace.chars();
+    match chars.next() {
+        None => "ImportedAttributes".to_string(),
+        Some(first) => first.to_uppercase().to_string() + chars.as_str() + "Attributes",
+    }
 }
 
 impl TypeScriptGenerator {
@@ -95,11 +147,7 @@ impl TypeScriptGenerator {
         Ok(Self { tera })
     }
 
-    fn template_flags(catalog: &SdkCatalog) -> Vec<TemplateFlag> {
-        catalog.flags.iter().map(Self::template_flag).collect()
-    }
-
-    fn template_flag(flag: &SdkFlag) -> TemplateFlag {
+    fn template_flag(flag: &SdkFlag, catalog: &SdkCatalog) -> TemplateFlag {
         TemplateFlag {
             camel_name: flag.sdk_method_name.clone(),
             method_name: flag.sdk_method_name.clone(),
@@ -107,6 +155,51 @@ impl TypeScriptGenerator {
             default_value: flag.default.to_string(),
             is_deprecated: flag.lifecycle == FlagLifecycle::Deprecated,
             description: flag.description.clone(),
+            attributes_param_type: Self::flag_attributes_param_type(flag, catalog),
+        }
+    }
+
+    fn template_flags(catalog: &SdkCatalog) -> Vec<TemplateFlag> {
+        catalog
+            .flags
+            .iter()
+            .map(|flag| Self::template_flag(flag, catalog))
+            .collect()
+    }
+
+    fn flag_attributes_param_type(flag: &SdkFlag, catalog: &SdkCatalog) -> String {
+        let Some(schema) = catalog.attribute_schema.as_ref() else {
+            return "Attributes".to_string();
+        };
+        if !flag.is_imported {
+            return "Attributes".to_string();
+        }
+        let Some(namespace) = flag.import_namespace.as_ref() else {
+            return "Attributes".to_string();
+        };
+        if !schema
+            .import_namespaces
+            .iter()
+            .any(|ns| ns.namespace == *namespace)
+        {
+            return "Attributes".to_string();
+        }
+        let interface_name = namespace_attributes_interface_name(namespace);
+        format!("BaseAttributes & {{ {namespace}?: {interface_name} }}")
+    }
+
+    fn template_attribute_schema(schema: &SdkAttributeSchema) -> TemplateAttributeSchema {
+        TemplateAttributeSchema {
+            service_fields: template_attribute_fields(&schema.service_fields),
+            namespaces: schema
+                .import_namespaces
+                .iter()
+                .map(|ns| TemplateAttributeNamespace {
+                    namespace: ns.namespace.clone(),
+                    interface_name: namespace_attributes_interface_name(&ns.namespace),
+                    fields: template_attribute_fields(&ns.fields),
+                })
+                .collect(),
         }
     }
 
@@ -120,6 +213,9 @@ impl TypeScriptGenerator {
         let mut tera_context = Context::new();
         tera_context.insert("flag_names", &flag_names);
         tera_context.insert("flags", &flags);
+        if let Some(schema) = catalog.attribute_schema.as_ref() {
+            tera_context.insert("attribute_schema", &Self::template_attribute_schema(schema));
+        }
 
         self.tera
             .render("types.ts.tera", &tera_context)
@@ -162,6 +258,16 @@ impl TypeScriptGenerator {
         tera_context.insert("flag_names", &flag_names);
         tera_context.insert("kill_switch_urls", &kill_switch_urls);
         tera_context.insert("artifact_urls", &artifact_urls);
+        if let Some(schema) = catalog.attribute_schema.as_ref() {
+            tera_context.insert("attribute_schema", &Self::template_attribute_schema(schema));
+            let uses_per_flag_namespace_types = flags
+                .iter()
+                .any(|flag| flag.attributes_param_type != "Attributes");
+            tera_context.insert(
+                "uses_per_flag_namespace_types",
+                &uses_per_flag_namespace_types,
+            );
+        }
 
         self.tera
             .render("index.ts.tera", &tera_context)

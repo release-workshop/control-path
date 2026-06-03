@@ -67,6 +67,7 @@ export type {
   Expression,
   BaseAttributes,
   Attributes,
+  AttributesInput,
   Logger,
   KillSwitchFile,
 } from './types';

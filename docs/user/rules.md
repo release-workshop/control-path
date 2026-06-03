@@ -144,9 +144,81 @@ Example `attributes.json` for explain:
 controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
 ```
 
-### Planned: catalog-driven attribute typing
+### Catalog-driven attribute typing
 
-Today the generated SDK exports a base `Attributes` interface plus `[key: string]: unknown`. The optional top-level `attributes:` section will declare extra fields so `generate-sdk` emits **base ∪ your fields**, giving compile-time checks that call sites pass a complete object.
+When the service catalog opts in with top-level `attributes:` (see [`configuration.md`](configuration.md#attribute-schema-attributes)), `controlpath generate-sdk` emits a **closed** `Attributes` type extending `BaseAttributes` from `@controlpath/runtime` — no `[key: string]: unknown`. Service-local fields appear at the top level; each import namespace becomes an optional nested object typed from that imported catalog’s `attributes:` map.
+
+**Per-flag attribute types** come from catalog ownership (Git-stable only), not from **environment rules**:
+
+| Flag source | Generated method accepts |
+| --- | --- |
+| Local flag | `BaseAttributes` plus full service `attributes:` fields |
+| Imported flag (e.g. `platform.*`) | `BaseAttributes` plus `{ platform?: PlatformAttributes }` for that namespace only |
+
+Call sites may pass a **structural superset** (wider object with extra optional fields); TypeScript rejects objects that are too narrow for the flag being evaluated. SDK types do **not** change when **environment rules** change — rules ship via **compiled artifact** or SaaS without an SDK rebuild.
+
+Details and examples: [`sdk-typescript.md`](sdk-typescript.md#evaluation-attributes-and-generated-types).
+
+### Strict property validation (opted-in catalogs)
+
+Declaring `attributes:` (including `{}`) enables strict property-name checks for rule expressions in that catalog scope.
+
+| Mode | What `controlpath validate` checks on rule property names |
+| --- | --- |
+| **local** | **Environment rules** and **segments** in this repo against **base attributes** ∪ service `attributes:` (top-level names only). Imported catalogs are validated in their source files against base ∪ that catalog’s schema. |
+| **saas** | Catalog shape, flags, and imports only. Remote **environment rules** are validated where they are authored (platform), not from the service repo. |
+
+Unknown property names in opted-in catalogs fail validation with errors (not warnings). Legacy catalogs without `attributes:` keep loose SDK typing and skip property-name validation on rules.
+
+### Bare names in rules vs namespaced runtime JSON
+
+Authors write **bare property names** in rule strings (`plan`, `org_tier`). At runtime the SDK receives one flat-top-level object with **namespaced attributes** nested under each **import namespace**.
+
+**Service-local field** — same bare name in rules and runtime:
+
+```yaml
+# control-path.yaml (service)
+attributes:
+  plan: string
+```
+
+```json
+{ "id": "user-42", "plan": "beta" }
+```
+
+**Imported catalog field** — bare name in the shared catalog’s rules; nested under the import key at runtime:
+
+```yaml
+# platform/control-path.yaml (shared catalog)
+attributes:
+  org_tier: string
+
+environments:
+  production:
+    rules:
+      org_gold_feature:
+        - when: "org_tier == 'gold'"
+          serve: true
+```
+
+```yaml
+# checkout-service/control-path.yaml (consumer)
+imports:
+  platform:
+    path: ../../platform/control-path.yaml
+```
+
+Runtime / `explain --attributes` JSON for evaluating `platform.org_gold_feature`:
+
+```json
+{
+  "id": "user-42",
+  "plan": "beta",
+  "platform": { "org_tier": "gold" }
+}
+```
+
+Compile rewrites property paths from imported rule strings into the merged artifact (e.g. `org_tier` → `platform.org_tier`). Prefer bare names in new rules; `user.role` and `context.environment` are optional sugar for the same top-level keys (`role`, `environment`).
 
 ## Expression language
 

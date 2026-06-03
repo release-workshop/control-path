@@ -68,11 +68,12 @@ pub use catalog::{
     load_and_validate_catalog, load_and_validate_workspace, load_validate_and_compile_catalog,
     parse_catalog, parse_workspace, resolve_namespace, saas_cdn_base_url,
     validate_and_compile_catalog, validate_catalog, validate_catalog_value,
-    validate_workspace_value, CatalogDocument, CatalogIdentity, CatalogMode,
+    validate_workspace_value, AttributeScalarType, CatalogDocument, CatalogIdentity, CatalogMode,
     CatalogValidationContext, CatalogValidationResult, EffectiveCatalogId, ExplainError,
     ExplainLayer, ExplainRequest, ExplainRuleTrace, ExplainTrace, FlagKind, FlagLifecycle,
-    KillSwitchOverrides, SaasRuntimeUrlMaps, SaasRuntimeUrls, SdkCatalog, SdkFlag, ValidationMode,
-    WorkspaceDocument, DEFAULT_SAAS_CDN_BASE,
+    KillSwitchOverrides, SaasRuntimeUrlMaps, SaasRuntimeUrls, SdkAttributeNamespace,
+    SdkAttributeSchema, SdkCatalog, SdkFlag, ValidationMode, WorkspaceDocument,
+    DEFAULT_SAAS_CDN_BASE,
 };
 
 use ast::Artifact;

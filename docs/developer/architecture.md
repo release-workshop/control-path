@@ -44,3 +44,4 @@ Additional runtime constraints:
 
 - `CONTEXT.md` for domain language
 - `docs/adr/0001-compiled-artifact-runtime-delivery.md` for delivery decisions
+- `docs/adr/0002-evaluation-attribute-schema.md` for evaluation attribute schema, namespaced typing, and SDK generation rules

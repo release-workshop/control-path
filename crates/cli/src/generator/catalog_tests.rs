@@ -227,6 +227,209 @@ flags:
 }
 
 #[test]
+fn generates_closed_attributes_with_import_namespace_when_opted_in() {
+    let catalog = parse_catalog(
+        r#"
+catalog:
+  id: svc
+attributes:
+  plan: string
+imports:
+  platform:
+    path: platform.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#,
+        Some("svc.yaml"),
+    )
+    .unwrap();
+    let platform = parse_catalog(
+        r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  org_gold_feature:
+    default: false
+    kind: release
+"#,
+        Some("platform.yaml"),
+    )
+    .unwrap();
+    let mut imports = BTreeMap::new();
+    imports.insert("platform".to_string(), platform);
+    let sdk = build_sdk_catalog(&catalog, &imports).unwrap();
+    assert!(sdk.attribute_schema.is_some());
+
+    let generator = TypeScriptGenerator::new().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    generator.generate(&sdk, temp_dir.path()).unwrap();
+
+    let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
+    assert!(types_content.contains("plan?: string"));
+    assert!(types_content.contains("platform?: PlatformAttributes"));
+    assert!(types_content.contains("org_tier?: string"));
+    assert!(types_content.contains("export interface PlatformAttributes"));
+    assert!(types_content.contains("export type EvaluationAttributes = Attributes"));
+    assert!(!types_content.contains("[key: string]: unknown"));
+
+    let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
+    assert!(index_content.contains("async newDashboard(attributes: Attributes)"));
+    assert!(index_content.contains("platform?: PlatformAttributes"));
+    assert!(
+        index_content.contains("async platformOrgGoldFeature(attributes: BaseAttributes & { platform?: PlatformAttributes })")
+    );
+}
+
+#[test]
+fn generates_imported_flags_with_attributes_when_import_has_no_schema() {
+    let catalog = parse_catalog(
+        r#"
+catalog:
+  id: svc
+attributes:
+  plan: string
+imports:
+  platform:
+    path: platform.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#,
+        Some("svc.yaml"),
+    )
+    .unwrap();
+    let platform = parse_catalog(
+        r#"
+catalog:
+  id: platform
+flags:
+  org_gold_feature:
+    default: false
+    kind: release
+"#,
+        Some("platform.yaml"),
+    )
+    .unwrap();
+    let mut imports = BTreeMap::new();
+    imports.insert("platform".to_string(), platform);
+    let sdk = build_sdk_catalog(&catalog, &imports).unwrap();
+    assert!(sdk
+        .attribute_schema
+        .as_ref()
+        .is_some_and(|s| s.import_namespaces.is_empty()));
+
+    let generator = TypeScriptGenerator::new().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    generator.generate(&sdk, temp_dir.path()).unwrap();
+
+    let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
+    assert!(types_content.contains("plan?: string"));
+    assert!(!types_content.contains("PlatformAttributes"));
+    assert!(!types_content.contains("platform?:"));
+
+    let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
+    assert!(index_content.contains("async platformOrgGoldFeature(attributes: Attributes)"));
+    assert!(!index_content.contains("BaseAttributes"));
+}
+
+#[test]
+fn generates_mixed_per_flag_types_when_only_some_imports_opt_in() {
+    let catalog = parse_catalog(
+        r#"
+catalog:
+  id: svc
+attributes:
+  plan: string
+imports:
+  platform:
+    path: platform.yaml
+  billing:
+    path: billing.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#,
+        Some("svc.yaml"),
+    )
+    .unwrap();
+    let platform = parse_catalog(
+        r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  org_gold_feature:
+    default: false
+    kind: release
+"#,
+        Some("platform.yaml"),
+    )
+    .unwrap();
+    let billing = parse_catalog(
+        r#"
+catalog:
+  id: billing
+flags:
+  invoice_v2:
+    default: false
+    kind: release
+"#,
+        Some("billing.yaml"),
+    )
+    .unwrap();
+    let mut imports = BTreeMap::new();
+    imports.insert("platform".to_string(), platform);
+    imports.insert("billing".to_string(), billing);
+    let sdk = build_sdk_catalog(&catalog, &imports).unwrap();
+    assert_eq!(sdk.flags.len(), 3);
+    assert_eq!(
+        sdk.attribute_schema
+            .as_ref()
+            .map(|s| s.import_namespaces.len()),
+        Some(1)
+    );
+
+    let generator = TypeScriptGenerator::new().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    generator.generate(&sdk, temp_dir.path()).unwrap();
+
+    let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
+    assert!(types_content.contains("export interface PlatformAttributes"));
+    assert!(types_content.contains("platform?: PlatformAttributes"));
+    assert!(!types_content.contains("BillingAttributes"));
+    assert!(!types_content.contains("billing?:"));
+
+    let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
+    assert!(index_content.contains("async newDashboard(attributes: Attributes)"));
+    assert!(index_content.contains(
+        "async platformOrgGoldFeature(attributes: BaseAttributes & { platform?: PlatformAttributes })"
+    ));
+    assert!(index_content.contains("async billingInvoiceV2(attributes: Attributes)"));
+    assert!(index_content.contains("import type { BaseAttributes }"));
+}
+
+#[test]
+fn legacy_catalog_without_attributes_keeps_loose_attributes_type() {
+    let sdk = sdk_from_yaml(LOCAL_ONLY, "local-only.control-path.yaml");
+    assert!(sdk.attribute_schema.is_none());
+
+    let generator = TypeScriptGenerator::new().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    generator.generate(&sdk, temp_dir.path()).unwrap();
+
+    let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
+    assert!(types_content.contains("[key: string]: unknown"));
+    assert!(!types_content.contains("export type EvaluationAttributes"));
+}
+
+#[test]
 fn generates_catalog_without_environments() {
     let sdk = sdk_from_yaml(
         r#"

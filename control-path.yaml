@@ -1,0 +1,11 @@
+catalog:
+  id: svc
+attributes:
+  platform: string
+imports:
+  platform:
+    path: platform.yaml
+flags:
+  f:
+    default: false
+    kind: release

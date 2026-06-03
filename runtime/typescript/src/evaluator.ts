@@ -9,7 +9,7 @@
  * This module handles rule matching and expression evaluation.
  */
 
-import type { Artifact, Rule, Expression, Attributes } from './types';
+import type { Artifact, Rule, Expression, AttributesInput } from './types';
 import {
   RuleType,
   ExpressionType,
@@ -50,7 +50,7 @@ export function coerceServePayloadToBoolean(value: unknown): boolean | undefined
 export function evaluateBoolean(
   flagIndex: number,
   artifact: Artifact,
-  attributes?: Attributes
+  attributes?: AttributesInput
 ): boolean | undefined {
   return coerceServePayloadToBoolean(evaluate(flagIndex, artifact, attributes));
 }
@@ -66,7 +66,11 @@ export function evaluateBoolean(
  * @param attributes - Optional attributes object with user identity, attributes, and context
  * @returns The evaluated value or undefined if no rules match
  */
-export function evaluate(flagIndex: number, artifact: Artifact, attributes?: Attributes): unknown {
+export function evaluate(
+  flagIndex: number,
+  artifact: Artifact,
+  attributes?: AttributesInput
+): unknown {
   // Type guard: ensure flags exists and is an array
   if (!Array.isArray(artifact.flags) || flagIndex < 0 || flagIndex >= artifact.flags.length) {
     return undefined;
@@ -96,7 +100,11 @@ export function evaluate(flagIndex: number, artifact: Artifact, attributes?: Att
  * @param attributes - Optional attributes object with user identity, attributes, and context
  * @returns The rule's payload value if the rule matches, undefined otherwise
  */
-export function evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attributes): unknown {
+export function evaluateRule(
+  rule: Rule,
+  artifact: Artifact,
+  attributes?: AttributesInput
+): unknown {
   if (!Array.isArray(rule) || rule.length < 2) {
     return undefined;
   }
@@ -164,7 +172,7 @@ export function evaluateRule(rule: Rule, artifact: Artifact, attributes?: Attrib
 export function evaluateExpression(
   expr: Expression,
   artifact: Artifact,
-  attributes?: Attributes
+  attributes?: AttributesInput
 ): boolean {
   if (!Array.isArray(expr) || expr.length < 2) {
     return false;
@@ -282,7 +290,7 @@ export function evaluateExpression(
 function evaluateExpressionValue(
   expr: Expression,
   artifact: Artifact,
-  attributes?: Attributes
+  attributes?: AttributesInput
 ): unknown {
   if (!Array.isArray(expr) || expr.length < 2) {
     return undefined;
@@ -483,7 +491,7 @@ function normalizePropertyPath(propPath: string): string {
  * Get a property value from attributes using dot notation.
  * Rejects prototype-polluting property paths for security.
  */
-function getProperty(propPath: string, attributes?: Attributes): unknown {
+function getProperty(propPath: string, attributes?: AttributesInput): unknown {
   if (!attributes) {
     return undefined;
   }
@@ -522,7 +530,7 @@ function getProperty(propPath: string, attributes?: Attributes): unknown {
 /**
  * Select rollout based on percentage.
  */
-function selectRollout(pct: number, attributes?: Attributes): boolean {
+function selectRollout(pct: number, attributes?: AttributesInput): boolean {
   if (pct <= 0) {
     return false;
   }
@@ -531,7 +539,13 @@ function selectRollout(pct: number, attributes?: Attributes): boolean {
   }
 
   // Use user ID for consistent hashing
-  const userId = attributes?.id || '';
+  const attrs = attributes as Record<string, unknown> | undefined;
+  const userId =
+    typeof attrs?.id === 'string'
+      ? attrs.id
+      : typeof attrs?.id === 'number'
+        ? String(attrs.id)
+        : '';
   const hash = hashString(userId);
   const bucket = hash % 100;
 
@@ -565,7 +579,7 @@ function evaluateFunction(
   funcCode: number,
   args: Expression[],
   artifact: Artifact,
-  attributes?: Attributes
+  attributes?: AttributesInput
 ): unknown {
   switch (funcCode) {
     // String functions

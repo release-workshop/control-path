@@ -67,6 +67,26 @@ fn validate_rejects_base_attribute_name_in_attribute_schema() {
 }
 
 #[test]
+fn validate_rejects_attribute_schema_key_colliding_with_import_namespace() {
+    let project = TestProject::new();
+    write_import_fixture(&project);
+
+    let mut catalog = project.read_file("control-path.yaml");
+    catalog = catalog.replace(
+        "flags:\n  new_dashboard:",
+        "attributes:\n  platform: string\nflags:\n  new_dashboard:",
+    );
+    project.write_file("control-path.yaml", &catalog);
+
+    let output = project.run_command_failure(&["validate", "--all"]);
+    let combined = command_output(&output);
+    assert!(
+        combined.contains("import namespace"),
+        "expected import namespace collision error in output: {combined}"
+    );
+}
+
+#[test]
 fn validate_rejects_unknown_attribute_type() {
     let project = TestProject::new();
     write_import_fixture(&project);

@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdir, rm, readFile } from 'fs/promises';
+import { mkdir, rm, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -17,6 +17,7 @@ import {
   setupGeneratedSdk,
   loadGeneratedSdk,
   loadGeneratedSdkModule,
+  typecheckSdkSource,
 } from './e2e-harness';
 
 describe.sequential('SDK Generator E2E Tests', () => {
@@ -266,6 +267,68 @@ describe.sequential('SDK Generator E2E Tests', () => {
       expect(await evaluator.newDashboard(user)).toBe(true);
       expect(await evaluator.betaUi(user)).toBe(true);
       expect(await evaluator.newDashboard(user)).not.toBe(false);
+    });
+  });
+
+  describe('Typed attribute schema', () => {
+    const typedDir = join(testDir, 'typed-attributes');
+    const typedCatalogPath = join(typedDir, 'control-path.yaml');
+    const platformCatalogPath = join(typedDir, 'platform.yaml');
+    const typedSdkDir = join(typedDir, 'generated-sdk');
+
+    it('rejects invalid imported-flag attributes at compile time', async () => {
+      await mkdir(typedDir, { recursive: true });
+
+      await writeFile(
+        platformCatalogPath,
+        `catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  org_gold_feature:
+    default: false
+    kind: release
+`
+      );
+
+      await writeFile(
+        typedCatalogPath,
+        `catalog:
+  id: test-service
+mode: local
+attributes:
+  plan: string
+imports:
+  platform:
+    path: ./platform.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      new_dashboard:
+        - serve: true
+`
+      );
+
+      await generateSdk(typedDir, typedSdkDir);
+      await setupGeneratedSdk(typedSdkDir);
+
+      const invalidCallSource = `import { evaluator } from './index.js';
+
+void evaluator.platformOrgGoldFeature({
+  id: 'user-1',
+  platform: { not_declared: true },
+});
+`;
+      await writeFile(join(typedSdkDir, 'invalid-imported-attributes.ts'), invalidCallSource);
+
+      const result = typecheckSdkSource(typedSdkDir, 'invalid-imported-attributes.ts');
+      expect(result.success).toBe(false);
+      expect(result.output).toMatch(/not_declared/);
     });
   });
 

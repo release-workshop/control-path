@@ -5,6 +5,32 @@
 
 import type { BaseAttributes } from '@controlpath/runtime';
 
+{% if attribute_schema %}
+{% for ns in attribute_schema.namespaces %}
+/** Attributes declared on the imported `{{ ns.namespace }}` catalog. */
+export interface {{ ns.interface_name }} {
+{% for field in ns.fields %}
+  {{ field.name }}?: {{ field.ts_type }};
+{% endfor %}
+}
+
+{% endfor %}
+/**
+ * Evaluation attributes for this service (closed schema from catalog `attributes:`).
+ */
+export interface Attributes extends BaseAttributes {
+{% for field in attribute_schema.service_fields %}
+  {{ field.name }}?: {{ field.ts_type }};
+{% endfor %}
+{% for ns in attribute_schema.namespaces %}
+  {{ ns.namespace }}?: {{ ns.interface_name }};
+{% endfor %}
+}
+
+/** Alias for [`Attributes`] used by `setAttributes` and flag evaluation. */
+export type EvaluationAttributes = Attributes;
+
+{% else %}
 /**
  * Attributes object - represents all attributes used for flag evaluation.
  * Consolidates user identity, user attributes, and environmental context into a single object.
@@ -13,6 +39,7 @@ export interface Attributes extends BaseAttributes {
   /** Additional attributes */
   [key: string]: unknown;
 }
+{% endif %}
 
 {% if flag_names %}
 export type FlagName =

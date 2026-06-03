@@ -305,6 +305,12 @@ export interface Attributes extends BaseAttributes {
 }
 
 /**
+ * Evaluation attributes accepted at API boundaries.
+ * Closed generated catalog types (without an index signature) assign here.
+ */
+export type AttributesInput = object;
+
+/**
  * Kill switch file format (v2 boolean map).
  */
 export interface KillSwitchFile {

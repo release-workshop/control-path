@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Artifact, Rule, Expression, Attributes, BaseAttributes } from './types';
+import type { Artifact, Rule, Expression, Attributes, AttributesInput, BaseAttributes } from './types';
 import {
   RuleType,
   ExpressionType,
@@ -40,6 +40,20 @@ describe('BaseAttributes and Attributes', () => {
     };
     expect(attributes.plan).toBe('enterprise');
     expect(attributes.platform).toEqual({ org_tier: 'gold' });
+  });
+
+  it('accepts closed generated attribute shapes at API boundaries', () => {
+    type ClosedServiceAttributes = BaseAttributes & {
+      plan?: string;
+      platform?: { org_tier?: string };
+    };
+    const closed: ClosedServiceAttributes = {
+      id: 'user-1',
+      plan: 'beta',
+      platform: { org_tier: 'gold' },
+    };
+    const input: AttributesInput = closed;
+    expect(input.plan).toBe('beta');
   });
 });
 

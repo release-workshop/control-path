@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
@@ -15,11 +15,11 @@ Legacy catalogs without **`attributes:`** unchanged (issue 01).
 
 ## Acceptance criteria
 
-- [ ] Opt-in service with `attributes: { plan: string }` and a `platform` import yields nested `platform?: { … }` on **`Attributes`**
-- [ ] Generated local flag method parameter type includes service schema fields; imported flag method requires the import namespace object type
-- [ ] No `[key: string]: unknown` on opt-in **`Attributes`**
-- [ ] SDK e2e test: TypeScript compiler rejects an object missing required namespace shape for an imported flag call (where types are structurally narrower)
-- [ ] **`cargo test`** / SDK generator tests pass
+- [x] Opt-in service with `attributes: { plan: string }` and a `platform` import yields nested `platform?: { … }` on **`Attributes`**
+- [x] Generated local flag method parameter type includes service schema fields; imported flag method requires the import namespace object type
+- [x] No `[key: string]: unknown` on opt-in **`Attributes`**
+- [x] SDK e2e test: TypeScript compiler rejects an object missing required namespace shape for an imported flag call (where types are structurally narrower)
+- [x] **`cargo test`** / SDK generator tests pass
 
 ## Blocked by
 

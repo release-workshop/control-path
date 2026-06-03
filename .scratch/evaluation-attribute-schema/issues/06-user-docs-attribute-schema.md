@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
@@ -12,10 +12,10 @@ Cross-link ADR 0002 from developer docs if appropriate (`docs/developer/` or REA
 
 ## Acceptance criteria
 
-- [ ] No “planned” language remains for catalog-driven typing in user docs
-- [ ] Examples use **`attributes.json`** and **`--attributes`**, not **`--context`** / **`--user`**
-- [ ] Documents explicitly state SDK types do not track **environment rule** changes (artifact / SaaS velocity)
-- [ ] Import example shows shared catalog bare names vs service runtime nested JSON
+- [x] No “planned” language remains for catalog-driven typing in user docs
+- [x] Examples use **`attributes.json`** and **`--attributes`**, not **`--context`** / **`--user`**
+- [x] Documents explicitly state SDK types do not track **environment rule** changes (artifact / SaaS velocity)
+- [x] Import example shows shared catalog bare names vs service runtime nested JSON
 
 ## Blocked by
 

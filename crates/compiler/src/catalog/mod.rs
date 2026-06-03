@@ -40,7 +40,7 @@ pub use model::*;
 pub use namespace::{effective_catalog_id, resolve_namespace};
 pub use parse::{parse_catalog, parse_catalog_value, parse_workspace, parse_workspace_value};
 pub use saas_environment::{environment_from_ast_path, is_valid_saas_environment_name};
-pub use sdk::{build_sdk_catalog, SdkCatalog, SdkFlag};
+pub use sdk::{build_sdk_catalog, SdkAttributeNamespace, SdkAttributeSchema, SdkCatalog, SdkFlag};
 pub use validate::{
     imported_flag_keys_from_imports, load_and_validate_catalog, load_and_validate_workspace,
     validate_catalog, validate_catalog_value, validate_workspace_value, CatalogValidationContext,

@@ -153,15 +153,7 @@ export async function setupGeneratedSdk(sdkDir: string): Promise<void> {
 
   await writeFile(join(sdkDir, 'tsconfig.json'), JSON.stringify(tsconfig, null, 2));
 
-  const e2eTypescriptPath = join(__dirname, '../node_modules/.bin/tsc');
-  let tscCommand = 'npx tsc';
-
-  try {
-    readFileSync(e2eTypescriptPath);
-    tscCommand = `node "${e2eTypescriptPath}"`;
-  } catch {
-    // Fall back to npx.
-  }
+  const tscCommand = resolveTscCommand();
 
   try {
     execSync(`${tscCommand} --skipLibCheck`, {
@@ -173,6 +165,36 @@ export async function setupGeneratedSdk(sdkDir: string): Promise<void> {
     const errorOutput =
       err.stdout?.toString() || err.stderr?.toString() || err.message || 'Unknown error';
     throw new Error(`TypeScript compilation failed: ${errorOutput}`);
+  }
+}
+
+function resolveTscCommand(): string {
+  const e2eTypescriptPath = join(__dirname, '../node_modules/.bin/tsc');
+  try {
+    readFileSync(e2eTypescriptPath);
+    return `node "${e2eTypescriptPath}"`;
+  } catch {
+    return 'npx tsc';
+  }
+}
+
+/** Typecheck an extra TypeScript file against a generated SDK directory. */
+export function typecheckSdkSource(
+  sdkDir: string,
+  relativePath: string
+): { success: boolean; output: string } {
+  const tscCommand = resolveTscCommand();
+  try {
+    execSync(`${tscCommand} --noEmit --skipLibCheck ${relativePath}`, {
+      cwd: sdkDir,
+      stdio: 'pipe',
+    });
+    return { success: true, output: '' };
+  } catch (tscError: unknown) {
+    const err = tscError as { stdout?: Buffer; stderr?: Buffer; message?: string };
+    const output =
+      err.stdout?.toString() || err.stderr?.toString() || err.message || 'Unknown error';
+    return { success: false, output };
   }
 }
 
