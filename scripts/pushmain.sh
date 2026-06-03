@@ -121,7 +121,26 @@ landed_on_origin_main() {
   git merge-base --is-ancestor "$land_sha" origin/main 2>/dev/null
 }
 
-# Exit 0 when MERGE_JOB_NAME succeeds; exit 1 on failed/cancelled gate or merge jobs.
+print_merge_not_landed() {
+  local merge_conclusion="$1"
+  local run_url="$2"
+  local land_sha="$3"
+
+  echo "" >&2
+  if [ "$merge_conclusion" = "skipped" ]; then
+    echo "Validation run succeeded but \"${MERGE_JOB_NAME}\" was skipped — nothing merged to main." >&2
+    echo "Your commit (${land_sha:0:7}) is not on origin/main." >&2
+  else
+    echo "Validation run finished but \"${MERGE_JOB_NAME}\" did not succeed (merge job: ${merge_conclusion:-not run})." >&2
+    echo "Your commit (${land_sha:0:7}) is not on origin/main." >&2
+  fi
+  echo "Run: ${run_url}" >&2
+  echo "" >&2
+  echo "A green workflow summary only means required jobs passed; it does not mean auto-merge ran." >&2
+  echo "Common causes: path filters in auto-merge-validation.yml (e.g. scripts-only before scripts/** was added)." >&2
+}
+
+# Exit 0 when MERGE_JOB_NAME succeeds or land_sha is on origin/main; exit 1 otherwise.
 wait_for_merge_into_main() {
   local run_id="$1"
   local run_url="$2"
@@ -138,13 +157,6 @@ wait_for_merge_into_main() {
         ;;
       failure | cancelled)
         print_failed_run_summary "$run_id"
-        return 1
-        ;;
-      skipped)
-        echo "" >&2
-        echo "Workflow finished but \"${MERGE_JOB_NAME}\" was skipped." >&2
-        echo "Run: ${run_url}" >&2
-        echo "This often happens when path filters exclude your changes from auto-merge." >&2
         return 1
         ;;
     esac
@@ -164,16 +176,31 @@ wait_for_merge_into_main() {
           sleep "$POLL_LAND_INTERVAL_SECS"
           continue
         fi
+        merge_conclusion="$(merge_job_conclusion "$run_id")"
       fi
+
+      case "$merge_conclusion" in
+        success)
+          return 0
+          ;;
+        skipped | failure | cancelled)
+          if landed_on_origin_main "$land_sha"; then
+            return 0
+          fi
+          if [ "$merge_conclusion" = "failure" ] || [ "$merge_conclusion" = "cancelled" ]; then
+            print_failed_run_summary "$run_id"
+            return 1
+          fi
+          print_merge_not_landed "$merge_conclusion" "$run_url" "$land_sha"
+          return 1
+          ;;
+      esac
 
       if landed_on_origin_main "$land_sha"; then
         return 0
       fi
 
-      echo "" >&2
-      echo "Workflow finished but \"${MERGE_JOB_NAME}\" did not succeed (merge job: ${merge_conclusion:-not run})." >&2
-      echo "Run: ${run_url}" >&2
-      echo "This often happens when path filters exclude your changes from auto-merge." >&2
+      print_merge_not_landed "$merge_conclusion" "$run_url" "$land_sha"
       return 1
     fi
 

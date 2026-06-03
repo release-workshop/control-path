@@ -22,6 +22,7 @@ jobs:
       workflows: ${{ steps.filter.outputs.workflows }}
       e2e: ${{ steps.filter.outputs.e2e }}
       docs: ${{ steps.filter.outputs.docs }}
+      scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,6 +53,9 @@ jobs:
             docs:
               - 'docs/**'
               - '**/*.md'
+            scripts:
+              - 'scripts/**'
+              - '.githooks/**'
 
   rust-checks:
     name: Run Rust tests and clippy
@@ -246,7 +250,18 @@ jobs:
           needs.changes.outputs.workspace != 'true' &&
           needs.changes.outputs.typescript != 'true' &&
           needs.changes.outputs.e2e != 'true' &&
-          needs.changes.outputs.workflows != 'true'
+          needs.changes.outputs.workflows != 'true' &&
+          needs.changes.outputs.scripts != 'true'
+        ) ||
+        (
+          needs.changes.outputs.scripts == 'true' &&
+          needs.changes.outputs.compiler != 'true' &&
+          needs.changes.outputs.cli != 'true' &&
+          needs.changes.outputs.workspace != 'true' &&
+          needs.changes.outputs.typescript != 'true' &&
+          needs.changes.outputs.e2e != 'true' &&
+          needs.changes.outputs.workflows != 'true' &&
+          needs.changes.outputs.docs != 'true'
         )
       )
     permissions:

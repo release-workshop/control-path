@@ -104,6 +104,7 @@ Results land under `target/criterion/`. Use for local profiling or before large 
 | Runtime TS tests | `npm test` (+ coverage) | Run TypeScript tests | — (main-ci on `main`) |
 | E2E smoke | `npm run test:smoke` | E2E smoke (pre-merge) | — (main-ci on `main`) |
 | Docs-only | `cargo fmt --all -- --check` | — | Check Rust formatting |
+| Scripts / git hooks only | — | — | Merge into main (other jobs skipped) |
 | E2E-only change | — | main-ci + post-merge-e2e | Merge into main (other jobs skipped) |
 
 **Post-merge:** `post-merge-e2e.yml` runs after Main CI succeeds on `main`. Failures require follow-up on `main` but do not block `pushmain`.
