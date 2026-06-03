@@ -43,6 +43,11 @@ fn main_ci_enforces_documented_pre_merge_rust_gates() {
     }
     assert_workflow_contains(&workflow, "main-ci.yml", "npm run test:smoke");
     assert_workflow_contains(&workflow, "main-ci.yml", "controlpath-cli-release");
+    assert_workflow_contains(
+        &workflow,
+        "main-ci.yml",
+        "Build TypeScript runtime (CLI integration evaluation)",
+    );
 }
 
 #[test]
@@ -56,6 +61,11 @@ fn auto_merge_validation_enforces_documented_pre_merge_rust_gates() {
         &workflow,
         "auto-merge-validation.yml",
         "controlpath-cli-release",
+    );
+    assert_workflow_contains(
+        &workflow,
+        "auto-merge-validation.yml",
+        "Build TypeScript runtime (CLI integration evaluation)",
     );
 }
 

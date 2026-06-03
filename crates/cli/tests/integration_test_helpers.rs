@@ -1,64 +1,40 @@
 //! Test helpers for integration tests
+//!
+//! Integration tests spawn the CLI with `Command::current_dir(project_path)` and do not
+//! mutate the process working directory. Unit tests in `src/` that need `set_current_dir`
+//! use [`controlpath_cli::test_helpers::DirGuard`] with `#[serial]` instead.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::Mutex;
 use tempfile::TempDir;
 
-static CWD_TEST_MUTEX: Mutex<()> = Mutex::new(());
-
-/// Guard for changing the current working directory in tests.
-/// Automatically restores the original directory when dropped.
-///
-/// This is useful for tests that need to run in a temporary directory
-/// but want to ensure cleanup happens even if the test panics.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use tempfile::TempDir;
-/// use integration_test_helpers::DirGuard;
-///
-/// let temp_dir = TempDir::new().unwrap();
-/// let _guard = DirGuard::new(temp_dir.path()).unwrap();
-/// // Now we're in temp_dir, and will be restored when _guard drops
-/// ```
-#[allow(dead_code)] // May be used by integration tests
-pub struct DirGuard {
-    original_dir: PathBuf,
-    _lock: std::sync::MutexGuard<'static, ()>,
+/// Repository root (`crates/cli` → workspace root). Stable under parallel integration tests.
+pub fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("workspace root")
 }
 
-impl DirGuard {
-    /// Create a new DirGuard and change to the specified directory.
-    ///
-    /// Holds a process-wide lock so parallel integration tests cannot race on `set_current_dir`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The directory doesn't exist and can't be created
-    /// - The current directory can't be determined
-    /// - The directory can't be changed to
-    #[allow(dead_code)] // May be used by integration tests
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, std::io::Error> {
-        // Recover poisoned lock so later integration tests can run; see `test_helpers::DirGuard`.
-        let _lock = CWD_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-        let path = path.as_ref();
-        fs::create_dir_all(path)?;
-        let original_dir = std::env::current_dir()?;
-        std::env::set_current_dir(path)?;
-        Ok(DirGuard {
-            original_dir,
-            _lock,
-        })
-    }
+/// Whether `runtime/typescript` has been built (`dist/ast-loader.js` present).
+#[allow(dead_code)]
+pub fn typescript_runtime_built() -> bool {
+    workspace_root()
+        .join("runtime/typescript/dist/ast-loader.js")
+        .is_file()
 }
 
-impl Drop for DirGuard {
-    fn drop(&mut self) {
-        let _ = std::env::set_current_dir(&self.original_dir);
+fn runtime_dist_dir() -> PathBuf {
+    workspace_root().join("runtime/typescript/dist")
+}
+
+#[allow(dead_code)]
+fn parse_boolean_eval_result(result: &str) -> Option<bool> {
+    match result {
+        "true" | "True" | "ON" | "on" | "1" => Some(true),
+        "false" | "False" | "OFF" | "off" | "0" => Some(false),
+        _ => None,
     }
 }
 
@@ -198,13 +174,112 @@ impl TestProject {
         self.file_exists(&format!(".controlpath/{}.ast", env))
     }
 
+    /// Assert the compiled AST for `env` exists and is non-empty.
+    #[allow(dead_code)]
+    pub fn assert_ast_compiled(&self, env: &str) {
+        assert!(
+            self.ast_exists(env),
+            "expected .controlpath/{env}.ast to exist"
+        );
+        let ast_path = self.path(&format!(".controlpath/{env}.ast"));
+        let len = fs::metadata(&ast_path).map(|m| m.len()).unwrap_or(0);
+        assert!(len > 0, "AST at {} should be non-empty", ast_path.display());
+    }
+
+    /// Assert a boolean flag evaluates to `expected` when the TypeScript runtime is built.
+    ///
+    /// Always checks the AST. When `runtime/typescript/dist` exists, also evaluates via Node.
+    /// Locally without `dist`, evaluation is skipped. In CI (`CI` env set), missing `dist` panics.
+    #[allow(dead_code)]
+    pub fn assert_boolean_flag(
+        &self,
+        flag_name: &str,
+        env: &str,
+        attributes_str: &str,
+        expected: bool,
+    ) {
+        self.assert_ast_compiled(env);
+
+        if !typescript_runtime_built() {
+            if std::env::var_os("CI").is_some() {
+                panic!(
+                    "CI must build runtime/typescript before workspace tests (missing {}). \
+                     Local dev: cd runtime/typescript && npm ci && npm run build",
+                    runtime_dist_dir().join("ast-loader.js").display()
+                );
+            }
+            return;
+        }
+
+        let result = self
+            .evaluate_flag_simple(flag_name, env, attributes_str)
+            .unwrap_or_else(|| {
+                panic!(
+                    "TypeScript runtime is built at {} but evaluation failed for flag \
+                     '{flag_name}' in environment '{env}'",
+                    runtime_dist_dir().display()
+                );
+            });
+
+        let parsed = parse_boolean_eval_result(&result).unwrap_or_else(|| {
+            panic!("expected boolean evaluation for '{flag_name}' in '{env}', got: {result}");
+        });
+        assert_eq!(
+            parsed, expected,
+            "flag '{flag_name}' in '{env}' with attributes {attributes_str}"
+        );
+    }
+
+    /// Initialize git in the project, commit `control-path.yaml`, and check out `branch`.
+    ///
+    /// Required for branch-mapping smart-default tests; fails fast if `git` is unavailable.
+    #[allow(dead_code)]
+    pub fn init_git_repo_on_branch(&self, branch: &str) {
+        use std::process::Command;
+
+        let dir = &self.project_path;
+        let run = |args: &[&str]| {
+            Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .output()
+                .unwrap_or_else(|e| panic!("spawn git {args:?}: {e}"))
+        };
+        let assert_git_ok = |step: &str, output: Output| {
+            assert!(
+                output.status.success(),
+                "{step} failed (exit {:?}): {}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        };
+
+        assert_git_ok("git init", run(&["init"]));
+        assert_git_ok(
+            "git config user.email",
+            run(&["config", "user.email", "test@example.com"]),
+        );
+        assert_git_ok(
+            "git config user.name",
+            run(&["config", "user.name", "Test User"]),
+        );
+        self.write_file("README.md", "# Test\n");
+        assert_git_ok("git add", run(&["add", "README.md", "control-path.yaml"]));
+        assert_git_ok("git commit", run(&["commit", "-m", "Initial commit"]));
+        assert_git_ok(
+            &format!("git checkout -b {branch}"),
+            run(&["checkout", "-b", branch]),
+        );
+    }
+
     /// Evaluate a flag using the compiled AST and user attributes
     /// This uses Node.js to load the AST and evaluate the flag, testing actual behavior
-    /// Returns the evaluated value as a string, or None if evaluation fails
-    /// This is a behavior-focused test helper that verifies flags work correctly
+    /// Returns the evaluated value as a string, or `None` if the runtime is not built or evaluation fails.
     ///
-    /// Note: This requires the TypeScript runtime to be built (run `cd runtime/typescript && npm run build`)
-    /// If the runtime is not available, this will return None (tests should handle this gracefully)
+    /// Prefer [`Self::assert_boolean_flag`] for workflow tests (strict in CI). Use this for optional
+    /// checks (e.g. large-scale suites) when `dist/` may be absent locally.
+    ///
+    /// Requires `runtime/typescript` built (`npm run build`) and `node` on PATH.
     #[allow(dead_code)] // Used in integration tests when runtime is available
     pub fn evaluate_flag(
         &self,
@@ -217,13 +292,7 @@ impl TestProject {
             return None;
         }
 
-        // Find workspace root by looking for Cargo.toml or runtime directory
-        // Tests typically run from workspace root
-        let workspace_root = std::env::current_dir().ok()?;
-        let runtime_dist = workspace_root
-            .join("runtime")
-            .join("typescript")
-            .join("dist");
+        let runtime_dist = runtime_dist_dir();
 
         // Check if runtime is built
         if !runtime_dist.join("ast-loader.js").exists() {
@@ -332,24 +401,27 @@ main();
     }
 }
 
-/// Create a simple v2 test catalog
+/// Create a simple v2 test catalog with one environment (`production`) and an initial serve rule.
 #[allow(dead_code)] // Used by other integration test crates
 pub fn simple_flag_definition(flag_name: &str) -> String {
+    simple_flag_definition_with_serve(flag_name, "production", true)
+}
+
+fn simple_flag_definition_with_serve(flag_name: &str, env: &str, serve: bool) -> String {
     format!(
         r"catalog:
   id: test-service
 mode: local
 flags:
-  {}:
+  {flag_name}:
     default: false
     kind: release
 environments:
-  production:
+  {env}:
     rules:
-      {}:
-        - serve: true
-",
-        flag_name, flag_name
+      {flag_name}:
+        - serve: {serve}
+"
     )
 }
 

@@ -3,14 +3,12 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
-use serial_test::serial;
 use std::fs;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
 #[test]
-#[serial]
 fn test_watch_mode_definitions_change() {
     let project = TestProject::with_definitions(&simple_flag_definition("initial_flag"));
 
@@ -48,7 +46,6 @@ fn test_watch_mode_definitions_change() {
 }
 
 #[test]
-#[serial]
 fn test_watch_mode_help() {
     let project = TestProject::new();
 
@@ -61,7 +58,6 @@ fn test_watch_mode_help() {
 
 /// v2 project: changing control-path.yaml while watch runs should regenerate the SDK.
 #[test]
-#[serial]
 fn test_watch_v2_regenerates_sdk_on_catalog_change() {
     let project = TestProject::with_definitions(&simple_flag_definition("initial_flag"));
     fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();

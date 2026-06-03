@@ -3,7 +3,6 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::TestProject;
-use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
 
@@ -13,7 +12,6 @@ fn saas_fixture() -> String {
 }
 
 #[test]
-#[serial]
 fn saas_validate_succeeds_without_local_environments() {
     let project = TestProject::new();
     project.write_file("control-path.yaml", &saas_fixture());
@@ -21,7 +19,6 @@ fn saas_validate_succeeds_without_local_environments() {
 }
 
 #[test]
-#[serial]
 fn saas_ci_succeeds_without_local_environments() {
     let project = TestProject::new();
     project.write_file("control-path.yaml", &saas_fixture());
@@ -42,7 +39,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_ci_retires_removed_flags_across_runs() {
     let project = TestProject::new();
     project.write_file(
@@ -77,7 +73,6 @@ fn saas_ci_retires_removed_flags_across_runs() {
 }
 
 #[test]
-#[serial]
 fn saas_ci_syncs_catalog_on_first_run() {
     let project = TestProject::new();
     project.write_file(
@@ -118,7 +113,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_mode_rejects_local_segments_via_validate() {
     let project = TestProject::new();
     project.write_file(
@@ -139,7 +133,6 @@ fn saas_mode_rejects_local_segments_via_validate() {
 }
 
 #[test]
-#[serial]
 fn saas_mode_rejects_local_artifacts_via_validate() {
     let project = TestProject::new();
     project.write_file(
@@ -162,7 +155,6 @@ fn saas_mode_rejects_local_artifacts_via_validate() {
 }
 
 #[test]
-#[serial]
 fn saas_mode_rejects_local_kill_switches_via_validate() {
     let project = TestProject::new();
     project.write_file(
@@ -185,7 +177,6 @@ fn saas_mode_rejects_local_kill_switches_via_validate() {
 }
 
 #[test]
-#[serial]
 fn saas_validate_rejects_require_ast_signature_without_public_key() {
     let project = TestProject::new();
     project.write_file(
@@ -218,7 +209,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_ci_rejects_unsigned_remote_ast_when_signature_required() {
     use base64::Engine;
     use controlpath_compiler::ast::Artifact;
@@ -284,7 +274,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_ci_downloads_signed_remote_ast() {
     use base64::Engine;
     use controlpath_compiler::ast::Artifact;
@@ -343,7 +332,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_ci_rejects_unresolved_import_path() {
     let project = TestProject::new();
     project.write_file(
@@ -370,7 +358,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_generate_sdk_embeds_cdn_urls_for_sync_cached_environments() {
     use controlpath_compiler::ast::Artifact;
     use controlpath_compiler::CatalogIdentity;
@@ -463,7 +450,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn saas_generate_sdk_uses_custom_cdn_url() {
     use controlpath_compiler::ast::Artifact;
     use controlpath_compiler::CatalogIdentity;
@@ -528,7 +514,6 @@ fn saas_generate_sdk_uses_custom_cdn_url() {
 }
 
 #[test]
-#[serial]
 fn saas_generate_sdk_fails_without_sync_cache() {
     let project = TestProject::new();
     project.write_file(
@@ -551,7 +536,6 @@ fn saas_generate_sdk_fails_without_sync_cache() {
 }
 
 #[test]
-#[serial]
 fn saas_sync_prunes_stale_ast_before_generate_sdk() {
     use controlpath_compiler::ast::Artifact;
     use controlpath_compiler::serialize;
@@ -595,7 +579,6 @@ fn saas_sync_prunes_stale_ast_before_generate_sdk() {
 }
 
 #[test]
-#[serial]
 fn saas_mode_rejects_local_environments_via_validate() {
     let project = TestProject::new();
     let mut catalog = saas_fixture();

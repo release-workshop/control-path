@@ -172,6 +172,26 @@ fn test_my_command() {
 }
 ```
 
+## Parallelism and runtime evaluation
+
+Integration tests in `tests/` do **not** use `#[serial]` or process-wide `set_current_dir`. Each case uses `TestProject`, which runs `controlpath` with `Command::current_dir(project_path)`.
+
+Unit tests under `src/` that need the process cwd use `test_helpers::DirGuard` and `#[serial]` — only those may require `cargo test --lib -- --test-threads=1` if they flake in parallel.
+
+Helpers in `integration_test_helpers.rs`:
+
+- `assert_ast_compiled(env)` — artifact exists and is non-empty
+- `assert_boolean_flag(...)` — always checks AST; evaluates via Node when `runtime/typescript/dist` is built. Locally without `dist`, evaluation is skipped. In CI, missing `dist` panics (also if `CI` is set in the shell without a build, e.g. `act`).
+
+Build the runtime and ensure Node.js is on PATH before running workflow tests that evaluate flags:
+
+```bash
+cd runtime/typescript && npm ci && npm run build
+node --version   # evaluation shells out to node with a generated script
+```
+
+CI builds the runtime in the `rust-tests` job before workspace tests.
+
 ## Best Practices
 
 1. **Isolation**: Each test should be independent

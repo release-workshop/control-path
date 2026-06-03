@@ -20,12 +20,18 @@ Run these from the repo root after substantive edits to `crates/compiler`, `crat
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cd runtime/typescript && npm ci && npm run build   # required for CLI workflow flag evaluation (CI does this too)
+cd ../..   # back to repo root
 cargo test --workspace
 cargo build --workspace
 cargo build --release --bin controlpath
 ```
 
-If `cargo test --workspace` flakes on parallel CLI unit tests (working-directory pollution), re-run with `cargo test --workspace -- --test-threads=1` to confirm; fix isolation if the failure reproduces serially.
+CLI **integration** tests (`crates/cli/tests/`) run in parallel: each test uses an isolated temp project and sets `Command::current_dir` on the CLI subprocess (no process-wide `set_current_dir`). Workflow tests that call `assert_boolean_flag` also need **Node.js** on PATH to run the evaluation script.
+
+If `cargo test --workspace` flakes on parallel **unit** tests in `crates/cli/src/` (they use `DirGuard` + `#[serial]` for cwd), re-run with `cargo test --workspace -- --test-threads=1` to confirm; fix isolation if the failure reproduces serially.
+
+In CI, `assert_boolean_flag` fails if `runtime/typescript/dist` is missing. Locally, build the runtime before claiming done on CLI workflow changes (see commands above).
 
 When touching **`runtime/typescript/`** only, also run (from that directory, after `npm ci`):
 

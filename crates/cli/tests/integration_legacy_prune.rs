@@ -3,11 +3,9 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
-use serial_test::serial;
 use std::fs;
 
 #[test]
-#[serial]
 fn legacy_definitions_only_project_rejected_by_compile() {
     let project = TestProject::new();
     fs::create_dir_all(project.path(".controlpath")).unwrap();
@@ -43,7 +41,6 @@ rules:
 }
 
 #[test]
-#[serial]
 fn v1_array_flags_rejected_by_validate() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -70,7 +67,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn multivariate_flag_field_rejected_by_validate() {
     let project = TestProject::with_definitions(
         r"catalog:

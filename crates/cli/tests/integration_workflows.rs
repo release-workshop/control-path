@@ -3,12 +3,10 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
-use serial_test::serial;
 
 use std::fs;
 
 #[test]
-#[serial]
 fn test_new_flag_workflow() {
     let project = TestProject::new();
 
@@ -34,63 +32,51 @@ fn test_new_flag_workflow() {
     // Compile to create AST
     project.run_command_success(&["compile", "--env", "production"]);
 
-    // Verify AST was created (observable outcome)
-    assert!(project.ast_exists("production"));
-
-    // If evaluation is available, verify the flag works with default value
-    if let Some(result) =
-        project.evaluate_flag_simple("test_feature", "production", r#"{"id": "test_user"}"#)
-    {
-        // Default should be false, so result should be "OFF" or "false"
-        assert!(
-            result == "OFF" || result == "false" || result == "False",
-            "Flag should have default value (false), got: {}",
-            result
-        );
-    }
+    project.assert_boolean_flag(
+        "test_feature",
+        "production",
+        r#"{"id": "test_user"}"#,
+        false,
+    );
 }
 
 #[test]
-#[serial]
 fn test_enable_workflow() {
-    let project = TestProject::with_deployment(
-        &simple_flag_definition("my_flag"),
-        "production",
-        &simple_deployment("production", "my_flag", false),
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  my_flag:
+    default: false
+    kind: release
+environments:
+  production:
+    rules: {}
+",
     );
 
-    // Enable the flag (uses config)
     project.run_command_success(&["flag", "enable", "my_flag", "--env", "production", "--all"]);
 
-    // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "production"]);
 
-    // Verify flag behavior: evaluate with a test user and verify it's enabled
-    // This tests actual behavior, not just file contents
-    if let Some(result) =
-        project.evaluate_flag_simple("my_flag", "production", r#"{"id": "test_user"}"#)
-    {
-        // Flag should be enabled (result should be "ON" or "true" or similar)
-        assert!(
-            result == "ON" || result == "true" || result == "True",
-            "Flag should be enabled, got: {}",
-            result
-        );
-    } else {
-        // If evaluation is not available (runtime not built), fall back to config check
-        // This is acceptable but less ideal - we're still testing behavior when possible
-        let config = project.get_definitions();
-        assert!(config.contains("serve: true") || config.contains("serve: True"));
-    }
+    project.assert_boolean_flag("my_flag", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_enable_with_rule_workflow() {
-    let project = TestProject::with_deployment(
-        &simple_flag_definition("my_flag"),
-        "production",
-        &simple_deployment("production", "my_flag", false),
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  my_flag:
+    default: false
+    kind: release
+environments:
+  production:
+    rules: {}
+",
     );
 
     // Enable with a rule (uses config)
@@ -104,45 +90,23 @@ fn test_enable_with_rule_workflow() {
         "role == 'admin'", // Updated: no user. prefix
     ]);
 
-    // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "production"]);
 
-    // Verify flag behavior: admin user should get enabled flag, regular user should not
-    // This tests actual behavior, not just file contents
-    if let (Some(admin_result), Some(user_result)) = (
-        project.evaluate_flag_simple(
-            "my_flag",
-            "production",
-            r#"{"id": "admin1", "role": "admin"}"#,
-        ),
-        project.evaluate_flag_simple(
-            "my_flag",
-            "production",
-            r#"{"id": "user1", "role": "user"}"#,
-        ),
-    ) {
-        // Admin should get enabled flag
-        assert!(
-            admin_result == "ON" || admin_result == "true" || admin_result == "True",
-            "Admin should get enabled flag, got: {}",
-            admin_result
-        );
-        // Regular user should get default (disabled)
-        assert!(
-            user_result == "OFF" || user_result == "false" || user_result == "False",
-            "Regular user should get disabled flag, got: {}",
-            user_result
-        );
-    } else {
-        // If evaluation is not available, fall back to config check
-        let config = project.get_definitions();
-        assert!(config.contains("when:"));
-        assert!(config.contains("role == 'admin'"));
-    }
+    project.assert_boolean_flag(
+        "my_flag",
+        "production",
+        r#"{"id": "admin1", "role": "admin"}"#,
+        true,
+    );
+    project.assert_boolean_flag(
+        "my_flag",
+        "production",
+        r#"{"id": "user1", "role": "user"}"#,
+        false,
+    );
 }
 
 #[test]
-#[serial]
 fn test_deploy_workflow() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -150,15 +114,13 @@ fn test_deploy_workflow() {
         &simple_deployment("production", "my_flag", true),
     );
 
-    // Deploy
     project.run_command_success(&["deploy", "--env", "production"]);
 
-    // Verify AST was created
-    assert!(project.ast_exists("production"));
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("my_flag", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_complete_workflow_new_flag_enable_deploy() {
     let project = TestProject::new();
 
@@ -186,20 +148,17 @@ fn test_complete_workflow_new_flag_enable_deploy() {
         "--all",
     ]);
 
-    // Step 3: Deploy
     project.run_command_success(&["deploy", "--env", "production"]);
 
-    // Verify everything worked (config)
-    let config = project.get_definitions(); // Returns config
+    let config = project.get_definitions();
     assert!(config.contains("new_feature"));
-    // Flag should be in config with production environment
     assert!(config.contains("production"));
 
-    assert!(project.ast_exists("production"));
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("new_feature", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_flag_add_list_show_remove_workflow() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("existing_flag"),
@@ -240,7 +199,6 @@ fn test_flag_add_list_show_remove_workflow() {
 }
 
 #[test]
-#[serial]
 fn test_env_add_sync_list_workflow() {
     // Note: env add command may have been removed in favor of config
     // This test is skipped for now as the workflow has changed
@@ -263,7 +221,6 @@ fn test_env_add_sync_list_workflow() {
 }
 
 #[test]
-#[serial]
 fn test_setup_workflow() {
     let project = TestProject::new();
 
@@ -336,7 +293,6 @@ fn test_setup_workflow() {
 }
 
 #[test]
-#[serial]
 fn test_setup_respects_no_examples() {
     let project = TestProject::new();
 
@@ -374,7 +330,6 @@ fn test_setup_respects_no_examples() {
 }
 
 #[test]
-#[serial]
 fn test_setup_uses_cached_language() {
     let project = TestProject::new();
 
@@ -400,7 +355,6 @@ fn test_setup_uses_cached_language() {
 }
 
 #[test]
-#[serial]
 fn test_setup_skip_install_flag() {
     let project = TestProject::new();
 
@@ -437,7 +391,6 @@ fn test_setup_skip_install_flag() {
 }
 
 #[test]
-#[serial]
 fn test_validate_compile_generate_sdk_workflow() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -448,25 +401,10 @@ fn test_validate_compile_generate_sdk_workflow() {
     // Validate
     project.run_command_success(&["validate"]);
 
-    // Compile
     project.run_command_success(&["compile", "--env", "production"]);
 
-    // Verify AST exists and can be loaded
-    assert!(project.ast_exists("production"));
-
-    // Verify AST file is not empty (basic content verification)
-    let ast_size = std::fs::metadata(project.path(".controlpath/production.ast"))
-        .map(|m| m.len())
-        .unwrap_or(0);
-    assert!(ast_size > 0, "AST should not be empty");
-
-    // If evaluation is available, verify the AST can be used to evaluate flags
-    if let Some(result) =
-        project.evaluate_flag_simple("my_flag", "production", r#"{"id": "test_user"}"#)
-    {
-        // AST is valid and can be used for evaluation
-        assert!(!result.is_empty(), "Evaluation should return a result");
-    }
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("my_flag", "production", r#"{"id": "test_user"}"#, true);
 
     // Generate SDK
     project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
@@ -486,44 +424,30 @@ fn test_validate_compile_generate_sdk_workflow() {
 }
 
 #[test]
-#[serial]
 fn test_enable_auto_compiles_env() {
-    let project = TestProject::with_deployment(
-        &simple_flag_definition("my_flag"),
-        "production",
-        &simple_deployment("production", "my_flag", false),
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  my_flag:
+    default: false
+    kind: release
+environments:
+  production:
+    rules: {}
+",
     );
 
-    // Ensure AST doesn't exist before enable
     assert!(!project.ast_exists("production"));
 
-    // Enable the flag (should auto-compile AST)
     project.run_command_success(&["flag", "enable", "my_flag", "--env", "production", "--all"]);
 
-    // Verify flag behavior: evaluate with a test user and verify it's enabled
-    if let Some(result) =
-        project.evaluate_flag_simple("my_flag", "production", r#"{"id": "test_user"}"#)
-    {
-        assert!(
-            result == "ON" || result == "true" || result == "True",
-            "Flag should be enabled, got: {}",
-            result
-        );
-    } else {
-        // Fall back to config check if evaluation not available
-        let deployment = project.get_deployment("production");
-        assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
-    }
-
-    // Verify AST was automatically compiled
-    assert!(
-        project.ast_exists("production"),
-        "AST should be automatically compiled after enable"
-    );
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("my_flag", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_enable_no_compile_flag() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -545,22 +469,6 @@ fn test_enable_no_compile_flag() {
         "--no-compile",
     ]);
 
-    // Verify flag behavior: evaluate with a test user and verify it's enabled
-    if let Some(result) =
-        project.evaluate_flag_simple("my_flag", "production", r#"{"id": "test_user"}"#)
-    {
-        assert!(
-            result == "ON" || result == "true" || result == "True",
-            "Flag should be enabled, got: {}",
-            result
-        );
-    } else {
-        // Fall back to config check if evaluation not available
-        let deployment = project.get_deployment("production");
-        assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
-    }
-
-    // Verify AST was NOT automatically compiled
     assert!(
         !project.ast_exists("production"),
         "AST should NOT be compiled when --no-compile is used"
@@ -568,7 +476,6 @@ fn test_enable_no_compile_flag() {
 }
 
 #[test]
-#[serial]
 fn test_new_flag_auto_generates_sdk() {
     let project = TestProject::new();
 
@@ -617,7 +524,6 @@ fn test_new_flag_auto_generates_sdk() {
 }
 
 #[test]
-#[serial]
 fn test_new_flag_skip_sdk_flag() {
     let project = TestProject::new();
 
@@ -653,7 +559,6 @@ fn test_new_flag_skip_sdk_flag() {
 }
 
 #[test]
-#[serial]
 fn test_new_flag_enable_in_auto_compiles() {
     let project = TestProject::new();
 
@@ -685,33 +590,11 @@ fn test_new_flag_enable_in_auto_compiles() {
     let definitions = project.get_definitions();
     assert!(definitions.contains("test_feature"));
 
-    // Verify AST was automatically compiled for the enabled environment
-    assert!(
-        project.ast_exists("production"),
-        "AST should be automatically compiled when using --enable-in"
-    );
-
-    // Verify flag behavior: evaluate with a test user and verify it's enabled
-    // This tests actual behavior, not just file contents
-    if let Some(result) =
-        project.evaluate_flag_simple("test_feature", "production", r#"{"id": "test_user"}"#)
-    {
-        assert!(
-            result == "ON" || result == "true" || result == "True",
-            "Flag should be enabled, got: {}",
-            result
-        );
-    } else {
-        // Fall back to config check if evaluation not available
-        let config = project.get_definitions();
-        assert!(config.contains("test_feature"));
-        assert!(config.contains("production"));
-        assert!(config.contains("serve: true") || config.contains("serve: True"));
-    }
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("test_feature", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_dev_validates_core_files() {
     let project = TestProject::new();
 
@@ -726,7 +609,6 @@ fn test_dev_validates_core_files() {
 }
 
 #[test]
-#[serial]
 fn test_dev_starts_successfully() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("test_flag"),
@@ -777,7 +659,6 @@ fn test_dev_starts_successfully() {
 }
 
 #[test]
-#[serial]
 fn test_ci_runs_end_to_end() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("test_flag"),
@@ -791,18 +672,14 @@ fn test_ci_runs_end_to_end() {
         "language: typescript\ndefaultEnv: production\n",
     );
 
-    // Run CI command - should validate, compile, and regenerate SDK
     project.run_command_success(&["ci"]);
 
-    // Verify AST was created
-    assert!(project.ast_exists("production"));
-
-    // Verify SDK was generated (default path is node_modules/@controlpath/generated)
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("test_flag", "production", r#"{"id": "test_user"}"#, true);
     assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
 }
 
 #[test]
-#[serial]
 fn test_ci_respects_env_filter() {
     let project = TestProject::new();
 
@@ -831,16 +708,14 @@ environments:
     // Create .controlpath directory for AST output
     fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
 
-    // Run CI for production only
     project.run_command_success(&["ci", "--env", "production", "--no-sdk"]);
 
-    // Verify only production AST was created
-    assert!(project.ast_exists("production"));
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("test_flag", "production", r#"{"id": "test_user"}"#, true);
     assert!(!project.ast_exists("staging"));
 }
 
 #[test]
-#[serial]
 fn test_ci_respects_no_sdk() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("test_flag"),
@@ -848,17 +723,13 @@ fn test_ci_respects_no_sdk() {
         &simple_deployment("production", "test_flag", true),
     );
 
-    // Run CI with --no-sdk
     project.run_command_success(&["ci", "--no-sdk"]);
 
-    // Verify AST was created
-    assert!(project.ast_exists("production"));
-
-    // SDK generation should be skipped (we can't easily verify this, but the command should succeed)
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("test_flag", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_ci_fails_on_invalid_catalog() {
     let project = TestProject::new();
 
@@ -878,7 +749,6 @@ fn test_ci_fails_on_invalid_catalog() {
 }
 
 #[test]
-#[serial]
 fn test_ci_fails_on_invalid_environment_rules() {
     let project = TestProject::new();
 
@@ -913,7 +783,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn test_dev_uses_config_language() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("test_flag"),
@@ -963,7 +832,6 @@ fn test_dev_uses_config_language() {
 }
 
 #[test]
-#[serial]
 fn test_dev_respects_lang_override() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("test_flag"),
@@ -1012,34 +880,26 @@ fn test_dev_respects_lang_override() {
 }
 
 #[test]
-#[serial]
 fn test_enable_smart_defaults_from_branch_mapping() {
-    let project = TestProject::with_deployment(
-        &simple_flag_definition("my_flag"),
-        "staging",
-        &simple_deployment("staging", "my_flag", false),
+    let project = TestProject::with_definitions(
+        r"catalog:
+  id: test-service
+mode: local
+flags:
+  my_flag:
+    default: false
+    kind: release
+environments:
+  staging:
+    rules: {}
+  production:
+    rules: {}
+",
     );
 
-    // Initialize git repo and create staging branch
-    use std::process::Command;
-    let _ = Command::new("git")
-        .args(["init"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["checkout", "-b", "staging"])
-        .current_dir(&project.project_path)
-        .output();
+    project.init_git_repo_on_branch("staging");
 
-    // Create config with branch mapping
+    fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
     project.write_file(
         ".controlpath/config.yaml",
         r"branchEnvironments:
@@ -1049,30 +909,14 @@ defaultEnv: production
 ",
     );
 
-    // Enable without --env flag - should use staging from branch mapping
     project.run_command_success(&["flag", "enable", "my_flag", "--all"]);
 
-    // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "staging"]);
 
-    // Verify flag behavior: evaluate with a test user and verify it's enabled
-    if let Some(result) =
-        project.evaluate_flag_simple("my_flag", "staging", r#"{"id": "test_user"}"#)
-    {
-        assert!(
-            result == "ON" || result == "true" || result == "True",
-            "Flag should be enabled, got: {}",
-            result
-        );
-    } else {
-        // Fall back to config check if evaluation not available
-        let deployment = project.get_deployment("staging");
-        assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
-    }
+    project.assert_boolean_flag("my_flag", "staging", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_enable_smart_defaults_from_default_env() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -1086,27 +930,12 @@ fn test_enable_smart_defaults_from_default_env() {
     // Enable without --env flag - should use production from defaultEnv
     project.run_command_success(&["flag", "enable", "my_flag", "--all"]);
 
-    // Compile AST to enable evaluation
     project.run_command_success(&["compile", "--env", "production"]);
 
-    // Verify flag behavior: evaluate with a test user and verify it's enabled
-    if let Some(result) =
-        project.evaluate_flag_simple("my_flag", "production", r#"{"id": "test_user"}"#)
-    {
-        assert!(
-            result == "ON" || result == "true" || result == "True",
-            "Flag should be enabled, got: {}",
-            result
-        );
-    } else {
-        // Fall back to config check if evaluation not available
-        let deployment = project.get_deployment("production");
-        assert!(deployment.contains("serve: true") || deployment.contains("serve: True"));
-    }
+    project.assert_boolean_flag("my_flag", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_deploy_smart_defaults_from_branch_mapping() {
     let project = TestProject::new();
 
@@ -1132,36 +961,8 @@ environments:
 ",
     );
 
-    // Initialize git repo and create staging branch
-    use std::process::Command;
-    let _ = Command::new("git")
-        .args(["init"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(&project.project_path)
-        .output();
-    // Create initial commit (required before checking out branches)
-    project.write_file("README.md", "# Test\n");
-    let _ = Command::new("git")
-        .args(["add", "README.md"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["checkout", "-b", "staging"])
-        .current_dir(&project.project_path)
-        .output();
+    project.init_git_repo_on_branch("staging");
 
-    // Create config with branch mapping
     fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
     project.write_file(
         ".controlpath/config.yaml",
@@ -1172,15 +973,13 @@ defaultEnv: production
 ",
     );
 
-    // Deploy without --env flag - should use staging from branch mapping
     project.run_command_success(&["deploy"]);
 
-    // Verify AST was created for staging
-    assert!(project.ast_exists("staging"));
+    project.assert_ast_compiled("staging");
+    project.assert_boolean_flag("my_flag", "staging", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_deploy_smart_defaults_from_default_env() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -1191,15 +990,13 @@ fn test_deploy_smart_defaults_from_default_env() {
     // Create config with defaultEnv
     project.write_file(".controlpath/config.yaml", "defaultEnv: production\n");
 
-    // Deploy without --env flag - should use production from defaultEnv
     project.run_command_success(&["deploy"]);
 
-    // Verify AST was created for production
-    assert!(project.ast_exists("production"));
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag("my_flag", "production", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_ci_smart_defaults_from_branch_mapping() {
     let project = TestProject::new();
 
@@ -1225,36 +1022,8 @@ environments:
 ",
     );
 
-    // Initialize git repo and create staging branch
-    use std::process::Command;
-    let _ = Command::new("git")
-        .args(["init"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(&project.project_path)
-        .output();
-    // Create initial commit (required before checking out branches)
-    project.write_file("README.md", "# Test\n");
-    let _ = Command::new("git")
-        .args(["add", "README.md"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(&project.project_path)
-        .output();
-    let _ = Command::new("git")
-        .args(["checkout", "-b", "staging"])
-        .current_dir(&project.project_path)
-        .output();
+    project.init_git_repo_on_branch("staging");
 
-    // Create config with branch mapping
     fs::create_dir_all(project.project_path.join(".controlpath")).unwrap();
     project.write_file(
         ".controlpath/config.yaml",
@@ -1266,15 +1035,13 @@ language: typescript
 ",
     );
 
-    // Run CI without --env flag - should use staging from branch mapping
     project.run_command_success(&["ci", "--no-sdk"]);
 
-    // Verify AST was created for staging
-    assert!(project.ast_exists("staging"));
+    project.assert_ast_compiled("staging");
+    project.assert_boolean_flag("test_flag", "staging", r#"{"id": "test_user"}"#, true);
 }
 
 #[test]
-#[serial]
 fn test_large_scale_flags() {
     // Test behavior with many flags and rules
     let project = TestProject::new();
@@ -1318,7 +1085,6 @@ fn test_large_scale_flags() {
 }
 
 #[test]
-#[serial]
 fn test_error_recovery_on_invalid_flag_name() {
     // Test behavior when invalid flag names are used
     let project = TestProject::with_deployment(
@@ -1351,7 +1117,6 @@ fn test_error_recovery_on_invalid_flag_name() {
 }
 
 #[test]
-#[serial]
 fn test_error_recovery_on_invalid_expression() {
     // Test behavior when invalid expressions are used in rules
     let project = TestProject::with_deployment(
@@ -1384,7 +1149,6 @@ fn test_error_recovery_on_invalid_expression() {
 }
 
 #[test]
-#[serial]
 fn test_compile_with_many_rules() {
     // Test behavior with many rules per flag
     let project = TestProject::new();
@@ -1420,7 +1184,6 @@ fn test_compile_with_many_rules() {
 }
 
 #[test]
-#[serial]
 fn test_v2_local_workflow_end_to_end() {
     let project = TestProject::new();
 
@@ -1472,7 +1235,13 @@ environments:
     assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
 
     project.run_command_success(&["deploy", "--env", "production"]);
-    assert!(project.ast_exists("production"));
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag(
+        "new_dashboard",
+        "production",
+        r#"{"id": "test_user"}"#,
+        true,
+    );
     assert!(project.file_exists(".controlpath/production.kill-switches.json"));
 
     let kill_switches = project.read_file(".controlpath/production.kill-switches.json");
@@ -1493,10 +1262,16 @@ environments:
     assert!(stderr.contains("deprecated"));
 
     project.run_command_success(&["ci", "--env", "production", "--no-sdk"]);
+    project.assert_ast_compiled("production");
+    project.assert_boolean_flag(
+        "new_dashboard",
+        "production",
+        r#"{"id": "test_user"}"#,
+        true,
+    );
 }
 
 #[test]
-#[serial]
 fn test_kill_switch_updates_v2_artifact() {
     let project = TestProject::with_definitions(
         r"catalog:

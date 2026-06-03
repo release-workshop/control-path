@@ -3,7 +3,6 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
-use serial_test::serial;
 use std::fs;
 use std::path::PathBuf;
 
@@ -36,7 +35,6 @@ fn write_import_fixture(project: &TestProject) {
 }
 
 #[test]
-#[serial]
 fn explain_kill_switch_skips_ast_rules() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -86,7 +84,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn explain_targeted_environment_rule() {
     let project = TestProject::with_definitions(
         r#"catalog:
@@ -147,7 +144,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn explain_catalog_default_when_no_environment_rules() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -180,7 +176,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn explain_rollout_skipped_serve_match_does_not_warn_missing_id() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -224,7 +219,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn explain_rollout_rule_reports_bucket_and_missing_identity() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -280,7 +274,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn explain_imported_namespace_flag() {
     let project = TestProject::new();
     write_import_fixture(&project);
@@ -302,7 +295,6 @@ fn explain_imported_namespace_flag() {
 }
 
 #[test]
-#[serial]
 fn explain_deprecated_flag_warns() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -336,7 +328,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn explain_works_with_downloaded_saas_ast() {
     use base64::Engine;
     use controlpath_compiler::ast::{Artifact, Rule, ServePayload};
@@ -415,7 +406,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn explain_json_output_includes_layer_and_value() {
     let project = TestProject::with_definitions(
         r"catalog:

@@ -66,6 +66,25 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Cache npm dependencies (runtime)
+        uses: actions/cache@v4
+        with:
+          path: runtime/typescript/node_modules
+          key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
+          restore-keys: |
+            npm-runtime-${{ runner.os }}-
+
+      - name: Build TypeScript runtime (CLI integration evaluation)
+        working-directory: runtime/typescript
+        run: |
+          npm ci
+          npm run build
+
       - name: Cache Cargo dependencies
         uses: actions/cache@v4
         with:

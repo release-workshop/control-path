@@ -3,7 +3,6 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
-use serial_test::serial;
 use std::fs;
 
 fn write_import_fixture(project: &TestProject) {
@@ -28,7 +27,6 @@ fn write_import_fixture(project: &TestProject) {
 }
 
 #[test]
-#[serial]
 fn validate_and_compile_succeed_with_resolved_imports() {
     let project = TestProject::new();
     write_import_fixture(&project);
@@ -43,7 +41,6 @@ fn validate_and_compile_succeed_with_resolved_imports() {
 }
 
 #[test]
-#[serial]
 fn validate_rejects_environment_rules_for_imported_flags() {
     let project = TestProject::new();
     write_import_fixture(&project);
@@ -65,7 +62,6 @@ fn validate_rejects_environment_rules_for_imported_flags() {
 }
 
 #[test]
-#[serial]
 fn validate_rejects_local_flag_colliding_with_import_namespace() {
     let project = TestProject::new();
     write_import_fixture(&project);
@@ -87,7 +83,6 @@ fn validate_rejects_local_flag_colliding_with_import_namespace() {
 }
 
 #[test]
-#[serial]
 fn generate_sdk_includes_imported_flags() {
     let project = TestProject::new();
     write_import_fixture(&project);

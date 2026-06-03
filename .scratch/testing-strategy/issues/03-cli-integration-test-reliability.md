@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # CLI integration test reliability and behavior assertions
 
@@ -14,10 +14,10 @@ End-to-end outcome: `cargo test` for CLI integration tests is more parallel-frie
 
 ## Acceptance criteria
 
-- [ ] Avoidable `#[serial]` markers and global CWD mutex usage are removed or narrowed; remaining serial tests have a brief comment explaining why global state is unavoidable.
-- [ ] Critical workflow integration tests (enable, deploy, rule-based enable, CI happy paths) assert on AST presence, artifact semantics, or runtime evaluation when the runtime is built in CI—not only `serve: true` in YAML.
-- [ ] `cargo test --workspace` passes reliably in parallel; if serial-only tests remain, `AGENTS.md` / testing docs note when `--test-threads=1` is still required.
-- [ ] No new ignored or skipped tests introduced without documented exit criteria.
+- [x] Avoidable `#[serial]` markers and global CWD mutex usage are removed or narrowed; remaining serial tests have a brief comment explaining why global state is unavoidable.
+- [x] Critical workflow integration tests (enable, deploy, rule-based enable, CI happy paths) assert on AST presence, artifact semantics, or runtime evaluation when the runtime is built in CI—not only `serve: true` in YAML.
+- [x] `cargo test --workspace` passes reliably in parallel; if serial-only tests remain, `AGENTS.md` / testing docs note when `--test-threads=1` is still required.
+- [x] No new ignored or skipped tests introduced without documented exit criteria.
 
 ## Blocked by
 

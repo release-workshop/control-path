@@ -10,16 +10,24 @@ Run from repo root:
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+cd runtime/typescript && npm ci && npm run build   # CLI workflow tests evaluate flags via Node + dist/
+cd ../..
 cargo test --workspace          # fast local loop; CI runs the same tests via llvm-cov below
 cargo build --workspace
 cargo build --release --bin controlpath
 ```
 
-If parallel CLI tests flake due to working-directory pollution:
+**CLI integration tests** (`crates/cli/tests/`) are parallel-safe (isolated temp dirs; CLI invoked with per-project `current_dir`). **CLI unit tests** in `src/` may still need serial execution when they use `DirGuard` to change the process cwd.
+
+If parallel **unit** tests flake due to working-directory pollution:
 
 ```bash
 cargo test --workspace -- --test-threads=1
 ```
+
+`assert_boolean_flag` needs `runtime/typescript/dist/ast-loader.js` and **Node.js** on PATH. In CI, missing `dist` fails the test; locally, evaluation is skipped only when `dist` is absent (AST checks still run).
+
+Pre-merge CI builds `runtime/typescript` in the `rust-tests` job before `cargo llvm-cov`.
 
 ## Rust coverage (`controlpath-compiler`, `controlpath-cli`)
 

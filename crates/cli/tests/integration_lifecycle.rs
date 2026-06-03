@@ -3,7 +3,6 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::TestProject;
-use serial_test::serial;
 use std::fs;
 
 fn write_import_fixture(project: &TestProject) {
@@ -28,7 +27,6 @@ fn write_import_fixture(project: &TestProject) {
 }
 
 #[test]
-#[serial]
 fn flag_deprecate_sets_lifecycle_in_catalog() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -55,7 +53,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn deprecated_flag_blocks_rule_changes_until_forced() {
     let project = TestProject::with_definitions(
         r"catalog:
@@ -130,7 +127,6 @@ flags:
 }
 
 #[test]
-#[serial]
 fn flag_report_surfaces_saas_telemetry_without_writing_to_catalog() {
     let project = TestProject::new();
     project.write_file(
@@ -183,7 +179,6 @@ fn flag_report_surfaces_saas_telemetry_without_writing_to_catalog() {
 }
 
 #[test]
-#[serial]
 fn saas_ci_warns_on_rot_suggestions_without_writing_telemetry() {
     let project = TestProject::new();
     project.write_file(
@@ -233,7 +228,6 @@ fn saas_ci_warns_on_rot_suggestions_without_writing_telemetry() {
 }
 
 #[test]
-#[serial]
 fn removing_flag_from_git_retires_it_in_saas_history() {
     let project = TestProject::new();
     project.write_file(
@@ -264,7 +258,6 @@ fn removing_flag_from_git_retires_it_in_saas_history() {
 }
 
 #[test]
-#[serial]
 fn saas_ci_warns_on_deprecated_lifecycle() {
     let project = TestProject::new();
     project.write_file(
@@ -288,7 +281,6 @@ fn saas_ci_warns_on_deprecated_lifecycle() {
 }
 
 #[test]
-#[serial]
 fn flag_report_includes_imported_flags_and_telemetry() {
     let project = TestProject::new();
     write_import_fixture(&project);
@@ -328,7 +320,6 @@ fn flag_report_includes_imported_flags_and_telemetry() {
 }
 
 #[test]
-#[serial]
 fn flag_report_json_output() {
     let project = TestProject::new();
     project.write_file(

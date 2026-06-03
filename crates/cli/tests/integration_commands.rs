@@ -3,11 +3,9 @@
 mod integration_test_helpers;
 
 use integration_test_helpers::*;
-use serial_test::serial;
 use std::fs;
 
 #[test]
-#[serial]
 fn test_validate_command() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -23,7 +21,6 @@ fn test_validate_command() {
 }
 
 #[test]
-#[serial]
 fn test_validate_command_failure() {
     let project = TestProject::new();
 
@@ -37,7 +34,6 @@ fn test_validate_command_failure() {
 }
 
 #[test]
-#[serial]
 fn test_compile_command() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -64,7 +60,6 @@ fn test_compile_command() {
 }
 
 #[test]
-#[serial]
 fn test_generate_sdk_command() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
@@ -78,7 +73,6 @@ fn test_generate_sdk_command() {
 }
 
 #[test]
-#[serial]
 fn test_explain_command() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -109,7 +103,6 @@ fn test_explain_command() {
 }
 
 #[test]
-#[serial]
 fn test_explain_command_with_inline_user_json() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -137,7 +130,6 @@ fn test_explain_command_with_inline_user_json() {
 }
 
 #[test]
-#[serial]
 fn test_explain_command_with_trace() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -173,7 +165,6 @@ fn test_explain_command_with_trace() {
 }
 
 #[test]
-#[serial]
 fn test_setup_command() {
     let project = TestProject::new();
 
@@ -185,7 +176,6 @@ fn test_setup_command() {
 }
 
 #[test]
-#[serial]
 fn test_init_multi_repo() {
     let project = TestProject::new();
     project.run_command_success(&[
@@ -203,7 +193,6 @@ fn test_init_multi_repo() {
 }
 
 #[test]
-#[serial]
 fn test_init_monorepo_workspace() {
     let project = TestProject::new();
     project.run_command_success(&["init", "--monorepo", "--namespace", "acme"]);
@@ -213,7 +202,6 @@ fn test_init_monorepo_workspace() {
 }
 
 #[test]
-#[serial]
 fn test_init_service_scaffold_from_workspace() {
     let project = TestProject::new();
     project.run_command_success(&["init", "--monorepo", "--namespace", "acme"]);
@@ -233,7 +221,6 @@ fn test_init_service_scaffold_from_workspace() {
 }
 
 #[test]
-#[serial]
 fn test_setup_command_with_force() {
     let project = TestProject::new();
 
@@ -247,7 +234,6 @@ fn test_setup_command_with_force() {
 }
 
 #[test]
-#[serial]
 fn test_flag_list_command() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("flag1"),
@@ -293,7 +279,6 @@ environments:
 }
 
 #[test]
-#[serial]
 fn test_flag_list_json_format() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
@@ -305,7 +290,6 @@ fn test_flag_list_json_format() {
 }
 
 #[test]
-#[serial]
 fn test_flag_list_yaml_format() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
@@ -317,7 +301,6 @@ fn test_flag_list_yaml_format() {
 }
 
 #[test]
-#[serial]
 fn test_flag_list_table_format() {
     let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
 
@@ -329,7 +312,6 @@ fn test_flag_list_table_format() {
 }
 
 #[test]
-#[serial]
 fn test_env_list_command() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -347,7 +329,6 @@ fn test_env_list_command() {
 }
 
 #[test]
-#[serial]
 fn test_env_remove_command() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -365,7 +346,6 @@ fn test_env_remove_command() {
 }
 
 #[test]
-#[serial]
 fn test_completion_command() {
     let project = TestProject::new();
 
@@ -385,7 +365,6 @@ fn test_completion_command() {
 }
 
 #[test]
-#[serial]
 fn test_completion_command_invalid_shell() {
     let project = TestProject::new();
 
@@ -395,7 +374,6 @@ fn test_completion_command_invalid_shell() {
 }
 
 #[test]
-#[serial]
 fn test_explain_invalid_user_json() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -423,7 +401,6 @@ fn test_explain_invalid_user_json() {
 }
 
 #[test]
-#[serial]
 fn test_explain_missing_user_file() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -448,7 +425,6 @@ fn test_explain_missing_user_file() {
 }
 
 #[test]
-#[serial]
 fn test_explain_invalid_context_json() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
