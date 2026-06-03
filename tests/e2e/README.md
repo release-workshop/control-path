@@ -14,7 +14,10 @@ End-to-end tests that verify the SDK generator works correctly by:
 cd tests/e2e
 npm install
 
-# Run tests
+# Pre-merge smoke (src/smoke/ via vitest.smoke.config.ts; same gate as CI)
+npm run test:smoke
+
+# Full suite (post-merge CI runs this)
 npm test
 
 # Watch mode

@@ -408,9 +408,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Known issue: Signature deserialization fails due to MessagePack map field ordering
-              // Serialization works correctly, but deserialization has issues when segments=None and signature=Some.
-              // This will be verified and fixed in Phase 8 when we do byte-for-byte comparison with TypeScript.
     fn test_serialize_artifact_with_signature() {
         // Ed25519 signatures are 64 bytes
         let signature: Vec<u8> = (1..=64).collect();
@@ -424,12 +421,9 @@ mod tests {
             signature: Some(signature.clone()),
         };
 
-        // Serialization works correctly
         let bytes = serialize(&artifact).expect("Serialization should succeed");
         assert!(!bytes.is_empty());
 
-        // Deserialization has issues - likely due to MessagePack map field ordering
-        // when optional fields are present. This will be fixed in Phase 8.
         let deserialized: Artifact =
             rmp_serde::from_slice(&bytes).expect("Failed to deserialize artifact");
 
@@ -437,6 +431,100 @@ mod tests {
         let deserialized_sig = deserialized.signature.unwrap();
         assert_eq!(deserialized_sig.len(), 64);
         assert_eq!(deserialized_sig, signature);
+    }
+
+    /// Canonical map encoding: external writers may emit keys in any order; `from_slice` must accept it.
+    #[test]
+    fn test_deserialize_canonical_map_sig_key_before_required_fields() {
+        use serde::ser::{SerializeMap, Serializer};
+
+        let signature: Vec<u8> = (1..=64).collect();
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "production".to_string(),
+            string_table: vec!["ON".to_string()],
+            flags: vec![vec![]],
+            flag_names: vec![0],
+            segments: None,
+            signature: Some(signature.clone()),
+        };
+
+        let mut buf = Vec::new();
+        let mut serializer = rmp_serde::Serializer::new(&mut buf);
+        let mut map = serializer
+            .serialize_map(Some(6))
+            .expect("serialize_map should succeed");
+        map.serialize_entry("sig", &BytesWrapper(signature.as_slice()))
+            .expect("sig entry should succeed");
+        map.serialize_entry("v", &artifact.version)
+            .expect("v entry should succeed");
+        map.serialize_entry("env", &artifact.environment)
+            .expect("env entry should succeed");
+        map.serialize_entry("strs", &artifact.string_table)
+            .expect("strs entry should succeed");
+        map.serialize_entry("flags", &artifact.flags)
+            .expect("flags entry should succeed");
+        map.serialize_entry("flagNames", &artifact.flag_names)
+            .expect("flagNames entry should succeed");
+        map.end().expect("map end should succeed");
+
+        let deserialized: Artifact =
+            rmp_serde::from_slice(&buf).expect("Failed to deserialize artifact");
+        assert_eq!(
+            deserialized.signature.as_deref(),
+            Some(signature.as_slice())
+        );
+        assert_eq!(deserialized.version, artifact.version);
+        assert_eq!(deserialized.environment, artifact.environment);
+    }
+
+    /// Canonical map with both optional fields; non-default key order (segments before sig).
+    #[test]
+    fn test_deserialize_canonical_map_segments_before_sig() {
+        use serde::ser::{SerializeMap, Serializer};
+
+        let signature: Vec<u8> = vec![9, 8, 7];
+        let segments = vec![(
+            0u16,
+            Expression::Literal {
+                value: serde_json::Value::Bool(true),
+            },
+        )];
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "staging".to_string(),
+            string_table: vec!["seg".to_string()],
+            flags: vec![vec![]],
+            flag_names: vec![0],
+            segments: Some(segments.clone()),
+            signature: Some(signature.clone()),
+        };
+
+        let mut buf = Vec::new();
+        let mut serializer = rmp_serde::Serializer::new(&mut buf);
+        let mut map = serializer
+            .serialize_map(Some(7))
+            .expect("serialize_map should succeed");
+        map.serialize_entry("segments", &artifact.segments)
+            .expect("segments entry should succeed");
+        map.serialize_entry("sig", &BytesWrapper(signature.as_slice()))
+            .expect("sig entry should succeed");
+        map.serialize_entry("v", &artifact.version)
+            .expect("v entry should succeed");
+        map.serialize_entry("env", &artifact.environment)
+            .expect("env entry should succeed");
+        map.serialize_entry("strs", &artifact.string_table)
+            .expect("strs entry should succeed");
+        map.serialize_entry("flags", &artifact.flags)
+            .expect("flags entry should succeed");
+        map.serialize_entry("flagNames", &artifact.flag_names)
+            .expect("flagNames entry should succeed");
+        map.end().expect("map end should succeed");
+
+        let deserialized: Artifact =
+            rmp_serde::from_slice(&buf).expect("Failed to deserialize artifact");
+        assert_eq!(deserialized.segments, artifact.segments);
+        assert_eq!(deserialized.signature, Some(signature));
     }
 
     #[test]

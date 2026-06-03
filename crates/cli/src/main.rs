@@ -467,26 +467,19 @@ enum Commands {
         #[arg(long)]
         best_effort: bool,
     },
-    /// Enable a flag in one or more environments
-    ///
-    /// Use this when you want to activate a flag for users. Updates control-path.yaml with
-    /// rollout rules for specified environments and automatically compiles ASTs for the
-    /// affected environments. Works with smart defaults (detects current git branch).
-    ///
-    /// When to use:
-    ///   - Activating a feature flag for the first time
-    ///   - Rolling out a flag to more users or environments
-    ///   - Setting up targeted rollouts with rules
-    ///
-    /// Examples:
-    ///   # Enable for all users in staging
-    ///   controlpath enable my_flag --env staging --all
-    ///
-    ///   # Enable with a rule (interactive mode)
-    ///   controlpath enable my_flag --env staging --interactive
     /// Validate, compile, and prepare flags for deployment
     ///
     /// Validates control-path.yaml, then compiles ASTs for specified environments.
+    ///
+    /// Examples:
+    ///   # Validate and compile all environments
+    ///   controlpath deploy
+    ///
+    ///   # Validate and compile selected environments
+    ///   controlpath deploy --env production --env staging
+    ///
+    ///   # Preview the actions without writing artifacts
+    ///   controlpath deploy --dry-run
     Deploy {
         /// Environment(s) to deploy (defaults to all).
         ///
@@ -934,17 +927,17 @@ fn main() {
                 };
                 workflow::run_enable(&opts)
             }
-            _ => {
-                let flag_subcommand = match subcommand {
-                    FlagSubcommand::Add {
-                        name,
-                        r#type,
-                        default,
-                        description,
-                        lang,
-                        sync,
-                        no_interactive,
-                    } => flag::FlagSubcommand::Add {
+            FlagSubcommand::Add {
+                name,
+                r#type,
+                default,
+                description,
+                lang,
+                sync,
+                no_interactive,
+            } => {
+                let opts = flag::Options {
+                    subcommand: flag::FlagSubcommand::Add {
                         name,
                         flag_type: r#type,
                         default,
@@ -953,61 +946,75 @@ fn main() {
                         sync,
                         interactive: !no_interactive && !cli.non_interactive,
                     },
-                    FlagSubcommand::List {
+                };
+                flag::run(&opts)
+            }
+            FlagSubcommand::List {
+                definitions,
+                deployment,
+                format,
+            } => {
+                let format_str =
+                    if cli.json || (format == "table" && !atty::is(atty::Stream::Stdout)) {
+                        "json".to_string()
+                    } else {
+                        format
+                    };
+                let output_format =
+                    flag::OutputFormat::from_str(&format_str).unwrap_or(flag::OutputFormat::Table);
+                let opts = flag::Options {
+                    subcommand: flag::FlagSubcommand::List {
                         definitions,
                         deployment,
-                        format,
-                    } => {
-                        let format_str =
-                            if cli.json || (format == "table" && !atty::is(atty::Stream::Stdout)) {
-                                "json".to_string()
-                            } else {
-                                format
-                            };
-                        let output_format = flag::OutputFormat::from_str(&format_str)
-                            .unwrap_or(flag::OutputFormat::Table);
-                        flag::FlagSubcommand::List {
-                            definitions,
-                            deployment,
-                            format: output_format,
+                        format: output_format,
+                    },
+                };
+                flag::run(&opts)
+            }
+            FlagSubcommand::Show {
+                name,
+                deployment,
+                format,
+            } => {
+                let output_format = format
+                    .as_ref()
+                    .and_then(|f| flag::OutputFormat::from_str(f).ok())
+                    .or(if cli.json {
+                        Some(flag::OutputFormat::Json)
+                    } else {
+                        None
+                    })
+                    .unwrap_or_else(|| {
+                        if atty::is(atty::Stream::Stdout) {
+                            flag::OutputFormat::Table
+                        } else {
+                            flag::OutputFormat::Json
                         }
-                    }
-                    FlagSubcommand::Show {
+                    });
+                let opts = flag::Options {
+                    subcommand: flag::FlagSubcommand::Show {
                         name,
                         deployment,
-                        format,
-                    } => {
-                        let output_format = format
-                            .as_ref()
-                            .and_then(|f| flag::OutputFormat::from_str(f).ok())
-                            .or(if cli.json {
-                                Some(flag::OutputFormat::Json)
-                            } else {
-                                None
-                            })
-                            .unwrap_or_else(|| {
-                                if atty::is(atty::Stream::Stdout) {
-                                    flag::OutputFormat::Table
-                                } else {
-                                    flag::OutputFormat::Json
-                                }
-                            });
-                        flag::FlagSubcommand::Show {
-                            name,
-                            deployment,
-                            format: output_format,
-                        }
-                    }
-                    FlagSubcommand::Remove { name, env } => {
-                        flag::FlagSubcommand::Remove { name, env }
-                    }
-                    FlagSubcommand::Deprecate { name } => flag::FlagSubcommand::Deprecate { name },
-                    FlagSubcommand::Report => flag::FlagSubcommand::Report,
-                    FlagSubcommand::Enable { .. } => unreachable!(),
+                        format: output_format,
+                    },
                 };
-
+                flag::run(&opts)
+            }
+            FlagSubcommand::Remove { name, env } => {
                 let opts = flag::Options {
-                    subcommand: flag_subcommand,
+                    subcommand: flag::FlagSubcommand::Remove { name, env },
+                };
+                flag::run(&opts)
+            }
+            FlagSubcommand::Deprecate { name } => {
+                let opts = flag::Options {
+                    subcommand: flag::FlagSubcommand::Deprecate { name },
+                };
+                flag::run(&opts)
+            }
+            FlagSubcommand::Report => {
+                let opts = flag::Options {
+                    subcommand: flag::FlagSubcommand::Report,
                 };
                 flag::run(&opts)
             }

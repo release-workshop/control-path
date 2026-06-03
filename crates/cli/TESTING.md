@@ -198,60 +198,17 @@ Tests should pass in CI/CD:
 
 ## Coverage Reporting
 
-### Option 1: cargo-tarpaulin (Recommended for CI/CD)
+Canonical Rust coverage policy (tool, CI, thresholds): [`docs/developer/testing-and-quality-gates.md`](../../docs/developer/testing-and-quality-gates.md#rust-coverage-controlpath-compiler-controlpath-cli).
 
-**Installation** (macOS):
-```bash
-# Install pkg-config (required for OpenSSL)
-brew install pkg-config openssl
+From the repo root:
 
-# Set OpenSSL directory (if needed)
-export OPENSSL_DIR=$(brew --prefix openssl)
-
-# Install cargo-tarpaulin
-cargo install cargo-tarpaulin
-```
-
-**Installation** (Linux):
-```bash
-# Install OpenSSL development packages
-sudo apt-get install libssl-dev pkg-config  # Ubuntu/Debian
-# OR
-sudo yum install openssl-devel pkg-config   # Fedora/RHEL
-
-# Install cargo-tarpaulin
-cargo install cargo-tarpaulin
-```
-
-**Usage**:
-```bash
-# Run coverage report
-cargo tarpaulin --out Html --output-dir coverage
-
-# View HTML report
-open coverage/tarpaulin-report.html
-```
-
-### Option 2: cargo-llvm-cov (Alternative, no OpenSSL required)
-
-**Installation**:
 ```bash
 cargo install cargo-llvm-cov
+cargo llvm-cov --workspace --all-features
+cargo llvm-cov --workspace --all-features --html   # open target/llvm-cov/html/index.html
 ```
 
-**Usage**:
-```bash
-# Run coverage
-cargo llvm-cov --all-features --workspace
+`main-ci` and `auto-merge-validation` run the same workspace command with LCOV upload (report-only).
 
-# Generate HTML report
-cargo llvm-cov --all-features --workspace --html
-```
-
-### Option 3: Use CI/CD Coverage
-
-If local installation is problematic, coverage is automatically calculated in CI/CD:
-- GitHub Actions workflow runs on push/PR
-- Results available in workflow artifacts
-- No local installation required
+**Legacy:** `cargo-tarpaulin` is not used in CI; prefer llvm-cov unless you already have a local tarpaulin setup.
 

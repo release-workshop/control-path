@@ -1,74 +1,316 @@
 # CLI Guide
 
-This guide documents high-value `controlpath` workflows and command groups.
+This is the command reference for `controlpath` boolean-flag workflows.
 
 ## Global flags
 
 - `--json`: machine-readable output where supported
 - `--non-interactive`: disable prompts
-- `-v` / `-vv` / `--verbose`: more diagnostics
-- `-q` / `--quiet`: errors only
+- `-v` / `-vv` / `--verbose`: increase diagnostics
+- `-q` / `--quiet`: reduce output to errors
 
-## Workflow commands
+## Safety-first release flow
 
-- `setup`: bootstrap project scaffolding
-- `new-flag`: add a flag and optionally enable it
-- `flag enable`: enable a flag in one or more environments
-- `deploy`: validate and compile for environments
-- `dev`: developer-focused flow with smart defaults
-
-## Core commands
-
-- `validate`: validate catalog and rules
-- `compile`: compile environment rules to artifact
-- `generate-sdk`: regenerate TypeScript SDK
-
-## Management commands
-
-- `flag`: `add`, `list`, `show`, `remove`, `deprecate`, `report`
-- `env`: `add`, `sync`, `list`, `remove`
-- `kill-switch`: `set`, `clear`, `list`
-
-## Debug and CI commands
-
-- `explain`: inspect evaluation path for one flag/user/context
-- `debug`: run interactive debug UI
-- `watch`: watch and regenerate/recompile on changes
-- `ci`: run CI validation/compile flow
-- `completion`: shell completion output
-
-## Common flows
-
-Create and enable in one command:
+Use this as the default rollout loop for release safety:
 
 ```bash
-controlpath new-flag checkout_revamp --enable-in staging
-```
-
-Enable in two environments:
-
-```bash
-controlpath flag enable checkout_revamp --env=staging,production --all
-```
-
-Explain with trace:
-
-```bash
+controlpath new-flag checkout_revamp --type boolean --default false
+controlpath flag enable checkout_revamp --env staging --rule "user.id % 100 < 10"
 controlpath explain --flag checkout_revamp --user user.json --env staging --trace
+controlpath ci --env staging
+controlpath deploy --env staging
 ```
 
-CI with explicit envs:
+When promoting:
 
 ```bash
-controlpath ci --env=staging,production
+controlpath flag enable checkout_revamp --env production --rule "user.id % 100 < 5"
+controlpath ci --env production
+controlpath deploy --env production
 ```
 
-## Migration naming notes
+Important boolean DX notes:
 
-- Use `new-flag --enable-in` (not older `--enable`)
-- Use `explain --user` and optional `--context`
-- Use `kill-switch` (legacy `override` command is removed)
-- For environment-scoped list/show, use deployment-oriented flags from command help
+- `new-flag --default` now rejects invalid values (use `true` / `false`, also accepts `ON` / `OFF`).
+- `flag enable --value` now rejects invalid values (use `true` / `false`, also accepts `ON` / `OFF`).
+- If `flag enable` is run without `--rule`, it configures a catch-all rule for the target environment.
+- Prefer explicit `--env` in production workflows.
+
+## Top-level commands
+
+### `setup`
+
+Bootstrap a local project with catalog scaffolding, initial compile, and SDK generation.
+
+Common options:
+
+- `--lang <lang>`
+- `--skip-install`
+- `--no-examples`
+
+### `init`
+
+Scaffold workspace/service catalog files for monorepo or multi-repo setups.
+
+Common options:
+
+- `--monorepo` or `--no-monorepo`
+- `--namespace <name>`
+- `--service-id <id>`
+
+### `new-flag`
+
+Create a new boolean flag and optionally seed environment rules.
+
+Common options:
+
+- positional `name`
+- `--type boolean`
+- `--default <true|false>`
+- `--description <text>`
+- `--enable-in <env[,env2]>`
+- `--skip-sdk`
+- `--best-effort`
+
+### `deploy`
+
+Validate and compile artifacts for one or more environments.
+
+Common options:
+
+- `--env <env[,env2]>`
+- `--dry-run`
+
+### `dev`
+
+Development loop command with smart defaults and watch behavior.
+
+Common options:
+
+- `--lang <lang>`
+
+### `watch`
+
+Watch catalog changes and regenerate SDK and/or compile artifacts.
+
+Common options:
+
+- `--lang <lang>`
+- `--definitions`
+- `--deployments`
+
+### `validate`
+
+Validate catalog/environment configuration.
+
+Common options:
+
+- `--env <env>`
+- `--all`
+
+### `compile`
+
+Compile environment rules into `.controlpath/<env>.ast`.
+
+Common options:
+
+- `--env <env>`
+- `--output <path>`
+
+### `generate-sdk`
+
+Regenerate SDK from catalog definitions.
+
+Common options:
+
+- `--lang <lang>`
+- `--output <dir>`
+
+### `ci`
+
+Run CI workflow checks (validate + compile, optional SDK regen).
+
+Common options:
+
+- `--env <env>` (repeatable / comma-separated)
+- `--no-sdk`
+
+### `explain`
+
+Show evaluation details for one flag/user/context.
+
+Common options:
+
+- `--flag <name>` (required)
+- `--user <path-or-json>`
+- `--context <path-or-json>`
+- `--env <env>` or `--ast <path>`
+- `--trace`
+
+### `debug`
+
+Launch the interactive debug UI.
+
+Common options:
+
+- `--port <number>`
+- `--env <env>` or `--ast <path>`
+- `--open`
+
+### `completion`
+
+Generate shell completion scripts.
+
+Usage:
+
+```bash
+controlpath completion bash
+controlpath completion zsh
+controlpath completion fish
+```
+
+## `flag` subcommands
+
+### `flag add`
+
+Add a boolean flag to the catalog.
+
+Common options:
+
+- `--name <name>`
+- `--type boolean`
+- `--default <true|false>`
+- `--description <text>`
+- `--lang <lang>`
+- `--sync`
+- `--no-interactive`
+
+### `flag list`
+
+List flag definitions or environment-scoped rule status.
+
+Common options:
+
+- `--definitions`
+- `--deployment <env>`
+- `--format table|json|yaml`
+
+### `flag show`
+
+Show one flag in detail, including environment rule coverage.
+
+Common options:
+
+- `--name <name>`
+- `--deployment <env>`
+- `--format table|json|yaml`
+
+### `flag remove`
+
+Remove a flag globally or clear it from one environment.
+
+Common options:
+
+- `--name <name>`
+- `--env <env>`
+
+### `flag enable`
+
+Enable/configure a flag in one or more environments.
+
+Common options:
+
+- positional `name`
+- `--env <env[,env2]>`
+- `--rule "<expression>"`
+- `--all`
+- `--value <true|false>`
+- `--interactive`
+- `--no-compile`
+- `--best-effort`
+- `--force`
+
+### `flag deprecate`
+
+Mark a flag as deprecated; future rule changes require `flag enable --force`.
+
+Common options:
+
+- `--name <name>`
+
+### `flag report`
+
+Show lifecycle/rot reporting (SaaS telemetry is read-only when available).
+
+## `env` subcommands
+
+### `env add`
+
+Add a new environment in catalog workflows.
+
+Common options:
+
+- `--name <env>`
+- `--interactive`
+
+### `env sync`
+
+Sync and validate environment rule surfaces against catalog flags.
+
+Common options:
+
+- `--env <env>`
+- `--dry-run`
+
+### `env list`
+
+List configured environments.
+
+Common options:
+
+- `--format table|json|yaml`
+
+### `env remove`
+
+Remove an environment from catalog rules.
+
+Common options:
+
+- `--name <env>`
+
+## `kill-switch` subcommands
+
+Kill-switch commands are for incident overrides and require explicit `--env`.
+
+### `kill-switch set`
+
+Set a kill switch value for a `kind: kill_switch` flag.
+
+Usage:
+
+```bash
+controlpath kill-switch set emergency_stop true --env production
+```
+
+### `kill-switch clear`
+
+Clear a kill switch override.
+
+Usage:
+
+```bash
+controlpath kill-switch clear emergency_stop --env production
+```
+
+### `kill-switch list`
+
+List active kill switches in an environment.
+
+Usage:
+
+```bash
+controlpath kill-switch list --env production
+```
 
 ## Help
 
@@ -77,4 +319,5 @@ Use built-in help for exact options on your installed version:
 ```bash
 controlpath --help
 controlpath <command> --help
+controlpath <command> <subcommand> --help
 ```

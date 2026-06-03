@@ -848,7 +848,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Known issue: Signature deserialization can fail due to MessagePack map field ordering
     fn test_signature_serialize_deserialize() {
         let signature = Some(vec![1, 2, 3, 4, 5]);
         let artifact = Artifact {
@@ -860,7 +859,8 @@ mod tests {
             segments: None,
             signature: signature.clone(),
         };
-        let bytes = rmp_serde::to_vec(&artifact).unwrap();
+        // Production wire format: MessagePack map via `serialize()`, not `rmp_serde::to_vec` tuple encoding.
+        let bytes = crate::serialize(&artifact).expect("serialize should succeed");
         let deserialized: Artifact = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(deserialized.signature, signature);
     }
@@ -876,9 +876,29 @@ mod tests {
             segments: None,
             signature: None,
         };
-        let bytes = rmp_serde::to_vec(&artifact).unwrap();
+        let bytes = crate::serialize(&artifact).expect("serialize should succeed");
         let deserialized: Artifact = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(deserialized.signature, None);
+    }
+
+    /// `rmp_serde::to_vec` encodes `Artifact` as a struct/tuple; that is not the canonical map wire format.
+    #[test]
+    fn test_rmp_serde_to_vec_does_not_round_trip_signed_artifacts() {
+        let artifact = Artifact {
+            version: "1.0".to_string(),
+            environment: "test".to_string(),
+            string_table: vec![],
+            flags: vec![],
+            flag_names: vec![],
+            segments: None,
+            signature: Some(vec![1, 2, 3, 4, 5]),
+        };
+        let bytes = rmp_serde::to_vec(&artifact).unwrap();
+        let result: Result<Artifact, _> = rmp_serde::from_slice(&bytes);
+        assert!(
+            result.is_err(),
+            "signed artifacts must round-trip through serialize(), not rmp_serde::to_vec"
+        );
     }
 
     #[test]

@@ -10,7 +10,7 @@ Run from repo root:
 cargo fmt --all
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
+cargo test --workspace          # fast local loop; CI runs the same tests via llvm-cov below
 cargo build --workspace
 cargo build --release --bin controlpath
 ```
@@ -20,6 +20,26 @@ If parallel CLI tests flake due to working-directory pollution:
 ```bash
 cargo test --workspace -- --test-threads=1
 ```
+
+## Rust coverage (`controlpath-compiler`, `controlpath-cli`)
+
+**Tool:** [`cargo llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) (LLVM source-based coverage; no OpenSSL dependency unlike tarpaulin).
+
+**Scope:** workspace crates `crates/compiler` and `crates/cli` (`cargo llvm-cov --workspace`).
+
+**Local:**
+
+```bash
+cargo install cargo-llvm-cov
+cargo llvm-cov --workspace --all-features
+cargo llvm-cov --workspace --all-features --html   # open target/llvm-cov/html/index.html
+```
+
+**CI:** `main-ci` and `auto-merge-validation` run the same workspace command, emit `rust-lcov.info`, and upload to Codecov with `fail_ci_if_error: false`.
+
+**Thresholds:** report-only through **2026-09-01**. After that date, revisit blocking line/branch thresholds in CI (ratchet from the report baseline; TypeScript runtime already enforces 80% in `runtime/typescript/vitest.config.ts`).
+
+The legacy tarpaulin workflow under `crates/cli/.github/workflows/` was removed; root workflows are canonical.
 
 ## Runtime TypeScript-only changes
 
@@ -31,6 +51,21 @@ npm run typecheck
 npm test
 ```
 
+## SDK generator E2E (`tests/e2e`)
+
+Pre-merge CI runs a **smoke** slice; the full suite runs **post-merge** on `main`.
+
+Local commands (from repo root after `cargo build --release --bin controlpath`):
+
+```bash
+cd runtime/typescript && npm ci && npm run build
+cd tests/e2e && npm ci
+cd tests/e2e && npm run test:smoke   # pre-merge gate (src/smoke/ only; vitest.smoke.config.ts)
+cd tests/e2e && npm test             # full post-merge-equivalent suite
+```
+
+Smoke covers CLI → compile → `generate-sdk` → generated evaluator for one representative catalog path. Full E2E adds conditional rules, batch evaluation, overloads, error handling, and additional runtime integration cases.
+
 ## Documentation and command updates
 
 When behavior changes:
@@ -41,5 +76,23 @@ When behavior changes:
 
 ## CI expectations
 
-CI should enforce the same commands above. Local success should match CI expectations
-to avoid merge-time surprises.
+**Pre-merge** (`main-ci` on PRs / merge queue / pushes to `main`, and `auto-merge-validation` on `validation/**` branches) must pass.
+
+`main-ci` runs all gates on every push (no path filters). `auto-merge-validation` uses path filters for speed but runs the **same Rust gates** whenever `runtime/typescript/**` changes (not only `crates/**`), so TypeScript-only validation pushes still get fmt, workspace build, clippy, and workspace tests before merge.
+
+
+| Gate | Command / job |
+|------|----------------|
+| Rust format | `cargo fmt --all -- --check` |
+| Workspace build | `cargo build --workspace` |
+| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
+| Rust tests + coverage | `cargo llvm-cov --workspace --all-features` (CI also uploads LCOV; report-only) |
+| Release CLI | `cargo build --release --bin controlpath` |
+| Runtime TS | `npm run lint`, `npm run typecheck`, `npm test` (with coverage) |
+| E2E smoke | `tests/e2e`: `npm run test:smoke` |
+
+**Post-merge** (`post-merge-e2e` after `Main CI` succeeds on `main`): runs `npm test` in `tests/e2e` (full suite). Failures require follow-up on `main` but do not block the merge that already landed.
+
+Local success on the commands above should match CI; workflow contracts are also checked by `cargo test --test ci_workflow_gates`.
+
+**Branch protection (required to ship issue 01):** workflows alone do not block GitHub merges until required status checks exist. Run `scripts/setup-main-pre-merge-ruleset.sh` after merge (idempotent: creates or updates the ruleset) so PRs to `main` require `E2E smoke (pre-merge)` and other Main CI job names. **Release PRs** (`release-please--branches--main`): Main CI skips jobs by design — use `scripts/setup-e2e-ruleset.sh` for post-merge E2E only; verify release PRs still merge before tightening rules on `main`.

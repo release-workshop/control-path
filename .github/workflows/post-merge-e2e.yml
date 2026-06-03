@@ -1,7 +1,6 @@
 name: Post-Merge E2E Tests
 
-# Run e2e tests after code is merged to main
-# This follows CD best practices: fast CI, then e2e verification post-merge
+# Full e2e suite after code is merged to main (pre-merge runs tests/e2e test:smoke only)
 # Reuses the CLI binary built by main-ci.yml workflow
 on:
   workflow_run:
@@ -18,7 +17,11 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch') ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch != 'release-please--branches--main')
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch != 'release-please--branches--main'
+      )
     permissions:
       contents: read
 

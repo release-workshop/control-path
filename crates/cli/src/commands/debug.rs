@@ -788,11 +788,27 @@ fn determine_ast_path(options: &Options) -> Result<PathBuf, CliError> {
                         ))
                     }
                 },
-                |env| Ok(PathBuf::from(format!(".controlpath/{env}.ast"))),
+                |env| {
+                    if !is_valid_env_name(env) {
+                        return Err(CliError::Message(format!(
+                            "Invalid environment name '{env}'. Use lowercase letters, numbers, and underscores only."
+                        )));
+                    }
+                    Ok(PathBuf::from(format!(".controlpath/{env}.ast")))
+                },
             )
         },
         |ast| Ok(PathBuf::from(ast)),
     )
+}
+
+fn is_valid_env_name(env: &str) -> bool {
+    let mut chars = env.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// Load artifact from path
@@ -1879,6 +1895,18 @@ mod tests {
             result.unwrap(),
             PathBuf::from(".controlpath/production.ast")
         );
+    }
+
+    #[test]
+    fn test_determine_ast_path_with_invalid_env_option() {
+        let options = Options {
+            port: None,
+            env: Some("../secrets".to_string()),
+            ast: None,
+            open: false,
+        };
+        let result = determine_ast_path(&options);
+        assert!(result.is_err());
     }
 
     #[test]

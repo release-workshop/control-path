@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "test:smoke": "vitest run --config vitest.smoke.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

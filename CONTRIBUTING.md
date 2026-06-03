@@ -60,12 +60,15 @@ See the [README.md](README.md) for detailed setup instructions.
    # Build TypeScript runtime SDK
    cd runtime/typescript && npm install && npm run build && cd ../..
    ```
-5. Run tests:
+5. Run tests (full pre-merge checklist: [Testing and Quality Gates](docs/developer/testing-and-quality-gates.md)):
    ```bash
-   # Run Rust tests
+   cargo fmt --all -- --check
+   cargo clippy --workspace --all-targets --all-features -- -D warnings
    cargo test --workspace
-   # Run TypeScript runtime SDK tests
-   cd runtime/typescript && npm test && cd ../..
+   cargo build --workspace
+   cargo build --release --bin controlpath
+   cd runtime/typescript && npm run lint && npm run typecheck && npm test && cd ../..
+   # After building the CLI: cd tests/e2e && npm ci && npm run test:smoke
    ```
 
 ## Development Workflow
@@ -191,7 +194,7 @@ chore(ci): update GitHub Actions workflows for merge queues
 1. Update the README.md with details of changes if applicable
 2. Update documentation if you're changing functionality
 3. Ensure your code follows the project's code style
-4. Ensure all tests pass
+4. Ensure all tests pass (see [Testing and Quality Gates](docs/developer/testing-and-quality-gates.md); CI runs the same gates including `npm run test:smoke`)
 5. Add tests for new functionality
 6. Create a pull request with a clear description
 

@@ -53,24 +53,14 @@ Common tasks:
 
 ## Verification Before Finishing
 
-When editing `crates/compiler`, `crates/cli`, or shared schemas, run from repo root:
+Canonical checklist (local commands, CI job names, E2E smoke vs post-merge, branch protection): **`docs/developer/testing-and-quality-gates.md`**.
 
-```bash
-cargo fmt --all
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace
-cargo build --workspace
-cargo build --release --bin controlpath
-```
+Quick reference:
 
-When touching only `runtime/typescript`, run from `runtime/typescript`:
-
-```bash
-npm run lint
-npm run typecheck
-npm test
-```
+- **Rust / schemas / CLI:** `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, `cargo test --workspace`, `cargo build --workspace`, `cargo build --release --bin controlpath` (CI also runs `cargo llvm-cov --workspace --all-features` and uploads coverage).
+- **Runtime TypeScript:** from `runtime/typescript`: `npm run lint`, `npm run typecheck`, `npm test`.
+- **SDK generator path:** from `tests/e2e`: `npm run test:smoke` before merge; `npm test` for the full post-merge-equivalent suite.
+- **Workflow contract:** `cargo test --test ci_workflow_gates` from repo root.
 
 ## Documentation Map
 

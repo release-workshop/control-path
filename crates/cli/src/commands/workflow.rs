@@ -30,6 +30,16 @@ pub struct NewFlagOptions {
     pub best_effort: bool,
 }
 
+fn parse_cli_bool(input: &str, field: &str) -> CliResult<bool> {
+    match input.to_ascii_lowercase().as_str() {
+        "true" | "on" | "1" | "yes" => Ok(true),
+        "false" | "off" | "0" | "no" => Ok(false),
+        _ => Err(CliError::Message(format!(
+            "Invalid {field} value '{input}'. Use true/false (or ON/OFF)."
+        ))),
+    }
+}
+
 fn validate_flag_name(name: &str) -> CliResult<()> {
     if name.is_empty() {
         return Err(CliError::Message("Flag name cannot be empty".to_string()));
@@ -152,11 +162,7 @@ fn run_new_flag_inner(options: &NewFlagOptions) -> CliResult<String> {
     }
 
     let default_value = if let Some(ref default_str) = options.default {
-        if default_str == "true" || default_str == "True" {
-            Value::Bool(true)
-        } else {
-            Value::Bool(false)
-        }
+        Value::Bool(parse_cli_bool(default_str, "default")?)
     } else {
         Value::Bool(false)
     };
@@ -442,7 +448,7 @@ fn run_enable_inner(options: &EnableOptions) -> CliResult<Vec<String>> {
     };
 
     let serve_bool = if let Some(val_str) = options.value.as_deref() {
-        val_str == "true" || val_str == "True"
+        parse_cli_bool(val_str, "serve")?
     } else {
         !default_bool
     };
@@ -1040,6 +1046,30 @@ flags:
 
     #[test]
     #[serial]
+    fn test_new_flag_rejects_invalid_boolean_default() {
+        let temp_dir = setup_test_project();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
+
+        let options = NewFlagOptions {
+            name: Some("invalid_default_flag".to_string()),
+            flag_type: Some("boolean".to_string()),
+            default: Some("maybe".to_string()),
+            description: None,
+            enable_in: None,
+            skip_sdk: true,
+            best_effort: false,
+        };
+
+        let result = run_new_flag_inner(&options);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid default value"));
+    }
+
+    #[test]
+    #[serial]
     fn test_enable_flag_multiple_envs() {
         let temp_dir = setup_test_project();
         let temp_path = temp_dir.path();
@@ -1082,5 +1112,31 @@ environments:
         assert!(result.is_ok());
         let updated_envs = result.unwrap();
         assert_eq!(updated_envs.len(), 2);
+    }
+
+    #[test]
+    #[serial]
+    fn test_enable_rejects_invalid_boolean_value() {
+        let temp_dir = setup_test_project();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
+
+        let options = EnableOptions {
+            name: "existing_flag".to_string(),
+            env: Some("production".to_string()),
+            rule: None,
+            value: Some("sometimes".to_string()),
+            all: true,
+            interactive: false,
+            no_compile: true,
+            best_effort: false,
+            force: false,
+        };
+
+        let result = run_enable_inner(&options);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid serve value"));
     }
 }

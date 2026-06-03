@@ -5,6 +5,7 @@ export default defineConfig({
     pool: 'forks',
     isolate: true,
     globals: true,
+    exclude: ['**/node_modules/**', '**/smoke/**'],
   },
 });
 
