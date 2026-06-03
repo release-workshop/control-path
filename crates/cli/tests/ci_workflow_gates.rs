@@ -126,6 +126,136 @@ fn e2e_smoke_uses_dedicated_vitest_config() {
     );
 }
 
+fn read_developer_doc(name: &str) -> String {
+    let path = repo_root().join("docs/developer").join(name);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+fn read_repo_file(relative: &str) -> String {
+    let path = repo_root().join(relative);
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+}
+
+#[test]
+fn canonical_testing_doc_lists_layers_and_pre_merge_gates() {
+    let doc = read_developer_doc("testing.md");
+    for gate in PRE_MERGE_RUST_GATES {
+        assert!(
+            doc.contains(gate),
+            "docs/developer/testing.md must document pre-merge gate `{gate}`"
+        );
+    }
+    assert!(
+        doc.contains("npm run test:smoke"),
+        "canonical testing doc must describe E2E smoke"
+    );
+    assert!(doc.contains("main-ci.yml"), "must map gates to Main CI");
+    assert!(
+        doc.contains("auto-merge-validation.yml"),
+        "must map gates to auto-merge validation"
+    );
+    assert!(
+        doc.contains("post-merge-e2e.yml"),
+        "must describe post-merge E2E"
+    );
+    assert!(
+        doc.contains("crates/compiler"),
+        "must describe compiler tests"
+    );
+    assert!(
+        doc.contains("crates/cli/tests"),
+        "must describe CLI integration tests"
+    );
+    assert!(
+        doc.contains("runtime/typescript"),
+        "must describe TypeScript runtime tests"
+    );
+}
+
+const HUB_PATH: &str = "docs/developer/testing.md";
+const HUB_CI_GATES_ANCHOR: &str = "#ci-workflows-and-gates";
+
+fn assert_repo_entry_points_link_to_testing_hub(content: &str, label: &str) {
+    assert!(
+        content.contains(HUB_PATH),
+        "{label} must link to `{HUB_PATH}` (not merely mention testing.md)"
+    );
+}
+
+#[test]
+fn contributor_docs_link_to_canonical_testing_page() {
+    for (content, label) in [
+        (read_repo_file("DEVELOPING.md"), "DEVELOPING.md"),
+        (read_repo_file("README.md"), "README.md"),
+        (read_repo_file("CONTRIBUTING.md"), "CONTRIBUTING.md"),
+        (read_repo_file("AGENTS.md"), "AGENTS.md"),
+    ] {
+        assert_repo_entry_points_link_to_testing_hub(&content, label);
+    }
+    let gates = read_developer_doc("testing-and-quality-gates.md");
+    assert!(
+        gates.contains("./testing.md"),
+        "testing-and-quality-gates.md must link to the hub (relative path)"
+    );
+}
+
+#[test]
+fn checklist_links_to_hub_ci_workflows_section() {
+    let gates = read_developer_doc("testing-and-quality-gates.md");
+    assert!(
+        gates.contains(&format!("./testing.md{HUB_CI_GATES_ANCHOR}")),
+        "checklist must link to the hub CI workflows section anchor"
+    );
+    let hub = read_developer_doc("testing.md");
+    assert!(
+        hub.contains("## CI workflows and gates"),
+        "hub must keep the heading that generates the ci-workflows-and-gates anchor"
+    );
+}
+
+#[test]
+fn cli_package_testing_docs_point_at_canonical_hub() {
+    let cli_testing = read_repo_file("crates/cli/TESTING.md");
+    let cli_tests_readme = read_repo_file("crates/cli/tests/README.md");
+    let hub = "docs/developer/testing.md";
+    assert!(
+        cli_testing.contains(hub),
+        "crates/cli/TESTING.md must point to the canonical hub"
+    );
+    assert!(
+        cli_tests_readme.contains(hub),
+        "crates/cli/tests/README.md must point to the canonical hub"
+    );
+}
+
+#[test]
+fn compiler_benchmark_workflow_is_scheduled_and_documented() {
+    let workflow = read_workflow("compiler-benchmarks.yml");
+    assert!(
+        workflow.contains("schedule:"),
+        "compiler-benchmarks.yml must run on a schedule"
+    );
+    assert_workflow_contains(
+        &workflow,
+        "compiler-benchmarks.yml",
+        "cargo bench -p controlpath-compiler --bench compilation",
+    );
+    let doc = read_developer_doc("testing.md");
+    assert!(
+        doc.contains("compiler-benchmarks.yml"),
+        "docs/developer/testing.md must document the benchmark workflow"
+    );
+    let cache_step = workflow
+        .split("Cache Cargo registry")
+        .nth(1)
+        .and_then(|s| s.split("Run Criterion").next())
+        .expect("cache step block");
+    assert!(
+        !cache_step.contains("target/"),
+        "benchmark workflow must not cache target/ (avoids stale Criterion baselines)"
+    );
+}
+
 #[test]
 fn post_merge_e2e_workflow_still_runs_full_suite() {
     let workflow = read_workflow("post-merge-e2e.yml");

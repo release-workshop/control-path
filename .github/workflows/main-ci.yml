@@ -72,7 +72,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      # Workspace tests (compiler + CLI) with report-only coverage (see testing-and-quality-gates.md)
+      # Workspace tests (compiler + CLI) with report-only coverage (see docs/developer/testing.md)
       - name: Run Rust tests with coverage
         run: cargo llvm-cov --workspace --all-features --lcov --output-path rust-lcov.info
 

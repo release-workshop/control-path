@@ -1,6 +1,6 @@
 # Rust coverage
 
-Canonical policy: [Testing and quality gates](../../docs/developer/testing-and-quality-gates.md#rust-coverage-controlpath-compiler-controlpath-cli).
+Canonical policy: [Testing in Control Path](../../docs/developer/testing.md) (Rust coverage section); checklist: [Testing and quality gates](../../docs/developer/testing-and-quality-gates.md#rust-coverage-controlpath-compiler-controlpath-cli).
 
 Quick start from repo root:
 

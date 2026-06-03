@@ -38,6 +38,7 @@ Deep-dive engineering docs:
 - `docs/developer/architecture.md`
 - `docs/developer/cli-internals.md`
 - `docs/developer/runtime-typescript.md`
+- `docs/developer/testing.md`
 - `docs/developer/testing-and-quality-gates.md`
 - `docs/developer/release-process.md`
 

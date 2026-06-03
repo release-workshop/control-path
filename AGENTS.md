@@ -14,7 +14,7 @@ Single-context layout: read `CONTEXT.md` and `docs/adr/` at the repo root when p
 
 ## Verification (required before finishing Rust changes)
 
-Run these from the repo root after substantive edits to `crates/compiler`, `crates/cli`, or shared schemas. Do not skip because a subset “probably” suffices — match what CI runs.
+Test layers, CI mapping, and limitations: `docs/developer/testing.md`. Run these from the repo root after substantive edits to `crates/compiler`, `crates/cli`, or shared schemas. Do not skip because a subset “probably” suffices — match what CI runs.
 
 ```bash
 cargo fmt --all

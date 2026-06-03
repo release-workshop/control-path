@@ -8,72 +8,21 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PUSHMAIN_SCRIPT="${SCRIPT_DIR}/pushmain.sh"
+
 echo "Setting up git aliases for Control Path..."
 
-# Get the repository remote URL (assuming origin)
-REMOTE_URL=$(git remote get-url origin 2>/dev/null || echo "")
-if [ -z "$REMOTE_URL" ]; then
-  echo "Warning: Could not determine remote URL. The pushmain alias will still work, but PR URL generation may be limited."
-  REPO_OWNER=""
-  REPO_NAME=""
-else
-  # Extract owner/repo from various remote URL formats
-  if [[ "$REMOTE_URL" =~ github\.com[:/]([^/]+)/([^/]+)(\.git)?$ ]]; then
-    REPO_OWNER="${BASH_REMATCH[1]}"
-    REPO_NAME="${BASH_REMATCH[2]%.git}"
-  fi
+if [ ! -x "${PUSHMAIN_SCRIPT}" ]; then
+  chmod +x "${PUSHMAIN_SCRIPT}"
 fi
 
-# pushmain alias: push current main through validation → auto-merge (appears as direct push to main)
-git config alias.pushmain '!bash -c "
-  set +x
-  CURRENT_BRANCH=\$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo \"\")
-
-  if [ \"\$CURRENT_BRANCH\" != \"main\" ]; then
-    echo \"Error: pushmain must be run from the main branch (current: \$CURRENT_BRANCH).\"
-    echo \"Please switch to main: git checkout main && git pull --ff-only\"
-    exit 1
-  fi
-
-  echo \"Syncing with origin/main...\"
-  git fetch origin main:main 2>/dev/null || true
-
-  echo \"Rebasing local main onto origin/main...\"
-  git rebase origin/main 2>/dev/null || {
-    echo \"Error: Rebase failed. Please resolve conflicts and try again.\"
-    exit 1
-  }
-
-  # Check if there are any commits to push
-  if git diff --quiet origin/main HEAD 2>/dev/null; then
-    echo \"No committed changes to push. Your local main is up to date with origin/main.\"
-    exit 0
-  fi
-
-  SHORT_SHA=\$(git rev-parse --short HEAD 2>/dev/null)
-  USER_PART=\$(git config user.username 2>/dev/null || git config user.name 2>/dev/null || echo \"dev\")
-  USER_PART=\$(echo \"\$USER_PART\" | tr \"[:upper:]\" \"[:lower:]\" | sed \"s/[^a-z0-9-]/-/g\" | sed \"s/--*/-/g\" | sed \"s/^-\\(.*\\)-$/\\1/\" | sed \"s/^-\\(.*\\)$/\\1/\" | sed \"s/\\(.*\\)-$/\\1/\")
-  if [ -z \"\$USER_PART\" ]; then
-    USER_PART=\"dev\"
-  fi
-  TS_PART=\$(date +%Y%m%d-%H%M%S)
-  REMOTE_BRANCH=\"validation/\${USER_PART}-\${TS_PART}-\${SHORT_SHA}\"
-
-  echo \"Pushing to validation branch: \${REMOTE_BRANCH}...\"
-  git push origin HEAD:\"refs/heads/\${REMOTE_BRANCH}\" 2>&1
-
-  echo \"\"
-  echo \"✓ Pushed to \${REMOTE_BRANCH}\"
-  echo \"\"
-  echo \"CI is running validation checks. If all checks pass, your changes will\"
-  echo \"automatically merge into main (appearing as if you pushed directly).\"
-  echo \"\"
-  echo \"You can continue working on main locally. Check GitHub Actions for status.\"
-"'
+# Resolve repo root at run time so the alias survives clone moves after re-setup.
+git config alias.pushmain '!bash "$(git rev-parse --show-toplevel)/scripts/pushmain.sh"'
 
 echo "✓ Git alias 'pushmain' configured successfully!"
 echo ""
-echo "✓ Pre-push hook installed to block direct pushes to main"
+echo "✓ Pre-push hook blocks direct pushes to main (install from .githooks/ if needed)"
 echo ""
 echo "Usage (for maintainers/trusted users with trunk-based development):"
 echo "  git checkout main"
@@ -82,11 +31,13 @@ echo "  git pushmain"
 echo ""
 echo "This will:"
 echo "  - Sync and rebase your local main onto origin/main"
-echo "  - Push to a validation/* branch (invisible to you)"
-echo "  - CI validates your changes (TIA, coverage, lint, typecheck)"
-echo "  - On success, automatically merges into main (appears as direct push)"
+echo "  - Push to a temporary validation/* branch"
+echo "  - Wait for Auto-merge validation CI (requires GitHub CLI: gh auth login)"
+echo "  - On success, auto-merge to main and git pull --ff-only origin main"
+echo ""
+echo "Options:"
+echo "  git pushmain --no-wait   # push validation branch without waiting for CI"
 echo ""
 echo "Note:"
-echo "  - Direct pushes to main are blocked by a pre-push hook (use 'git pushmain' instead)"
-echo "  - Contributors should use Pull Requests instead of pushmain"
-
+echo "  - Direct pushes to main are blocked by the pre-push hook (use 'git pushmain')"
+echo "  - Contributors should use pull requests instead of pushmain"

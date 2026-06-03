@@ -1,234 +1,40 @@
-# Testing Guide for Control Path CLI
+# CLI testing (package notes)
 
-## Overview
+**Canonical repo guide:** [Testing in Control Path](../../docs/developer/testing.md) (layers, CI, coverage, E2E). **Pre-merge commands:** [Testing and quality gates](../../docs/developer/testing-and-quality-gates.md).
 
-The Control Path CLI has comprehensive test coverage including:
-- **Unit tests**: Test individual functions and components (in `#[cfg(test)]` modules)
-- **Integration tests**: Test complete workflows and CLI commands end-to-end (in `tests/` directory)
+This file only covers CLI-specific layout and helpers.
 
-## Running Tests
+## Layout
 
-### Run all tests
+- **Unit tests:** `src/**` in `#[cfg(test)]` modules (commands, utils, generator).
+- **Integration tests:** `tests/*.rs` — subprocess `controlpath` via `TestProject` in `integration_test_helpers.rs`.
+
+## Running CLI tests
+
+From `crates/cli` or repo root:
+
 ```bash
-cargo test
+cargo test -p controlpath-cli              # unit + all integration test targets
+cargo test -p controlpath-cli --test integration_workflows
+cargo test -p controlpath-cli test_new_flag_workflow
 ```
 
-### Run only unit tests
-```bash
-cargo test --lib
-```
+## Parallelism and `assert_boolean_flag`
 
-### Run only integration tests
-```bash
-cargo test --test integration_workflows
-cargo test --test integration_commands
-cargo test --test integration_error_cases
-```
-
-### Run a specific test
-```bash
-cargo test test_new_flag_workflow
-```
-
-### Run tests with output
-```bash
-cargo test -- --nocapture
-```
-
-## Test Structure
-
-### Unit Tests
-
-Unit tests are co-located with source code in `#[cfg(test)]` modules:
-- `src/commands/*.rs` - Each command has unit tests
-- `src/utils/*.rs` - Utility functions have unit tests
-- `src/generator/*.rs` - SDK generation has unit tests
-
-### Integration Tests
-
-Integration tests are in the `tests/` directory:
-- `tests/integration_test_helpers.rs` - Common test utilities
-- `tests/integration_workflows.rs` - Complete workflow tests
-- `tests/integration_commands.rs` - Individual command tests
-- `tests/integration_error_cases.rs` - Error handling tests
-- `tests/integration_watch.rs` - Watch mode tests (limited due to async nature)
-
-## Test Coverage
-
-### Commands Tested
-
-✅ **Core Commands**:
-- `validate` - Validates definitions and deployment files
-- `compile` - Compiles deployment files to AST
-- `generate-sdk` - Generates type-safe SDKs
-- `init` - Initializes new projects
-- `setup` - Complete project setup
-
-✅ **Workflow Commands**:
-- `new-flag` - Creates new flags
-- `enable` - Enables flags in environments
-- `deploy` - Deploys flags (validates + compiles)
-
-✅ **Management Commands**:
-- `flag add/list/show/remove` - Flag management
-- `env add/sync/list` - Environment management
-
-✅ **Debug Commands**:
-- `explain` - Explains flag evaluation
-- `debug` - Interactive debug UI (unit tests only)
-
-✅ **Development Commands**:
-- `watch` - File watching (unit tests + basic integration test)
-- `completion` - Shell completion generation
-
-### Test Scenarios
-
-✅ **Success Cases**:
-- All commands with valid input
-- Complete workflows (new-flag → enable → deploy)
-- File operations (read/write/validate)
-- SDK generation
-- AST compilation
-
-✅ **Error Cases**:
-- Missing files
-- Invalid input
-- Duplicate flags/environments
-- Invalid flag/environment names
-- Missing dependencies
-- Invalid file formats
-
-✅ **Edge Cases**:
-- Empty files
-- Missing optional parameters
-- Invalid JSON/YAML
-- File permission issues
-- Concurrent operations
-
-## Test Helpers
-
-The `TestProject` helper provides:
-- Temporary project directories
-- File operations (read/write/check existence)
-- CLI command execution
-- Success/failure assertions
-
-Example:
-```rust
-let project = TestProject::with_definitions(&simple_flag_definition("my_flag"));
-project.run_command_success(&["validate"]);
-assert!(project.file_exists("flags.definitions.yaml"));
-```
-
-## Limitations
-
-### Watch Mode
-Watch mode integration tests are limited because:
-- Watch mode runs indefinitely
-- Requires async file system watching
-- Needs time for file changes to be detected
-
-Watch mode is tested via:
-- Unit tests for watch logic components
-- Basic integration test for command structure
-- Manual testing during development
-
-### Interactive Mode
-Interactive mode testing is limited because:
-- Requires user input simulation
-- Dialoguer library doesn't easily support programmatic input
-- Best tested manually
-
-Interactive mode is tested via:
-- Unit tests for non-interactive paths
-- Manual testing during development
-
-## Adding New Tests
-
-### Unit Test Example
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_my_function() {
-        // Test implementation
-        assert_eq!(my_function(), expected_value);
-    }
-}
-```
-
-### Integration Test Example
-```rust
-mod integration_test_helpers;
-use integration_test_helpers::*;
-
-#[test]
-fn test_my_command() {
-    let project = TestProject::new();
-    project.run_command_success(&["my-command", "--flag", "value"]);
-    assert!(project.file_exists("expected_file"));
-}
-```
-
-## Parallelism and runtime evaluation
-
-Integration tests in `tests/` do **not** use `#[serial]` or process-wide `set_current_dir`. Each case uses `TestProject`, which runs `controlpath` with `Command::current_dir(project_path)`.
-
-Unit tests under `src/` that need the process cwd use `test_helpers::DirGuard` and `#[serial]` — only those may require `cargo test --lib -- --test-threads=1` if they flake in parallel.
+Integration tests do **not** use `#[serial]` or process-wide `set_current_dir`. Unit tests that need cwd use `test_helpers::DirGuard` and `#[serial]` — use `cargo test --lib -- --test-threads=1` only if unit tests flake.
 
 Helpers in `integration_test_helpers.rs`:
 
 - `assert_ast_compiled(env)` — artifact exists and is non-empty
-- `assert_boolean_flag(...)` — always checks AST; evaluates via Node when `runtime/typescript/dist` is built. Locally without `dist`, evaluation is skipped. In CI, missing `dist` panics (also if `CI` is set in the shell without a build, e.g. `act`).
-
-Build the runtime and ensure Node.js is on PATH before running workflow tests that evaluate flags:
+- `assert_boolean_flag(...)` — AST always; Node evaluation when `runtime/typescript/dist` exists (required in CI)
 
 ```bash
 cd runtime/typescript && npm ci && npm run build
-node --version   # evaluation shells out to node with a generated script
 ```
 
-CI builds the runtime in the `rust-tests` job before workspace tests.
+## Harder-to-automate areas
 
-## Best Practices
+- **Watch mode:** long-running; covered by unit tests and basic integration structure.
+- **Interactive / debug UI:** limited programmatic input; manual verification where needed.
 
-1. **Isolation**: Each test should be independent
-2. **Cleanup**: Use temporary directories (automatically cleaned up)
-3. **Real Operations**: Use actual file I/O (not mocked)
-4. **Verify Outcomes**: Test observable results, not implementation details
-5. **Error Cases**: Test both success and failure scenarios
-6. **Edge Cases**: Test boundary conditions and empty inputs
-
-## Continuous Integration
-
-Tests should pass in CI/CD:
-- All unit tests
-- All integration tests
-- No flaky tests
-- Fast execution (< 1 minute for full suite)
-
-## Coverage Goals
-
-- **Unit Tests**: > 80% code coverage
-- **Integration Tests**: All critical workflows covered
-- **Error Cases**: All error paths tested
-- **Edge Cases**: Common edge cases covered
-
-## Coverage Reporting
-
-Canonical Rust coverage policy (tool, CI, thresholds): [`docs/developer/testing-and-quality-gates.md`](../../docs/developer/testing-and-quality-gates.md#rust-coverage-controlpath-compiler-controlpath-cli).
-
-From the repo root:
-
-```bash
-cargo install cargo-llvm-cov
-cargo llvm-cov --workspace --all-features
-cargo llvm-cov --workspace --all-features --html   # open target/llvm-cov/html/index.html
-```
-
-`main-ci` and `auto-merge-validation` run the same workspace command with LCOV upload (report-only).
-
-**Legacy:** `cargo-tarpaulin` is not used in CI; prefer llvm-cov unless you already have a local tarpaulin setup.
-
+See [`tests/README.md`](tests/README.md) for integration file names.

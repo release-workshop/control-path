@@ -1,0 +1,49 @@
+# Scheduled Criterion benchmarks for controlpath-compiler (non-blocking).
+# See docs/developer/testing.md#scheduled-compiler-benchmarks-non-blocking
+
+name: Compiler benchmarks (scheduled)
+
+on:
+  schedule:
+    # Mondays 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  criterion:
+    name: Criterion compilation benches
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      # Registry only — do not cache target/ or target/criterion/ (stale Criterion baselines skew week-over-week deltas).
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-bench-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-registry-
+
+      - name: Run Criterion benchmarks
+        run: cargo bench -p controlpath-compiler --bench compilation
+
+      - name: Upload Criterion report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-report
+          path: target/criterion/
+          retention-days: 14

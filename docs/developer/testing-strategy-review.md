@@ -1,5 +1,7 @@
 # Testing Strategy Review
 
+> **Canonical guide:** [Testing in Control Path](./testing.md) describes current test layers, local commands, CI gates, and limitations. This file is the 2026-06-02 review that informed issues 01–04; keep it for historical context, not as the live checklist.
+
 Date: 2026-06-02
 Scope reviewed: `crates/compiler`, `crates/cli`, `runtime/typescript`, `tests/e2e`, CI workflows, and contributor docs.
 
@@ -25,11 +27,11 @@ Present in `crates/cli/tests/**`:
 - Workflow and command suites (workflows, commands, error cases, imports, lifecycle, watch, SaaS, explain, debug UI, legacy prune).
 - Shared helper infrastructure in `integration_test_helpers.rs`.
 
-Observed characteristics:
+Observed characteristics (2026-06-02 snapshot; **current behavior** is in [testing.md](./testing.md)):
 
 - Strong end-to-end command coverage with temporary project fixtures.
-- Many tests are marked `#[serial]`, and helper code uses a process-wide CWD mutex, indicating concurrency sensitivity.
-- Some assertions degrade to weaker fallback checks when runtime evaluation is unavailable (for example, asserting YAML text instead of final behavior).
+- At review time, many integration tests used `#[serial]` and a process-wide CWD mutex. **Superseded:** `crates/cli/tests/` integration suites are parallel-safe (`TestProject` + per-subprocess `current_dir`). `#[serial]` / `DirGuard` remain only for **unit tests** in `crates/cli/src/`.
+- At review time, some workflow tests fell back to YAML substring checks without runtime evaluation. **Superseded:** critical workflow tests assert AST and/or Node evaluation when `runtime/typescript/dist` is built (see [testing.md](./testing.md)).
 
 ### 3) TypeScript runtime tests (Vitest)
 
@@ -106,8 +108,8 @@ Overall: the project has a **strong multi-layer test foundation** (unit/module +
    - Rust has coverage guidance (including tarpaulin references), but no consistent, clearly active root CI policy tied to merges.
    - A coverage workflow exists under `crates/cli/.github/workflows/coverage.yml`, which may be easy to miss compared with root workflows.
 
-4. **Integration test flakiness pressure**
-   - Serial execution and CWD locking are practical mitigations, but they also signal global-state coupling that can limit parallelism and speed.
+4. **Integration test flakiness pressure** *(addressed in issue 03)*
+   - Was: serial execution and CWD locking on integration tests. **Now:** integration tests are parallel-safe; residual serial use is limited to CLI unit tests that change process cwd.
 
 5. **Ignored tests carry known defects**
    - `#[ignore]` tests tied to signature/messagepack ordering indicate unresolved correctness debt.
@@ -135,9 +137,9 @@ Overall: the project has a **strong multi-layer test foundation** (unit/module +
 
 ### Medium priority
 
-4. **Reduce serial-only dependence in CLI integration tests**
-   - Continue using serial where unavoidable, but track and remove avoidable global-CWD/shared-state dependencies.
-   - Favor per-test process isolation and explicit working directories over global state.
+4. **Reduce serial-only dependence in CLI integration tests** *(superseded by issue 03 — see [testing.md](./testing.md))*
+   - Was: continue using serial on integration tests; remove avoidable global-CWD coupling.
+   - **Done:** integration tests use per-subprocess `current_dir`; residual serial use is limited to CLI unit tests in `src/`.
 
 5. **Track and resolve ignored tests with owner + exit criteria**
    - For each ignored test, record:

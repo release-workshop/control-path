@@ -1,60 +1,20 @@
-# Integration Tests
+# CLI integration tests
 
-This directory contains integration tests for the Control Path CLI.
+**Canonical guide:** [Testing in Control Path](../../../docs/developer/testing.md).
 
-## Test Structure
+## Files
 
-- `integration_test_helpers.rs` - Common test utilities and helpers
-- `integration_workflows.rs` - Tests for complete workflows (new-flag → enable → deploy)
-- `integration_commands.rs` - Tests for individual CLI commands
-- `integration_error_cases.rs` - Tests for error handling and edge cases
+| File | Focus |
+|------|--------|
+| `integration_test_helpers.rs` | `TestProject`, AST/flag assertions |
+| `integration_workflows.rs` | new-flag → enable → deploy workflows |
+| `integration_commands.rs` | Individual commands |
+| `integration_error_cases.rs` | Errors and edge cases |
+| Other `integration_*.rs` | watch, SaaS, explain, lifecycle, imports, legacy prune, etc. |
+| `ci_workflow_gates.rs` | CI YAML matches documented pre-merge gates |
 
-## Running Tests
-
-### Run all integration tests
 ```bash
-cargo test --test integration_workflows
-cargo test --test integration_commands
-cargo test --test integration_error_cases
+cargo test -p controlpath-cli --test integration_workflows
 ```
 
-### Run all tests (unit + integration)
-```bash
-cargo test
-```
-
-### Run a specific test
-```bash
-cargo test --test integration_workflows test_new_flag_workflow
-```
-
-## Test Helpers
-
-The `TestProject` struct provides utilities for:
-- Creating temporary test projects
-- Running CLI commands
-- Reading/writing files
-- Checking file existence
-- Verifying command success/failure
-
-## Test Coverage
-
-Integration tests cover:
-- ✅ Complete workflows (new-flag → enable → deploy)
-- ✅ Individual command execution
-- ✅ Error handling and edge cases
-- ✅ Flag management operations (add, list, show, remove)
-- ✅ Environment management operations (add, sync, list, remove)
-- ✅ File I/O operations
-- ✅ Command validation
-- ✅ Output formats (table, JSON, YAML)
-- ✅ Debug UI command structure
-- ✅ Explain command edge cases (invalid JSON, missing files)
-
-## Notes
-
-- Tests use temporary directories that are automatically cleaned up
-- Each test is independent and isolated
-- Tests verify actual file operations (not mocked)
-- Tests check both success and failure cases
-
+Each test uses an isolated temp directory; see [CLI testing notes](../TESTING.md) for `assert_boolean_flag` and parallelism.

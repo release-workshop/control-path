@@ -9,7 +9,7 @@ This is the root contributor guide for the Control Path monorepo.
 
 Optional but recommended:
 
-- Git hooks setup: `bash scripts/setup-git-aliases.sh`
+- Git hooks and `git pushmain`: `bash scripts/setup-git-aliases.sh` (requires [GitHub CLI](https://cli.github.com/) with `gh auth login` to wait for validation CI)
 
 ## Local Setup
 
@@ -53,7 +53,9 @@ Common tasks:
 
 ## Verification Before Finishing
 
-Canonical checklist (local commands, CI job names, E2E smoke vs post-merge, branch protection): **`docs/developer/testing-and-quality-gates.md`**.
+Canonical testing guide (layers, CI workflows, limitations): **`docs/developer/testing.md`**.
+
+Pre-merge command checklist: **`docs/developer/testing-and-quality-gates.md`**.
 
 Quick reference:
 
@@ -67,6 +69,7 @@ Quick reference:
 - `docs/developer/architecture.md`
 - `docs/developer/cli-internals.md`
 - `docs/developer/runtime-typescript.md`
+- `docs/developer/testing.md`
 - `docs/developer/testing-and-quality-gates.md`
 - `docs/developer/release-process.md`
 

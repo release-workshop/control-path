@@ -1,6 +1,6 @@
 # Testing and Quality Gates
 
-Use this checklist before marking work done.
+Copy-paste checklist before marking work done. For test layers, CI job mapping, E2E smoke vs post-merge, coverage policy, and known limitations, see the canonical hub: **[Testing in Control Path](testing.md)** (`docs/developer/testing.md`).
 
 ## Rust changes (`crates/compiler`, `crates/cli`, shared schemas)
 
@@ -86,18 +86,9 @@ When behavior changes:
 
 **Pre-merge** (`main-ci` on PRs / merge queue / pushes to `main`, and `auto-merge-validation` on `validation/**` branches) must pass.
 
+Gate-to-workflow mapping (commands, job names, post-merge E2E): **[Testing in Control Path — CI workflows and gates](./testing.md#ci-workflows-and-gates)**.
+
 `main-ci` runs all gates on every push (no path filters). `auto-merge-validation` uses path filters for speed but runs the **same Rust gates** whenever `runtime/typescript/**` changes (not only `crates/**`), so TypeScript-only validation pushes still get fmt, workspace build, clippy, and workspace tests before merge.
-
-
-| Gate | Command / job |
-|------|----------------|
-| Rust format | `cargo fmt --all -- --check` |
-| Workspace build | `cargo build --workspace` |
-| Clippy | `cargo clippy --workspace --all-targets --all-features -- -D warnings` |
-| Rust tests + coverage | `cargo llvm-cov --workspace --all-features` (CI also uploads LCOV; report-only) |
-| Release CLI | `cargo build --release --bin controlpath` |
-| Runtime TS | `npm run lint`, `npm run typecheck`, `npm test` (with coverage) |
-| E2E smoke | `tests/e2e`: `npm run test:smoke` |
 
 **Post-merge** (`post-merge-e2e` after `Main CI` succeeds on `main`): runs `npm test` in `tests/e2e` (full suite). Failures require follow-up on `main` but do not block the merge that already landed.
 

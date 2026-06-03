@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Canonical testing documentation (+ optional benchmark signal)
 
@@ -16,10 +16,10 @@ End-to-end outcome: a new contributor can read a single developer doc for test l
 
 ## Acceptance criteria
 
-- [ ] A canonical page under `docs/developer/` (evolving from or replacing the strategy review) describes test layers, local verification commands, and which CI workflows enforce each gate.
-- [ ] `DEVELOPING.md` and `docs/developer/testing-and-quality-gates.md` link to the canonical page; duplicate claims in `crates/cli/TESTING.md` / `crates/cli/tests/README.md` are trimmed to pointers or updated to match.
-- [ ] Documented gates match shipped behavior from issues `01` and `02` (pre-merge CI, E2E smoke, Rust coverage).
-- [ ] (Optional) A scheduled workflow runs `crates/compiler` Criterion benchmarks and docs explain interpretation; merge is not blocked unless explicitly decided and documented.
+- [x] A canonical page under `docs/developer/` (evolving from or replacing the strategy review) describes test layers, local verification commands, and which CI workflows enforce each gate.
+- [x] `DEVELOPING.md` and `docs/developer/testing-and-quality-gates.md` link to the canonical page; duplicate claims in `crates/cli/TESTING.md` / `crates/cli/tests/README.md` are trimmed to pointers or updated to match.
+- [x] Documented gates match shipped behavior from issues `01` and `02` (pre-merge CI, E2E smoke, Rust coverage).
+- [x] (Optional) A scheduled workflow runs `crates/compiler` Criterion benchmarks and docs explain interpretation; merge is not blocked unless explicitly decided and documented.
 
 ## Blocked by
 

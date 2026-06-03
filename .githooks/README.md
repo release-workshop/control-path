@@ -18,7 +18,9 @@ bash scripts/setup-git-aliases.sh
 
 This will:
 - Install all git hooks (pre-commit, commit-msg, pre-push)
-- Configure the `git pushmain` alias for trunk-based development
+- Configure the `git pushmain` alias (`scripts/pushmain.sh`) for trunk-based development
+
+`pushmain` waits for validation CI and syncs `main` on success. Requires `gh` (`gh auth login`).
 
 ### Manual Installation
 

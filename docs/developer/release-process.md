@@ -19,7 +19,7 @@ This doc captures the practical release/update loop for Control Path components.
 
 ## Recommended release checklist
 
-1. Run required quality gates (`docs/developer/testing-and-quality-gates.md`).
+1. Run required quality gates ([Testing](testing.md); checklist: [testing-and-quality-gates.md](testing-and-quality-gates.md)).
 2. Update impacted docs (`README.md`, `DEVELOPING.md`, user/developer pages).
 3. Confirm runtime package changelog for behavior changes.
 4. Validate representative end-to-end flow:

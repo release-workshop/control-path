@@ -60,7 +60,7 @@ See the [README.md](README.md) for detailed setup instructions.
    # Build TypeScript runtime SDK
    cd runtime/typescript && npm install && npm run build && cd ../..
    ```
-5. Run tests (full pre-merge checklist: [Testing and Quality Gates](docs/developer/testing-and-quality-gates.md)):
+5. Run tests (see [Testing](docs/developer/testing.md); pre-merge checklist: [Testing and Quality Gates](docs/developer/testing-and-quality-gates.md)):
    ```bash
    cargo fmt --all -- --check
    cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -95,15 +95,17 @@ git checkout main
 git pull --ff-only  # Stay up to date
 # ... make changes and commit directly on main ...
 git commit -m "feat(compiler): add new feature"
-git pushmain  # Validates and auto-merges into main on success
+git pushmain  # Waits for validation CI, auto-merges, then ff-only syncs local main
 ```
 
-The `pushmain` command:
+The `pushmain` command (`scripts/pushmain.sh`):
 
 - Syncs your local `main` with `origin/main`
 - Pushes to a temporary `validation/*` branch
-- CI runs full validation (TIA, 100% diff coverage, lint, typecheck)
-- On success, automatically merges into `main` (appears as if you pushed directly)
+- Waits for **Auto-merge validation** CI (requires [GitHub CLI](https://cli.github.com/) with `gh auth login`)
+- On success, automatically merges into `origin/main` and runs `git pull --ff-only`
+- Exits non-zero on CI failure (prints the failed run URL and jobs)
+- Use `git pushmain --no-wait` to push without waiting (legacy behavior)
 
 ### Pull Request Workflow (Contributors)
 
@@ -194,7 +196,7 @@ chore(ci): update GitHub Actions workflows for merge queues
 1. Update the README.md with details of changes if applicable
 2. Update documentation if you're changing functionality
 3. Ensure your code follows the project's code style
-4. Ensure all tests pass (see [Testing and Quality Gates](docs/developer/testing-and-quality-gates.md); CI runs the same gates including `npm run test:smoke`)
+4. Ensure all tests pass (see [Testing](docs/developer/testing.md) and [Testing and Quality Gates](docs/developer/testing-and-quality-gates.md); CI runs the same gates including `npm run test:smoke`)
 5. Add tests for new functionality
 6. Create a pull request with a clear description
 
