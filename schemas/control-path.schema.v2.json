@@ -77,6 +77,17 @@
         }
       },
       "additionalProperties": false
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Optional attribute schema: evaluation attribute names and scalar types (string, number, boolean). Omit for legacy loose typing; declare (even as {}) to opt in to strict validation.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "string",
+          "enum": ["string", "number", "boolean"]
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false,

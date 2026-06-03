@@ -14,6 +14,7 @@ Environment rule syntax and expressions: [`rules.md`](rules.md).
 | `environments` | Local-mode ordered rules per environment |
 | `segments` | Local-mode reusable `when` predicates |
 | `imports` | Shared catalogs by namespace |
+| `attributes` | Optional evaluation attribute schema (scalar types) |
 | `artifacts` / `kill_switches` | Local-mode per-environment poll URLs |
 | `saas` | SaaS project identity when `mode: saas` |
 
@@ -92,6 +93,28 @@ Validation can **warn** when recommended fields are missing; CI may enforce stri
 **Kill switch flags** (`kind: kill_switch`): environment rules may only use plain `serve` (no `when` / `rollout`). Incidents use the kill switch file or SaaS dashboard toggles.
 
 Full machine-readable schema: [`schemas/control-path.schema.v2.json`](../../schemas/control-path.schema.v2.json).
+
+## Attribute schema (`attributes`)
+
+Optional top-level map declaring service-specific **evaluation attributes** and their scalar types. Omitting `attributes:` preserves legacy behavior (loose generated SDK typing, no property-name validation on rules). Declaring `attributes:` (including an empty `{}`) opts in to strict mode for that catalog scope: `controlpath validate` and `compile` check map shape and reject unknown property names in **local-mode** environment rule and segment `when` expressions (base attributes plus declared service fields; top-level names only).
+
+```yaml
+attributes:
+  plan: string
+  seats: number
+  beta: boolean
+```
+
+An empty map opts in without declaring service fields yet:
+
+```yaml
+attributes: {}
+```
+
+- Keys must be valid identifiers (`^[a-z][a-z0-9_]*$`).
+- Values must be `string`, `number`, or `boolean` (nested object types are not supported in v1).
+- Keys must not collide with **base attributes** — platform-owned fields listed in [`schemas/base-attributes.json`](../../schemas/base-attributes.json) (`id`, `email`, `role`, `environment`, `device`, `app_version`). `@controlpath/runtime` exports the same set as `BaseAttributes`.
+- Each imported catalog may declare its own `attributes:` map; fields are namespaced at runtime under that import’s namespace (see [`sdk-typescript.md`](sdk-typescript.md)).
 
 ## Local mode: environments and compile
 

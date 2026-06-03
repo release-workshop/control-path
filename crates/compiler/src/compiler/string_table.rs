@@ -10,13 +10,7 @@ use crate::compiler::expressions::IntermediateExpression;
 /// Runtime evaluators apply the same rule for legacy artifacts that still store
 /// prefixed paths — see `runtime/evaluate.rs` and `runtime/typescript/src/evaluator.ts`.
 fn normalize_property_path(path: &str) -> String {
-    if path.starts_with("user.") {
-        path.strip_prefix("user.").unwrap_or(path).to_string()
-    } else if path.starts_with("context.") {
-        path.strip_prefix("context.").unwrap_or(path).to_string()
-    } else {
-        path.to_string()
-    }
+    crate::compiler::expressions::normalize_property_path(path).to_string()
 }
 
 /// String table builder for AST compilation.

@@ -138,6 +138,17 @@ pub struct KillSwitchTarget {
 /// Per-environment compiled artifact URL (`artifacts.<env>.url` in local mode).
 pub type ArtifactTarget = KillSwitchTarget;
 
+/// Scalar type for catalog `attributes:` entries (v1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AttributeScalarType {
+    #[serde(rename = "string")]
+    String,
+    #[serde(rename = "number")]
+    Number,
+    #[serde(rename = "boolean")]
+    Boolean,
+}
+
 /// Typed v2 `control-path.yaml` catalog document.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CatalogDocument {
@@ -148,6 +159,10 @@ pub struct CatalogDocument {
     pub saas: Option<SaasConfig>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub imports: BTreeMap<String, CatalogImport>,
+    /// Present when the catalog opts in to attribute schema (`attributes:` key in YAML).
+    /// `None` = omitted (legacy); `Some({})` = opted in with no service fields yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<BTreeMap<String, AttributeScalarType>>,
     pub flags: BTreeMap<String, FlagDefinition>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub environments: BTreeMap<String, Environment>,
@@ -157,6 +172,20 @@ pub struct CatalogDocument {
     pub kill_switches: BTreeMap<String, KillSwitchTarget>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub artifacts: BTreeMap<String, ArtifactTarget>,
+}
+
+impl CatalogDocument {
+    /// Whether the catalog opted in to attribute schema (`attributes:` key present, even if `{}`).
+    #[must_use]
+    pub fn attribute_schema_opted_in(&self) -> bool {
+        self.attributes.is_some()
+    }
+
+    /// Declared attribute schema fields when opted in.
+    #[must_use]
+    pub fn attribute_schema_fields(&self) -> Option<&BTreeMap<String, AttributeScalarType>> {
+        self.attributes.as_ref()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

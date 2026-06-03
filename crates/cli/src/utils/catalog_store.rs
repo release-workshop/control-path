@@ -29,6 +29,7 @@ const CATALOG_TOP_LEVEL_KEYS: &[&str] = &[
     "mode",
     "saas",
     "imports",
+    "attributes",
     "flags",
     "environments",
     "segments",
@@ -543,6 +544,32 @@ flags:
 
         let content = fs::read_to_string(CATALOG_FILE).unwrap();
         assert!(content.contains("output: ./custom-sdk"));
+    }
+
+    #[test]
+    #[serial]
+    fn save_round_trips_empty_attribute_schema_opt_in() {
+        let temp_dir = TempDir::new().unwrap();
+        let _guard = DirGuard::new(temp_dir.path()).unwrap();
+        let yaml = format!("{FIXTURE}attributes: {{}}\n");
+        fs::write(CATALOG_FILE, yaml).unwrap();
+
+        let store = CatalogStore::open_default().unwrap();
+        assert!(store.document().attribute_schema_opted_in());
+        assert_eq!(
+            store.document().attribute_schema_fields(),
+            Some(&BTreeMap::new())
+        );
+        store.save().unwrap();
+
+        let content = fs::read_to_string(CATALOG_FILE).unwrap();
+        assert!(content.contains("attributes:"));
+        let reloaded = CatalogStore::open_default().unwrap();
+        assert!(reloaded.document().attribute_schema_opted_in());
+        assert_eq!(
+            reloaded.document().attribute_schema_fields(),
+            Some(&BTreeMap::new())
+        );
     }
 
     #[test]

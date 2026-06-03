@@ -665,6 +665,80 @@ pub fn parse_expression(expr: &str) -> Result<IntermediateExpression, CompilerEr
     parser.parse(expr.trim())
 }
 
+/// Strip `user.` / `context.` prefixes when resolving property references.
+/// Matches compile-time string-table normalization and runtime evaluation.
+pub fn normalize_property_path(path: &str) -> &str {
+    if let Some(rest) = path.strip_prefix("user.") {
+        rest
+    } else if let Some(rest) = path.strip_prefix("context.") {
+        rest
+    } else {
+        path
+    }
+}
+
+/// Top-level property name from a path (after legacy prefix normalization).
+pub fn top_level_property_name(path: &str) -> &str {
+    normalize_property_path(path)
+        .split('.')
+        .next()
+        .unwrap_or(path)
+}
+
+/// Collect distinct top-level property names referenced in an expression string.
+///
+/// Used for attribute-schema validation of rule `when` clauses. Legacy `user.` /
+/// `context.` prefixes are normalized the same way as compile. Synthetic `user`
+/// injected for single-argument `segment(...)` sugar is excluded.
+///
+/// # Errors
+///
+/// Returns [`CompilerError::Compilation`] when the expression does not parse.
+pub fn expression_top_level_property_references(
+    expr: &str,
+) -> Result<std::collections::BTreeSet<String>, CompilerError> {
+    let parsed = parse_expression(expr)?;
+    let mut names = std::collections::BTreeSet::new();
+    collect_top_level_property_references(&parsed, &mut names);
+    Ok(names)
+}
+
+fn collect_top_level_property_references(
+    expr: &IntermediateExpression,
+    names: &mut std::collections::BTreeSet<String>,
+) {
+    match expr {
+        IntermediateExpression::Property(path) => {
+            names.insert(top_level_property_name(path).to_string());
+        }
+        IntermediateExpression::BinaryOp { left, right, .. } => {
+            collect_top_level_property_references(left, names);
+            collect_top_level_property_references(right, names);
+        }
+        IntermediateExpression::LogicalOp { left, right, .. } => {
+            collect_top_level_property_references(left, names);
+            if let Some(right) = right {
+                collect_top_level_property_references(right, names);
+            }
+        }
+        IntermediateExpression::Func { func_code, args } => {
+            // IN_SEGMENT / segment subject is not an evaluation attribute. Skip the first
+            // `user` argument for two-arg calls (sugar-expanded segment('…') and explicit
+            // IN_SEGMENT(user, '…')).
+            let skip_synthetic_user = *func_code == FuncCode::InSegment as u8
+                && args.len() == 2
+                && matches!(&args[0], IntermediateExpression::Property(p) if p == "user");
+            for (idx, arg) in args.iter().enumerate() {
+                if skip_synthetic_user && idx == 0 {
+                    continue;
+                }
+                collect_top_level_property_references(arg, names);
+            }
+        }
+        IntermediateExpression::Literal(_) => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1211,6 +1285,27 @@ mod tests {
             }
             _ => panic!("Expected LogicalOp after compilation"),
         }
+    }
+
+    #[test]
+    fn test_expression_top_level_property_references() {
+        use std::collections::BTreeSet;
+
+        let names = expression_top_level_property_references("user.plan == 'beta'").unwrap();
+        assert_eq!(names, BTreeSet::from(["plan".to_string()]));
+
+        let names = expression_top_level_property_references("context.plan == 'beta'").unwrap();
+        assert_eq!(names, BTreeSet::from(["plan".to_string()]));
+
+        let names = expression_top_level_property_references("profile.tier == 'gold'").unwrap();
+        assert_eq!(names, BTreeSet::from(["profile".to_string()]));
+
+        let names = expression_top_level_property_references("segment('beta_users')").unwrap();
+        assert!(names.is_empty());
+
+        let names =
+            expression_top_level_property_references("IN_SEGMENT(user, 'beta_users')").unwrap();
+        assert!(names.is_empty());
     }
 
     #[test]

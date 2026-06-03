@@ -8,10 +8,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
+use crate::catalog::base_attributes;
 use crate::catalog::model::{
-    CatalogDocument, CatalogIdentity, CatalogMode, FlagKind, WorkspaceDocument,
+    AttributeScalarType, CatalogDocument, CatalogIdentity, CatalogMode, FlagKind, WorkspaceDocument,
 };
 use crate::catalog::parse::{parse_catalog_value, parse_workspace_value};
+use crate::compiler::expressions::expression_top_level_property_references;
+use crate::error::{CompilationError, CompilerError};
 use crate::schemas;
 use crate::validator::common::validate_with_schema;
 use crate::validator::error::{ValidationError, ValidationResult, ValidationWarning};
@@ -228,12 +231,24 @@ fn catalog_document_shell(
             .get("saas")
             .and_then(|s| serde_json::from_value(s.clone()).ok()),
         imports: BTreeMap::new(),
+        attributes: shell_attributes(value),
         flags: BTreeMap::new(),
         environments: BTreeMap::new(),
         segments: BTreeMap::new(),
         kill_switches: BTreeMap::new(),
         artifacts: BTreeMap::new(),
     })
+}
+
+/// Preserve attribute-schema opt-in when building a recovery shell from raw JSON.
+///
+/// Only object-shaped `attributes` values imply opt-in; `null`, arrays, and scalars do not.
+fn shell_attributes(value: &Value) -> Option<BTreeMap<String, AttributeScalarType>> {
+    let attrs = value.get("attributes")?;
+    if !attrs.is_object() {
+        return None;
+    }
+    Some(serde_json::from_value(attrs.clone()).unwrap_or_default())
 }
 
 /// Parse and validate workspace content.
@@ -456,6 +471,9 @@ fn semantic_errors(
         }
     }
 
+    errors.extend(attribute_schema_errors(file_path, data));
+    errors.extend(attribute_schema_rule_property_errors(file_path, data));
+
     errors
 }
 
@@ -576,6 +594,131 @@ fn is_telemetry_metadata_key(key: &str) -> bool {
     TELEMETRY_METADATA_KEYS
         .iter()
         .any(|k| k.eq_ignore_ascii_case(key))
+}
+
+fn attribute_schema_errors(file_path: &str, data: &Value) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+    let Some(attrs_obj) = data.get("attributes").and_then(|a| a.as_object()) else {
+        return errors;
+    };
+    for key in attrs_obj.keys() {
+        if base_attributes::contains(key) {
+            errors.push(validation_error(
+                file_path,
+                format!("Attribute schema key '{key}' collides with base attribute '{key}'"),
+                Some(format!("attributes.{key}")),
+                Some(
+                    "Remove base attribute names from attribute schema; they are platform-owned"
+                        .to_string(),
+                ),
+            ));
+        }
+    }
+    errors
+}
+
+fn attribute_schema_rule_property_errors(file_path: &str, data: &Value) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+    let Some(obj) = data.as_object() else {
+        return errors;
+    };
+
+    let catalog_mode = obj.get("mode").and_then(|m| m.as_str()).unwrap_or("local");
+    if catalog_mode != "local" {
+        return errors;
+    }
+
+    let Some(attrs_obj) = obj.get("attributes").and_then(|a| a.as_object()) else {
+        return errors;
+    };
+
+    let allowed = allowed_rule_property_names(attrs_obj);
+
+    if let Some(segments) = obj.get("segments").and_then(|s| s.as_object()) {
+        for (segment_name, segment) in segments {
+            if let Some(when) = segment.get("when").and_then(|w| w.as_str()) {
+                let path = format!("segments.{segment_name}.when");
+                errors.extend(rule_when_property_errors(file_path, &path, when, &allowed));
+            }
+        }
+    }
+
+    if let Some(envs) = obj.get("environments").and_then(|e| e.as_object()) {
+        for (env_name, env_val) in envs {
+            let Some(rules) = env_val
+                .as_object()
+                .and_then(|e| e.get("rules"))
+                .and_then(|r| r.as_object())
+            else {
+                continue;
+            };
+            for (flag_key, rule_list) in rules {
+                let Some(arr) = rule_list.as_array() else {
+                    continue;
+                };
+                for (idx, rule) in arr.iter().enumerate() {
+                    if let Some(when) = rule.get("when").and_then(|w| w.as_str()) {
+                        let path = format!("environments.{env_name}.rules.{flag_key}[{idx}].when");
+                        errors.extend(rule_when_property_errors(file_path, &path, when, &allowed));
+                    }
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+fn allowed_rule_property_names(attrs_obj: &serde_json::Map<String, Value>) -> BTreeSet<String> {
+    let mut allowed: BTreeSet<String> = base_attributes::names().iter().cloned().collect();
+    allowed.extend(attrs_obj.keys().cloned());
+    allowed
+}
+
+fn rule_when_property_errors(
+    file_path: &str,
+    path: &str,
+    when: &str,
+    allowed: &BTreeSet<String>,
+) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+    let referenced = match expression_top_level_property_references(when) {
+        Ok(names) => names,
+        Err(err) => {
+            errors.push(validation_error(
+                file_path,
+                when_expression_parse_error_message(&err),
+                Some(path.to_string()),
+                Some("Fix the when expression syntax".to_string()),
+            ));
+            return errors;
+        }
+    };
+    for name in referenced {
+        if allowed.contains(&name) {
+            continue;
+        }
+        errors.push(validation_error(
+            file_path,
+            format!(
+                "Unknown evaluation attribute '{name}' in rule expression; declare it in attributes: or use a base attribute"
+            ),
+            Some(path.to_string()),
+            Some(format!(
+                "Add '{name}' to attributes: or fix the property name in the when expression"
+            )),
+        ));
+    }
+    errors
+}
+
+fn when_expression_parse_error_message(err: &CompilerError) -> String {
+    match err {
+        CompilerError::Compilation(CompilationError::ExpressionParsing(msg)) => {
+            format!("Invalid when expression: {msg}")
+        }
+        other => format!("Invalid when expression: {other}"),
+    }
 }
 
 #[cfg(test)]

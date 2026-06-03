@@ -1,0 +1,8 @@
+[
+  "id",
+  "email",
+  "role",
+  "environment",
+  "device",
+  "app_version"
+]

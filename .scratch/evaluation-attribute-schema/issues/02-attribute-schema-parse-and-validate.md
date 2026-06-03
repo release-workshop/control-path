@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
@@ -17,10 +17,10 @@ Document the YAML shape in **`docs/user/configuration.md`** (brief; full narrati
 
 ## Acceptance criteria
 
-- [ ] v2 schema accepts optional **`attributes:`**; rejects invalid types and base-name collisions
-- [ ] Compiler catalog model deserializes **`attributes:`**; validation runs in **`ValidationMode::SdkGenerate`** and **`Compile`**
-- [ ] Integration test: validate passes for declared scalars; fails for `role: string`, unknown type, or invalid key
-- [ ] Imported catalog fixture can declare its own **`attributes:`** map independently of the service catalog
+- [x] v2 schema accepts optional **`attributes:`**; rejects invalid types and base-name collisions
+- [x] Compiler catalog model deserializes **`attributes:`**; validation runs in **`ValidationMode::SdkGenerate`** and **`Compile`**
+- [x] Integration test: validate passes for declared scalars; fails for `role: string`, unknown type, or invalid key
+- [x] Imported catalog fixture can declare its own **`attributes:`** map independently of the service catalog
 
 ## Blocked by
 

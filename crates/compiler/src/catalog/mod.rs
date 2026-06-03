@@ -6,6 +6,7 @@
  * v2 boolean catalog parsing, validation, and typed models.
  */
 
+mod base_attributes;
 mod cdn;
 mod compile;
 mod explain;

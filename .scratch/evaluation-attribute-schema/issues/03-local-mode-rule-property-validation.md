@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
@@ -10,11 +10,11 @@ Property extraction covers bare identifiers and legacy `user.` / `context.` pref
 
 ## Acceptance criteria
 
-- [ ] Local catalog with **`attributes: { plan: string }`**: rule `plan == 'beta'` validates; `tier == 'x'` fails with a clear error
-- [ ] Segment `when` strings receive the same validation
-- [ ] Catalog without **`attributes:`** does not run property-name validation on rules
-- [ ] **`mode: saas`** catalog with **`attributes:`** validates schema shape but does not require local **`environments`** rule property checks
-- [ ] Tests cover at least one failing and one passing **`controlpath validate`** / **`compile`** path
+- [x] Local catalog with **`attributes: { plan: string }`**: rule `plan == 'beta'` validates; `tier == 'x'` fails with a clear error
+- [x] Segment `when` strings receive the same validation
+- [x] Catalog without **`attributes:`** does not run property-name validation on rules
+- [x] **`mode: saas`** catalog with **`attributes:`** validates schema shape but does not require local **`environments`** rule property checks
+- [x] Tests cover at least one failing and one passing **`controlpath validate`** / **`compile`** path
 
 ## Blocked by
 

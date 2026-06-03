@@ -353,6 +353,7 @@ mod tests {
                 require_ast_signature: true,
             }),
             imports: Default::default(),
+            attributes: None,
             flags: Default::default(),
             environments: Default::default(),
             segments: Default::default(),
