@@ -37,7 +37,7 @@ A named deployment target (e.g. `staging`, `production`). In local mode, declare
 _Avoid_: Deployment file
 
 **Environment rules**:
-Ordered targeting rules under `environments.<name>.rules`, keyed by local flag name only (not imported flags). Each rule may have optional `when`, optional boolean `rollout` (`percentage` + `serve`), required `serve`, and optional `reason`. Flags with `kind: kill_switch` may only use plain `serve` rules (no `when` or `rollout`). No match falls back to the catalog `default`. Changing **environment rules** alone is published by replacing the **compiled artifact** at the **artifact URL** or **artifact path** (and does not require an SDK rebuild when the **flag catalog** is unchanged).
+Ordered targeting rules under `environments.<name>.rules`, keyed by local flag name only (not imported flags). Each rule may have optional `when`, optional boolean `rollout` (`percentage` + `serve`), required `serve`, and optional `reason`. Flags with `kind: kill_switch` may only use plain `serve` rules (no `when` or `rollout`). Flags with `kind: entitlement` may use `when` and plain `serve` but not `rollout`. No match falls back to the catalog `default`. Changing **environment rules** alone is published by replacing the **compiled artifact** at the **artifact URL** or **artifact path** (and does not require an SDK rebuild when the **flag catalog** is unchanged).
 _Avoid_: Deployment, targeting config
 
 **Evaluation attributes**:
@@ -61,12 +61,20 @@ Platform-owned evaluation attribute fields (`id`, `email`, `role`, `environment`
 _Avoid_: Default context, standard user object, built-in context, duplicated base fields in generated types
 
 **Declared metadata**:
-Git-authored fields on flags expressing intent: required `kind`; optional `owner`, `ticket`, `expires`, `tags`, `description`, `lifecycle` (defaults to `active`), and free-form `metadata`. Validation warns on missing recommended fields; strict enforcement is optional in CI.
+Git-authored fields on flags expressing intent: required `kind`; optional `owner`, `ticket`, `expires`, `tags`, `description`, `lifecycle` (defaults to `active`), and free-form `metadata`. Validation warns on missing recommended fields; strict enforcement is optional in CI. For **`kind: release`**, missing `expires` may warn (rollout cleanup). For **`kind: entitlement`**, `expires` is optional with no warn or error when absent — when set, it marks a planned offering or trial sunset, not rollout cleanup.
 _Avoid_: Telemetry, observed data
 
 **Flag kind**:
 Why a flag exists: `release`, `kill_switch`, or `entitlement`. Required on every flag.
 _Avoid_: Type, status, experiment
+
+**Entitlement**:
+Long-lived access gate declared in the **flag catalog** with `kind: entitlement`. Whether a principal may use a capability is decided only at evaluation time: **environment rules** on the **evaluation attributes** the application passes in (e.g. plan or org tier, `role` from a token, other **attribute schema** fields). Same evaluation stack as other flags (kill switch file → **compiled artifact** → catalog **default**). Missing attributes make `when` expressions false (standard rule walk); authors should use `default: false` so unmatched cases deny access. `validate` warns when `default: true` on an **entitlement** (suspicious; strict CI may treat warnings as errors). **Environment rules** may use `when` and plain `serve` but not `rollout`. Compose with a separate **`kind: release`** flag when gradually shipping UI or behavior for an already-entitled capability — the application ANDs both evaluations; remove the **release** flag after rollout, keep the **entitlement**. Optional **`expires`** may mark a trial or SKU sunset in **declared metadata**; omitting `expires` is normal and must not warn or error. Plan- or platform-wide entitlements belong in a **shared catalog** imported by each service; **environment rules** for those flags live only in the source catalog (not per consuming service). Incidents on an entitled capability use a companion **`kind: kill_switch`** flag (not the entitlement name in the **kill switch file** via CLI); the application ANDs both evaluations. Distinct from **kill_switch** as a **flag kind** (incident layer) vs **entitlement** (access layer). How attributes are obtained (JWT, session, service call) is out of scope for Control Path.
+_Avoid_: Enablement flag, enablement, feature enablement
+
+**Permission** (RBAC):
+Role or permission claims used inside **environment rules** — typically via `role` on **base attributes** when the identity token carries roles. Not a separate **flag kind**; not populated by Control Path. May appear in the same **entitlement** flag’s rules alongside commercial attributes (org purchased the feature and user’s role allows use).
+_Avoid_: Entitlement (as a synonym for role), enablement
 
 **Flag lifecycle**:
 Repo-owned deprecation signal: `active` (default) or `deprecated`. Removal from the catalog retires the flag in SaaS history.
@@ -128,3 +136,15 @@ _Avoid_: override path, local override file (unqualified)
 **Dev:** We merged definitions and rules into one YAML file — do we still ship two things?
 
 **Expert:** One file in Git, two deployment speeds: **environment rules** → **artifact URL** only; **flag catalog** → `generate-sdk` plus app deploy. Same pattern as the old two-file setup.
+
+**Dev:** We're rolling out a new export UI for a Pro-only feature — one flag or two?
+
+**Expert:** Two. **`kind: entitlement`** for whether the org and user may use export (plan + `role` in rules). **`kind: release`** for the UI rollout (`rollout` or beta rules). The app checks both. Delete the **release** flag when rollout finishes; the **entitlement** stays for the life of the plan.
+
+**Dev:** Pro plan features span checkout, analytics, and billing — where do we define them?
+
+**Expert:** In a **shared catalog** at the repo root (or another imported path), one flag per capability under an **import namespace** like `platform`. **Environment rules** for those flags live only in that source file — each service imports and evaluates the same rules, not copies per service.
+
+**Dev:** Premium checkout is on fire — do we flip the entitlement?
+
+**Expert:** No. Add a companion **`kind: kill_switch`** (e.g. `platform.premium_checkout_kill`), toggle it in the **kill switch file** or dashboard. The app ANDs entitlement and kill switch. **Entitlement** rules stay the commercial source of truth.
