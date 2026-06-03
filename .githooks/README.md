@@ -4,7 +4,7 @@ This directory contains git hooks for the Control Path repository. These hooks r
 
 ## Hooks
 
-- **pre-commit**: Runs Rust checks (cargo check, clippy, fmt) and TypeScript build before commits
+- **pre-commit**: Runs **affected** checks on staged paths only (`scripts/run-pre-commit-checks.sh`; use `PRE_COMMIT_FULL=1` for full workspace + runtime)
 - **commit-msg**: Validates commit messages follow Conventional Commits format
 - **pre-push**: Blocks direct pushes to main branch (use `git pushmain` instead)
 

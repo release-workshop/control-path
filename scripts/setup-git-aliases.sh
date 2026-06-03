@@ -13,16 +13,29 @@ PUSHMAIN_SCRIPT="${SCRIPT_DIR}/pushmain.sh"
 
 echo "Setting up git aliases for Control Path..."
 
-if [ ! -x "${PUSHMAIN_SCRIPT}" ]; then
-  chmod +x "${PUSHMAIN_SCRIPT}"
-fi
+PRE_COMMIT_SCRIPT="${SCRIPT_DIR}/run-pre-commit-checks.sh"
+for hook_script in "${PUSHMAIN_SCRIPT}" "${PRE_COMMIT_SCRIPT}"; do
+  if [ ! -x "${hook_script}" ]; then
+    chmod +x "${hook_script}"
+  fi
+done
+
+HOOKS_DIR="$(cd "${SCRIPT_DIR}/../.githooks" && pwd)"
+GIT_HOOKS="$(git rev-parse --git-path hooks)"
+mkdir -p "${GIT_HOOKS}"
+for hook in pre-commit commit-msg pre-push; do
+  if [ -f "${HOOKS_DIR}/${hook}" ]; then
+    cp "${HOOKS_DIR}/${hook}" "${GIT_HOOKS}/${hook}"
+    chmod +x "${GIT_HOOKS}/${hook}"
+  fi
+done
 
 # Resolve repo root at run time so the alias survives clone moves after re-setup.
 git config alias.pushmain '!bash "$(git rev-parse --show-toplevel)/scripts/pushmain.sh"'
 
 echo "✓ Git alias 'pushmain' configured successfully!"
 echo ""
-echo "✓ Pre-push hook blocks direct pushes to main (install from .githooks/ if needed)"
+echo "✓ Git hooks installed (pre-commit: affected checks; commit-msg; pre-push)"
 echo ""
 echo "Usage (for maintainers/trusted users with trunk-based development):"
 echo "  git checkout main"

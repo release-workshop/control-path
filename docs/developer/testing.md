@@ -111,6 +111,8 @@ Results land under `target/criterion/`. Use for local profiling or before large 
 
 Workflow YAML is also checked by `cargo test --test ci_workflow_gates` from the repo root.
 
+**Local pre-commit** (`.githooks/pre-commit` → `scripts/run-pre-commit-checks.sh`) mirrors validation land scope: staged paths under `crates/compiler/**` / `crates/cli/**` / workspace manifests / `runtime/typescript/**` run affected `cargo` / `npm` gates; docs-only commits skip code checks. Use `PRE_COMMIT_FULL=1 git commit` for the full workspace + runtime suite.
+
 ### Scheduled compiler benchmarks (non-blocking)
 
 Workflow: **`.github/workflows/compiler-benchmarks.yml`** (weekly schedule + `workflow_dispatch`). It runs:
