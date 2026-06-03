@@ -5,7 +5,7 @@ Compile v2 `control-path.yaml` catalogs to AST artifacts. Optionally validates b
 ## Usage
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v5
 
 - name: Compile production flags
   uses: releaseworkshop/control-path/actions/controlpath-compile-action@main

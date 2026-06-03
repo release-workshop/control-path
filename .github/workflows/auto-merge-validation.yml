@@ -25,13 +25,13 @@ jobs:
       scripts: ${{ steps.filter.outputs.scripts }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
       - name: Detect changes (vs main)
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v3.0.3
         id: filter
         with:
           base: main
@@ -70,7 +70,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
@@ -81,7 +81,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -105,7 +105,7 @@ jobs:
           needs.changes.outputs.cli == 'true' ||
           needs.changes.outputs.workspace == 'true' ||
           needs.changes.outputs.workflows == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
 
@@ -114,7 +114,7 @@ jobs:
           needs.changes.outputs.cli == 'true' ||
           needs.changes.outputs.workspace == 'true' ||
           needs.changes.outputs.workflows == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: runtime/typescript/node_modules
           key: npm-runtime-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
@@ -164,18 +164,18 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
 
       - name: Use Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 24
 
       - name: Cache npm dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('runtime/typescript/package-lock.json') }}
@@ -210,7 +210,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}
@@ -269,7 +269,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.MAINLINE_MERGE_TOKEN }}

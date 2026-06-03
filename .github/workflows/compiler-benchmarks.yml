@@ -17,7 +17,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -26,7 +26,7 @@ jobs:
 
       # Registry only — do not cache target/ or target/criterion/ (stale Criterion baselines skew week-over-week deltas).
       - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -42,7 +42,7 @@ jobs:
 
       - name: Upload Criterion report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: criterion-report
           path: target/criterion/

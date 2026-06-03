@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 ## What to build
 
@@ -13,11 +13,11 @@ Strict property validation on the **imported catalog file** uses that catalog’
 
 ## Acceptance criteria
 
-- [ ] Compile rewrite: imported rule referencing `org_tier` matches runtime object with `platform.org_tier` nested shape
-- [ ] Service-local rule referencing `plan` still matches top-level `plan`
-- [ ] **`controlpath explain --attributes`** returns correct flag value for an imported flag using namespaced JSON
-- [ ] TypeScript **`evaluate`** (runtime package test or e2e) agrees with Rust for the same fixture
-- [ ] Validation fails on unknown bare property in imported catalog rules when that catalog opts in
+- [x] Compile rewrite: imported rule referencing `org_tier` matches runtime object with `platform.org_tier` nested shape
+- [x] Service-local rule referencing `plan` still matches top-level `plan`
+- [x] **`controlpath explain --attributes`** returns correct flag value for an imported flag using namespaced JSON
+- [x] TypeScript **`evaluate`** (runtime package test or e2e) agrees with Rust for the same fixture
+- [x] Validation fails on unknown bare property in imported catalog rules when that catalog opts in
 
 ## Blocked by
 

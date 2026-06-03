@@ -69,7 +69,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -90,7 +90,7 @@ jobs:
         shell: bash
 
       - name: Cache Cargo dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/bin/
@@ -272,7 +272,7 @@ jobs:
           Compress-Archive -Path "dist\${{ matrix.output }}" -DestinationPath "artifacts\controlpath-$VERSION-${{ matrix.target_name }}.zip" -Force
 
       - name: Upload CLI artifact (${{ matrix.target_name }})
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cli-${{ matrix.target_name }}
           path: artifacts/*
@@ -288,12 +288,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Download Rust CLI artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: artifacts
 
