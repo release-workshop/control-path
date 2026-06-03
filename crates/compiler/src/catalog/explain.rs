@@ -591,6 +591,81 @@ environments:
     }
 
     #[test]
+    fn explain_imported_flag_matches_namespaced_runtime_attributes() {
+        let platform = r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_kill_switch:
+        - when: "org_tier == 'gold'"
+          serve: true
+"#;
+        let service = r#"
+catalog:
+  id: checkout-service
+mode: local
+imports:
+  platform:
+    path: platform/control-path.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#;
+        let mut imports = BTreeMap::new();
+        imports.insert(
+            "platform".to_string(),
+            parse_catalog(platform, Some("platform/control-path.yaml")).unwrap(),
+        );
+        let catalog = parse_catalog(service, Some("control-path.yaml")).unwrap();
+        let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
+        let sdk = build_sdk_catalog(&catalog, &imports).unwrap();
+        let flag = sdk_flag(&sdk, "platform.emergency_kill_switch");
+
+        let trace = explain_flag(ExplainRequest {
+            artifact: &artifact,
+            flag: "platform.emergency_kill_switch",
+            environment: "production",
+            catalog: &catalog,
+            imports: &imports,
+            sdk_flag: flag,
+            attributes: &json!({ "id": "u1", "platform": { "org_tier": "gold" } }),
+            kill_switch: None,
+            saas_mode: false,
+            include_rule_trace: false,
+        })
+        .unwrap();
+
+        assert_eq!(trace.layer, ExplainLayer::EnvironmentRule);
+        assert!(trace.value);
+
+        let miss = explain_flag(ExplainRequest {
+            artifact: &artifact,
+            flag: "platform.emergency_kill_switch",
+            environment: "production",
+            catalog: &catalog,
+            imports: &imports,
+            sdk_flag: flag,
+            attributes: &json!({ "id": "u1", "platform": { "org_tier": "silver" } }),
+            kill_switch: None,
+            saas_mode: false,
+            include_rule_trace: false,
+        })
+        .unwrap();
+
+        assert_eq!(miss.layer, ExplainLayer::CatalogDefault);
+        assert!(!miss.value);
+    }
+
+    #[test]
     fn catalog_metadata_warning_when_ast_index_has_no_yaml_row() {
         let rules = vec![CatalogRuleRow {
             when: None,

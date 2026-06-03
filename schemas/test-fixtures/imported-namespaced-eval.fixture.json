@@ -1,0 +1,22 @@
+{
+  "description": "Compile contract for imported catalog attribute namespace rewrite (issue 04). Rust compile tests and TypeScript evaluator tests must stay aligned with this fixture.",
+  "propertyPath": "platform.org_tier",
+  "literalValue": "gold",
+  "flagName": "platform.emergency_kill_switch",
+  "evaluations": [
+    {
+      "attributes": {
+        "id": "u1",
+        "platform": { "org_tier": "gold" }
+      },
+      "value": true
+    },
+    {
+      "attributes": {
+        "id": "u1",
+        "platform": { "org_tier": "silver" }
+      },
+      "value": false
+    }
+  ]
+}

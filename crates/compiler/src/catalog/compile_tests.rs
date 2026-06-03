@@ -11,6 +11,9 @@ use crate::catalog::{
     compile_catalog, compile_catalog_with_imports, load_validate_and_compile_catalog,
     parse_catalog, validate_and_compile_catalog, CatalogValidationContext, FlagKind, FlagLifecycle,
 };
+use crate::runtime::{evaluate_flag, EvaluationAttributes};
+use serde::Deserialize;
+use serde_json::json;
 
 const LOCAL_ONLY: &str = include_str!("../../../../schemas/examples/local-only.control-path.yaml");
 const SHARED_PLATFORM: &str =
@@ -18,8 +21,88 @@ const SHARED_PLATFORM: &str =
 const IMPORTED_GLOBAL: &str =
     include_str!("../../../../schemas/examples/imported-global.control-path.yaml");
 
+const IMPORTED_NAMESPACED_EVAL_FIXTURE: &str =
+    include_str!("../../../../schemas/test-fixtures/imported-namespaced-eval.fixture.json");
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportedNamespacedEvalFixture {
+    property_path: String,
+    literal_value: String,
+    flag_name: String,
+    evaluations: Vec<ImportedNamespacedEvalCase>,
+}
+
+#[derive(Deserialize)]
+struct ImportedNamespacedEvalCase {
+    attributes: serde_json::Value,
+    value: bool,
+}
+
+fn imported_namespaced_eval_fixture() -> ImportedNamespacedEvalFixture {
+    serde_json::from_str(IMPORTED_NAMESPACED_EVAL_FIXTURE)
+        .expect("imported-namespaced-eval.fixture.json must parse")
+}
+
+fn assert_compile_matches_imported_namespaced_fixture(artifact: &Artifact) {
+    let fixture = imported_namespaced_eval_fixture();
+    assert!(
+        artifact.string_table.contains(&fixture.property_path),
+        "string table: {:?}",
+        artifact.string_table
+    );
+    assert!(
+        artifact.string_table.contains(&fixture.literal_value),
+        "string table: {:?}",
+        artifact.string_table
+    );
+    let flag_index = artifact
+        .flag_names
+        .iter()
+        .position(|&idx| str_at(artifact, idx) == fixture.flag_name)
+        .unwrap_or_else(|| panic!("flag {} not found", fixture.flag_name));
+    for case in fixture.evaluations {
+        let attrs = EvaluationAttributes {
+            attributes: &case.attributes,
+        };
+        let (idx, val) = evaluate_flag(artifact, flag_index, &attrs);
+        if case.value {
+            assert_eq!(idx, Some(0), "attributes {:?}", case.attributes);
+            assert_eq!(val, Some(json!("ON")), "attributes {:?}", case.attributes);
+        } else {
+            assert_eq!(idx, Some(1), "attributes {:?}", case.attributes);
+            assert_eq!(val, Some(json!("OFF")), "attributes {:?}", case.attributes);
+        }
+    }
+}
+
 fn str_at(artifact: &Artifact, index: u16) -> &str {
     &artifact.string_table[usize::from(index)]
+}
+
+fn when_expression_property_paths(expr: &Expression, artifact: &Artifact) -> Vec<String> {
+    match expr {
+        Expression::Property { prop_index } => {
+            vec![str_at(artifact, *prop_index).to_string()]
+        }
+        Expression::BinaryOp { left, right, .. } => {
+            let mut paths = when_expression_property_paths(left, artifact);
+            paths.extend(when_expression_property_paths(right, artifact));
+            paths
+        }
+        Expression::LogicalOp { left, right, .. } => {
+            let mut paths = when_expression_property_paths(left, artifact);
+            if let Some(right) = right {
+                paths.extend(when_expression_property_paths(right, artifact));
+            }
+            paths
+        }
+        Expression::Func { args, .. } => args
+            .iter()
+            .flat_map(|arg| when_expression_property_paths(arg, artifact))
+            .collect(),
+        Expression::Literal { .. } => Vec::new(),
+    }
 }
 
 fn flag_rules<'a>(artifact: &'a Artifact, flag_name: &str) -> &'a [Rule] {
@@ -525,6 +608,273 @@ fn rejects_segment_name_collision_between_service_and_import() {
     );
     let err = compile_catalog_with_imports(&catalog, &imports, "staging").unwrap_err();
     assert!(err.to_string().contains("shared_segment"));
+}
+
+#[test]
+fn rewrites_imported_rule_attribute_paths_to_import_namespace() {
+    let platform = r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_kill_switch:
+        - when: "org_tier == 'gold'"
+          serve: true
+"#;
+    let service = r#"
+catalog:
+  id: checkout-service
+mode: local
+imports:
+  platform:
+    path: platform/control-path.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#;
+    let mut imports = BTreeMap::new();
+    imports.insert(
+        "platform".to_string(),
+        parse_catalog(platform, Some("platform/control-path.yaml")).unwrap(),
+    );
+    let catalog = parse_catalog(service, Some("control-path.yaml")).unwrap();
+    let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
+
+    assert!(
+        artifact
+            .string_table
+            .contains(&"platform.org_tier".to_string()),
+        "string table: {:?}",
+        artifact.string_table
+    );
+    assert!(!artifact.string_table.contains(&"org_tier".to_string()));
+
+    let rules = flag_rules(&artifact, "platform.emergency_kill_switch");
+    match &rules[0] {
+        Rule::ServeWithWhen(when, ServePayload::Number(_)) => {
+            let paths = when_expression_property_paths(when, &artifact);
+            assert_eq!(paths, vec!["platform.org_tier"]);
+        }
+        other => panic!("expected imported serve-with-when rule, got {other:?}"),
+    }
+}
+
+#[test]
+fn rewrites_imported_segment_attribute_paths_to_import_namespace() {
+    let platform = r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+segments:
+  gold_orgs:
+    when: "org_tier == 'gold'"
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+"#;
+    let service = r#"
+catalog:
+  id: checkout-service
+mode: local
+imports:
+  platform:
+    path: platform/control-path.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#;
+    let mut imports = BTreeMap::new();
+    imports.insert(
+        "platform".to_string(),
+        parse_catalog(platform, Some("platform/control-path.yaml")).unwrap(),
+    );
+    let catalog = parse_catalog(service, Some("control-path.yaml")).unwrap();
+    let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
+
+    assert!(
+        artifact
+            .string_table
+            .contains(&"platform.org_tier".to_string()),
+        "string table: {:?}",
+        artifact.string_table
+    );
+
+    let segments = artifact
+        .segments
+        .as_ref()
+        .expect("imported segments should be present");
+    let gold_orgs = segments
+        .iter()
+        .find(|(name_idx, _)| str_at(&artifact, *name_idx) == "gold_orgs")
+        .unwrap_or_else(|| panic!("gold_orgs segment not found"));
+    let paths = when_expression_property_paths(&gold_orgs.1, &artifact);
+    assert_eq!(paths, vec!["platform.org_tier"]);
+}
+
+#[test]
+fn rewrites_legacy_prefixed_imported_rule_attributes_to_import_namespace() {
+    let platform = r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_kill_switch:
+        - when: "user.org_tier == 'gold'"
+          serve: true
+"#;
+    let service = r#"
+catalog:
+  id: checkout-service
+mode: local
+imports:
+  platform:
+    path: platform/control-path.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#;
+    let mut imports = BTreeMap::new();
+    imports.insert(
+        "platform".to_string(),
+        parse_catalog(platform, Some("platform/control-path.yaml")).unwrap(),
+    );
+    let catalog = parse_catalog(service, Some("control-path.yaml")).unwrap();
+    let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
+
+    let rules = flag_rules(&artifact, "platform.emergency_kill_switch");
+    match &rules[0] {
+        Rule::ServeWithWhen(when, ServePayload::Number(_)) => {
+            let paths = when_expression_property_paths(when, &artifact);
+            assert_eq!(paths, vec!["platform.org_tier"]);
+        }
+        other => panic!("expected imported serve-with-when rule, got {other:?}"),
+    }
+}
+
+#[test]
+fn imported_namespaced_rule_evaluates_against_nested_runtime_attributes() {
+    let platform = r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      emergency_kill_switch:
+        - when: "org_tier == 'gold'"
+          serve: true
+"#;
+    let service = r#"
+catalog:
+  id: checkout-service
+mode: local
+imports:
+  platform:
+    path: platform/control-path.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+"#;
+    let mut imports = BTreeMap::new();
+    imports.insert(
+        "platform".to_string(),
+        parse_catalog(platform, Some("platform/control-path.yaml")).unwrap(),
+    );
+    let catalog = parse_catalog(service, Some("control-path.yaml")).unwrap();
+    let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
+    assert_compile_matches_imported_namespaced_fixture(&artifact);
+}
+
+#[test]
+fn local_rule_attribute_paths_stay_top_level_when_service_has_attributes() {
+    let platform = r#"
+catalog:
+  id: platform
+attributes:
+  org_tier: string
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+"#;
+    let service = r#"
+catalog:
+  id: checkout-service
+mode: local
+attributes:
+  plan: string
+imports:
+  platform:
+    path: platform/control-path.yaml
+flags:
+  new_dashboard:
+    default: false
+    kind: release
+environments:
+  production:
+    rules:
+      new_dashboard:
+        - when: "plan == 'beta'"
+          serve: true
+"#;
+    let mut imports = BTreeMap::new();
+    imports.insert(
+        "platform".to_string(),
+        parse_catalog(platform, Some("platform/control-path.yaml")).unwrap(),
+    );
+    let catalog = parse_catalog(service, Some("control-path.yaml")).unwrap();
+    let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
+
+    assert!(artifact.string_table.contains(&"plan".to_string()));
+    assert!(!artifact
+        .string_table
+        .contains(&"checkout-service.plan".to_string()));
+
+    let rules = flag_rules(&artifact, "new_dashboard");
+    match &rules[0] {
+        Rule::ServeWithWhen(when, ServePayload::Number(_)) => {
+            let paths = when_expression_property_paths(when, &artifact);
+            assert_eq!(paths, vec!["plan"]);
+        }
+        other => panic!("expected local serve-with-when rule, got {other:?}"),
+    }
+
+    let flag_index = artifact
+        .flag_names
+        .iter()
+        .position(|&idx| str_at(&artifact, idx) == "new_dashboard")
+        .expect("local flag");
+    let attrs = EvaluationAttributes {
+        attributes: &json!({ "id": "u1", "plan": "beta" }),
+    };
+    let (idx, val) = evaluate_flag(&artifact, flag_index, &attrs);
+    assert_eq!(idx, Some(0));
+    assert_eq!(val, Some(json!("ON")));
 }
 
 #[test]

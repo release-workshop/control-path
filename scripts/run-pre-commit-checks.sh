@@ -2,13 +2,18 @@
 # Run pre-commit checks for staged files only (package/path affected).
 #
 # Usage: from repo root, or via .githooks/pre-commit
-#   PRE_COMMIT_FULL=1  — run full workspace + runtime checks (legacy behavior)
+#   PRE_COMMIT_FULL=1       — run full workspace + runtime checks (legacy behavior)
+#   PRE_COMMIT_SKIP_TESTS=1 — fmt, check, and clippy only (no cargo test / npm test)
 
 # Copyright 2025 Release Workshop Ltd
 # Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.
 # See the LICENSE file in the project root for details.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/pre-commit-test-scope.sh
+source "${SCRIPT_DIR}/pre-commit-test-scope.sh"
 
 die() {
   echo "❌ $*" >&2
@@ -59,7 +64,16 @@ detect_staged_affected() {
 }
 
 ensure_typescript_runtime_for_cli_tests() {
-  if [ "${PRE_COMMIT_FULL:-}" != "1" ] && [ "$CLI" != true ] && [ "$WORKSPACE" != true ] && [ "$WORKFLOWS" != true ]; then
+  local need_runtime=false
+  if [ "${PRE_COMMIT_FULL:-}" = "1" ] || [ "$WORKSPACE" = true ] || [ "$WORKFLOWS" = true ]; then
+    need_runtime=true
+  elif [ "$CLI" = true ] && [ "${PRE_COMMIT_CLI_FULL:-false}" = true ]; then
+    need_runtime=true
+  elif [ "${PRE_COMMIT_CLI_NEEDS_RUNTIME:-false}" = true ]; then
+    need_runtime=true
+  fi
+
+  if [ "$need_runtime" != true ]; then
     return 0
   fi
   if [ -f runtime/typescript/dist/ast-loader.js ]; then
@@ -79,43 +93,76 @@ run_rust_pre_merge_checks() {
   echo "  Checking code formatting..."
   cargo fmt --all -- --check
 
-  local -a packages=()
+  local run_compiler=false
+  local run_cli=false
+  local compiler_full=false
+  local cli_full=false
+
   if [ "${PRE_COMMIT_FULL:-}" = "1" ] || [ "$WORKFLOWS" = true ] || [ "$WORKSPACE" = true ]; then
     echo "  cargo check / clippy / test — workspace"
     cargo check --workspace
     if cargo clippy --version &>/dev/null; then
       cargo clippy --workspace --all-targets --all-features -- -D warnings
     fi
-    ensure_typescript_runtime_for_cli_tests
-    cargo test --workspace
+    if [ "${PRE_COMMIT_SKIP_TESTS:-}" != "1" ]; then
+      ensure_typescript_runtime_for_cli_tests
+      cargo test --workspace
+    else
+      echo "  Skipping tests (PRE_COMMIT_SKIP_TESTS=1)"
+    fi
     return 0
   fi
 
   if [ "$CLI" = true ]; then
-    packages+=(controlpath-cli controlpath-compiler)
+    run_cli=true
+    run_compiler=true
   elif [ "$COMPILER" = true ]; then
-    packages+=(controlpath-compiler)
+    run_compiler=true
   else
     die "Rust gates requested but no Rust packages selected"
   fi
 
-  local -a cargo_args=()
-  local pkg
-  for pkg in "${packages[@]}"; do
-    cargo_args+=(-p "$pkg")
-  done
+  if [ "${#PRE_COMMIT_CLI_INTEGRATION_TESTS[@]}" -gt 0 ]; then
+    run_cli=true
+  fi
 
-  echo "  cargo check ${cargo_args[*]}"
-  cargo check "${cargo_args[@]}"
+  compiler_full=$PRE_COMMIT_COMPILER_FULL
+  cli_full=$PRE_COMMIT_CLI_FULL
+
+  local -a cargo_args=()
+  if [ "$run_compiler" = true ]; then
+    cargo_args+=(-p controlpath-compiler)
+  fi
+  if [ "$run_cli" = true ]; then
+    cargo_args+=(-p controlpath-cli)
+  fi
+
+  echo "  cargo check ${cargo_args[*]+"${cargo_args[*]}"}"
+  cargo check ${cargo_args[@]+"${cargo_args[@]}"}
 
   if cargo clippy --version &>/dev/null; then
-    echo "  cargo clippy ${cargo_args[*]}"
-    cargo clippy "${cargo_args[@]}" --all-targets --all-features -- -D warnings
+    echo "  cargo clippy ${cargo_args[*]+"${cargo_args[*]}"}"
+    cargo clippy ${cargo_args[@]+"${cargo_args[@]}"} --all-targets --all-features -- -D warnings
+  fi
+
+  if [ "${PRE_COMMIT_SKIP_TESTS:-}" = "1" ]; then
+    echo "  Skipping tests (PRE_COMMIT_SKIP_TESTS=1)"
+    return 0
   fi
 
   ensure_typescript_runtime_for_cli_tests
-  echo "  cargo test ${cargo_args[*]}"
-  cargo test "${cargo_args[@]}"
+
+  if [ "$run_compiler" = false ] && [ "$run_cli" = false ]; then
+    die "Rust test scope produced no packages to test"
+  fi
+
+  if [ "$run_compiler" = false ]; then
+    pre_commit_run_scoped_cargo_tests false "$cli_full"
+  elif [ "$run_cli" = false ]; then
+    pre_commit_run_scoped_cargo_tests "$compiler_full" false
+  else
+    pre_commit_run_scoped_cargo_tests "$compiler_full" "$cli_full"
+  fi
 }
 
 run_typescript_gates() {
@@ -125,6 +172,10 @@ run_typescript_gates() {
   npm run build
   npm run lint
   npm run typecheck
+  if [ "${PRE_COMMIT_SKIP_TESTS:-}" = "1" ]; then
+    echo "  Skipping tests (PRE_COMMIT_SKIP_TESTS=1)"
+    return 0
+  fi
   npm test
 }
 
@@ -136,6 +187,7 @@ main() {
 
   cd "$(repo_root)"
   detect_staged_affected
+  pre_commit_collect_test_scope < <(git diff --cached --name-only)
 
   local need_rust=false
   local need_ts=false
@@ -166,6 +218,29 @@ main() {
 
   echo "Verifying staged changes (affected checks only)..."
   echo "  Tip: PRE_COMMIT_FULL=1 git commit … for full workspace + runtime checks"
+  echo "  Tip: PRE_COMMIT_SKIP_TESTS=1 git commit … for fmt/check/clippy only"
+  if [ "${PRE_COMMIT_SKIP_TESTS:-}" != "1" ] && [ "${PRE_COMMIT_FULL:-}" != "1" ] && [ "$WORKSPACE" != true ] && [ "$WORKFLOWS" != true ]; then
+    if [ "$CLI" = true ] || [ "$COMPILER" = true ] || [ "${#PRE_COMMIT_CLI_INTEGRATION_TESTS[@]}" -gt 0 ]; then
+      if [ "$PRE_COMMIT_CLI_FULL" = true ] || [ "$PRE_COMMIT_COMPILER_FULL" = true ]; then
+        echo "  Test scope: full affected package(s)"
+      else
+        local scope_parts=()
+        local item
+        for item in ${PRE_COMMIT_COMPILER_FILTERS[@]+"${PRE_COMMIT_COMPILER_FILTERS[@]}"}; do
+          scope_parts+=("compiler:${item}")
+        done
+        for item in ${PRE_COMMIT_CLI_INTEGRATION_TESTS[@]+"${PRE_COMMIT_CLI_INTEGRATION_TESTS[@]}"}; do
+          scope_parts+=("cli:--test ${item}")
+        done
+        for item in ${PRE_COMMIT_CLI_UNIT_FILTERS[@]+"${PRE_COMMIT_CLI_UNIT_FILTERS[@]}"}; do
+          scope_parts+=("cli:--lib ${item}")
+        done
+        if [ "${#scope_parts[@]}" -gt 0 ]; then
+          echo "  Test scope: ${scope_parts[*]+"${scope_parts[*]}"}"
+        fi
+      fi
+    fi
+  fi
 
   if [ "$need_rust" = true ]; then
     if ! command -v cargo &>/dev/null; then

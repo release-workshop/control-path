@@ -5,6 +5,7 @@
 
 use crate::ast::{BinaryOp, FuncCode, LogicalOp};
 use crate::error::{CompilationError, CompilerError};
+use std::collections::BTreeSet;
 
 /// Intermediate expression type used during parsing.
 /// Properties and string literals use strings initially, which are then
@@ -663,6 +664,82 @@ impl Default for ExpressionParser {
 pub fn parse_expression(expr: &str) -> Result<IntermediateExpression, CompilerError> {
     let mut parser = ExpressionParser::new();
     parser.parse(expr.trim())
+}
+
+/// Rewrite bare catalog attribute property paths to `{namespace}.{field}` for imported catalogs.
+///
+/// Base attributes and undeclared properties are left unchanged (still normalized for legacy
+/// `user.` / `context.` prefixes).
+pub fn rewrite_namespaced_attribute_properties(
+    expr: &IntermediateExpression,
+    namespace: &str,
+    namespaced_fields: &BTreeSet<String>,
+) -> IntermediateExpression {
+    match expr {
+        IntermediateExpression::Property(path) => IntermediateExpression::Property(
+            rewrite_property_path_for_namespace(path, namespace, namespaced_fields),
+        ),
+        IntermediateExpression::BinaryOp {
+            op_code,
+            left,
+            right,
+        } => IntermediateExpression::BinaryOp {
+            op_code: *op_code,
+            left: Box::new(rewrite_namespaced_attribute_properties(
+                left,
+                namespace,
+                namespaced_fields,
+            )),
+            right: Box::new(rewrite_namespaced_attribute_properties(
+                right,
+                namespace,
+                namespaced_fields,
+            )),
+        },
+        IntermediateExpression::LogicalOp {
+            op_code,
+            left,
+            right,
+        } => IntermediateExpression::LogicalOp {
+            op_code: *op_code,
+            left: Box::new(rewrite_namespaced_attribute_properties(
+                left,
+                namespace,
+                namespaced_fields,
+            )),
+            right: right.as_ref().map(|r| {
+                Box::new(rewrite_namespaced_attribute_properties(
+                    r,
+                    namespace,
+                    namespaced_fields,
+                ))
+            }),
+        },
+        IntermediateExpression::Literal(value) => IntermediateExpression::Literal(value.clone()),
+        IntermediateExpression::Func { func_code, args } => IntermediateExpression::Func {
+            func_code: *func_code,
+            args: args
+                .iter()
+                .map(|arg| {
+                    rewrite_namespaced_attribute_properties(arg, namespace, namespaced_fields)
+                })
+                .collect(),
+        },
+    }
+}
+
+fn rewrite_property_path_for_namespace(
+    path: &str,
+    namespace: &str,
+    namespaced_fields: &BTreeSet<String>,
+) -> String {
+    let normalized = normalize_property_path(path);
+    let top = top_level_property_name(normalized);
+    if namespaced_fields.contains(top) {
+        format!("{namespace}.{normalized}")
+    } else {
+        normalized.to_string()
+    }
 }
 
 /// Strip `user.` / `context.` prefixes when resolving property references.
@@ -1381,6 +1458,56 @@ mod tests {
                 }
             }
             other => panic!("expected two-arg IN_SEGMENT, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rewrite_namespaced_attribute_properties_prefixes_declared_fields_only() {
+        let mut fields = BTreeSet::new();
+        fields.insert("org_tier".to_string());
+
+        let expr = parse_expression("org_tier == 'gold'").unwrap();
+        let rewritten = rewrite_namespaced_attribute_properties(&expr, "platform", &fields);
+
+        match rewritten {
+            IntermediateExpression::BinaryOp { left, .. } => match *left {
+                IntermediateExpression::Property(path) => {
+                    assert_eq!(path, "platform.org_tier");
+                }
+                other => panic!("expected property path, got {other:?}"),
+            },
+            other => panic!("expected binary expression, got {other:?}"),
+        }
+
+        let base_expr = parse_expression("id == 'u1'").unwrap();
+        let base_rewritten =
+            rewrite_namespaced_attribute_properties(&base_expr, "platform", &fields);
+        match base_rewritten {
+            IntermediateExpression::BinaryOp { left, .. } => match *left {
+                IntermediateExpression::Property(path) => assert_eq!(path, "id"),
+                other => panic!("expected property path, got {other:?}"),
+            },
+            other => panic!("expected binary expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rewrite_namespaced_attribute_properties_normalizes_legacy_prefixes() {
+        let mut fields = BTreeSet::new();
+        fields.insert("org_tier".to_string());
+
+        for source in ["user.org_tier == 'gold'", "context.org_tier == 'gold'"] {
+            let expr = parse_expression(source).unwrap();
+            let rewritten = rewrite_namespaced_attribute_properties(&expr, "platform", &fields);
+            match rewritten {
+                IntermediateExpression::BinaryOp { left, .. } => match *left {
+                    IntermediateExpression::Property(path) => {
+                        assert_eq!(path, "platform.org_tier", "source: {source}");
+                    }
+                    other => panic!("expected property path for {source}, got {other:?}"),
+                },
+                other => panic!("expected binary expression for {source}, got {other:?}"),
+            }
         }
     }
 

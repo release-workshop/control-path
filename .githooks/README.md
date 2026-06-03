@@ -4,7 +4,7 @@ This directory contains git hooks for the Control Path repository. These hooks r
 
 ## Hooks
 
-- **pre-commit**: Runs **affected** checks on staged paths only (`scripts/run-pre-commit-checks.sh`; use `PRE_COMMIT_FULL=1` for full workspace + runtime)
+- **pre-commit**: Runs **affected** checks on staged paths only (`scripts/run-pre-commit-checks.sh`; path→test scoping in `scripts/pre-commit-test-scope.sh`). Use `PRE_COMMIT_FULL=1` for full workspace + runtime, or `PRE_COMMIT_SKIP_TESTS=1` for fmt/check/clippy only.
 - **commit-msg**: Validates commit messages follow Conventional Commits format
 - **pre-push**: Blocks direct pushes to main branch (use `git pushmain` instead)
 

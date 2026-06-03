@@ -45,7 +45,7 @@ See the [README.md](README.md) for detailed setup instructions.
    bash scripts/setup-git-aliases.sh
    ```
    This installs:
-   - Git hooks for pre-commit checks (affected Rust/TypeScript by staged paths; `PRE_COMMIT_FULL=1` for full suite)
+   - Git hooks for pre-commit checks (affected Rust/TypeScript by staged paths; scoped `cargo test` via path→test mapping; `PRE_COMMIT_FULL=1` for full suite; `PRE_COMMIT_SKIP_TESTS=1` for fmt/check/clippy only)
    - Commit message validation (Conventional Commits format)
    - Pre-push hook to block direct pushes to main
    - `git pushmain` alias for trunk-based development

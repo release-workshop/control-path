@@ -406,6 +406,65 @@ flags:
 }
 
 #[test]
+fn explain_imported_flag_with_namespaced_attributes() {
+    let project = TestProject::new();
+    write_import_fixture(&project);
+
+    let mut platform = project.read_file("platform/control-path.yaml");
+    platform = platform.replace(
+        "flags:\n  emergency_kill_switch:",
+        "attributes:\n  org_tier: string\nflags:\n  org_gold_feature:\n    kind: release\n    default: false\n  emergency_kill_switch:",
+    );
+    platform = platform.replace(
+        "production:\n    rules:\n      emergency_kill_switch:",
+        "staging:\n    rules:\n      org_gold_feature:\n        - when: \"org_tier == 'gold'\"\n          serve: true\n  production:\n    rules:\n      emergency_kill_switch:",
+    );
+    project.write_file("platform/control-path.yaml", &platform);
+
+    project.run_command_success(&["compile", "--env", "staging"]);
+
+    let output = project.run_command(&[
+        "explain",
+        "--flag",
+        "platform.org_gold_feature",
+        "--attributes",
+        r#"{"id":"u1","platform":{"org_tier":"gold"}}"#,
+        "--env",
+        "staging",
+    ]);
+    assert!(output.status.success(), "{}", combined_output(&output));
+    let combined = combined_output(&output);
+    assert!(
+        combined.contains("environment rule"),
+        "expected environment rule layer, got: {combined}"
+    );
+    assert!(
+        combined.contains("Value: true"),
+        "expected matching imported rule, got: {combined}"
+    );
+
+    let miss = project.run_command(&[
+        "explain",
+        "--flag",
+        "platform.org_gold_feature",
+        "--attributes",
+        r#"{"id":"u1","platform":{"org_tier":"silver"}}"#,
+        "--env",
+        "staging",
+    ]);
+    assert!(miss.status.success(), "{}", combined_output(&miss));
+    let miss_out = combined_output(&miss);
+    assert!(
+        miss_out.contains("Value: false"),
+        "expected non-matching imported rule, got: {miss_out}"
+    );
+    assert!(
+        miss_out.contains("catalog default"),
+        "expected trailing default for non-match, got: {miss_out}"
+    );
+}
+
+#[test]
 fn explain_json_output_includes_layer_and_value() {
     let project = TestProject::with_definitions(
         r"catalog:

@@ -115,7 +115,7 @@ Results land under `target/criterion/`. Use for local profiling or before large 
 
 Workflow YAML is also checked by `cargo test --test ci_workflow_gates` from the repo root.
 
-**Local pre-commit** (`.githooks/pre-commit` → `scripts/run-pre-commit-checks.sh`) mirrors validation pre-merge scope: staged paths under `crates/compiler/**` / `crates/cli/**` / workspace manifests / `runtime/typescript/**` run affected `cargo` / `npm` gates; docs-only commits skip code checks. Use `PRE_COMMIT_FULL=1 git commit` for the full workspace + runtime suite.
+**Local pre-commit** (`.githooks/pre-commit` → `scripts/run-pre-commit-checks.sh`, scoping in `scripts/pre-commit-test-scope.sh`) mirrors validation pre-merge scope: staged paths under `crates/compiler/**` / `crates/cli/**` / workspace manifests / `runtime/typescript/**` run affected `cargo` / `npm` gates; docs-only commits skip code checks. Within a crate, integration suites run via `cargo test --test integration_*` and unit tests via module-name filters (for example `catalog::`, `--test integration_attributes`); shared files and unmapped paths fall back to the full affected package. Schema edits can pull in cross-package integration tests (for example `schemas/base-attributes.json` → `integration_attributes`). Use `PRE_COMMIT_FULL=1 git commit` for the full workspace + runtime suite, or `PRE_COMMIT_SKIP_TESTS=1 git commit` for fmt/check/clippy only.
 
 ### Scheduled compiler benchmarks (non-blocking)
 

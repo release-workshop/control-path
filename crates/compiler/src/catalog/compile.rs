@@ -6,14 +6,14 @@
  * Compile v2 boolean catalog documents into AST artifacts.
  */
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::ast::{Artifact, Expression, RolloutPayload, RolloutValue, Rule, ServePayload};
 use crate::catalog::{
     validate_catalog, CatalogDocument, CatalogMode, CatalogValidationContext,
     CatalogValidationResult, Rule as CatalogRule, Segment, ValidationMode,
 };
-use crate::compiler::expressions::parse_expression;
+use crate::compiler::expressions::{parse_expression, rewrite_namespaced_attribute_properties};
 use crate::compiler::string_table::StringTable;
 use crate::error::{CompilationError, CompilerError, ValidationError};
 
@@ -146,6 +146,12 @@ struct FlagEntry<'a> {
     name: String,
     default: bool,
     rules: &'a [CatalogRule],
+    attribute_rewrite: Option<AttributeRewriteContext>,
+}
+
+struct AttributeRewriteContext {
+    namespace: String,
+    namespaced_fields: BTreeSet<String>,
 }
 
 fn lower_catalog_to_artifact(
@@ -162,7 +168,12 @@ fn lower_catalog_to_artifact(
 
     let mut compiled_flags: Vec<Vec<Rule>> = Vec::with_capacity(flag_entries.len());
     for entry in &flag_entries {
-        let mut rules = compile_flag_rules(&entry.name, entry.rules, &mut string_table)?;
+        let mut rules = compile_flag_rules(
+            &entry.name,
+            entry.rules,
+            entry.attribute_rewrite.as_ref(),
+            &mut string_table,
+        )?;
         append_default_serve_rule(entry.default, &mut rules, &mut string_table)?;
         compiled_flags.push(rules);
     }
@@ -241,6 +252,7 @@ fn collect_flag_entries<'a>(
             name: name.clone(),
             default: flag.default,
             rules,
+            attribute_rewrite: None,
         });
     }
 
@@ -256,6 +268,7 @@ fn collect_flag_entries<'a>(
                     name: qualified,
                     default: flag.default,
                     rules,
+                    attribute_rewrite: imported_attribute_rewrite(import_namespace, imported),
                 });
             }
         } else {
@@ -265,6 +278,7 @@ fn collect_flag_entries<'a>(
                     name: qualified,
                     default: flag.default,
                     rules: &[],
+                    attribute_rewrite: imported_attribute_rewrite(import_namespace, imported),
                 });
             }
         }
@@ -273,11 +287,29 @@ fn collect_flag_entries<'a>(
     entries
 }
 
+fn imported_attribute_rewrite(
+    import_namespace: &str,
+    imported: &CatalogDocument,
+) -> Option<AttributeRewriteContext> {
+    if !imported.attribute_schema_opted_in() {
+        return None;
+    }
+    let fields = imported.attribute_schema_fields()?;
+    Some(AttributeRewriteContext {
+        namespace: import_namespace.to_string(),
+        namespaced_fields: fields.keys().cloned().collect(),
+    })
+}
+
 fn merge_segments(
     catalog: &CatalogDocument,
     imports: &BTreeMap<String, CatalogDocument>,
-) -> Result<BTreeMap<String, Segment>, CompilerError> {
-    let mut segments: BTreeMap<String, Segment> = catalog.segments.clone();
+) -> Result<BTreeMap<String, (Segment, Option<AttributeRewriteContext>)>, CompilerError> {
+    let mut segments: BTreeMap<String, (Segment, Option<AttributeRewriteContext>)> = catalog
+        .segments
+        .iter()
+        .map(|(name, segment)| (name.clone(), (segment.clone(), None)))
+        .collect();
     let mut segment_sources: BTreeMap<String, String> = catalog
         .segments
         .keys()
@@ -301,7 +333,13 @@ fn merge_segments(
                 )));
             }
             segment_sources.insert(name.clone(), import_namespace.clone());
-            segments.insert(name.clone(), segment.clone());
+            segments.insert(
+                name.clone(),
+                (
+                    segment.clone(),
+                    imported_attribute_rewrite(import_namespace, imported),
+                ),
+            );
         }
     }
 
@@ -309,13 +347,13 @@ fn merge_segments(
 }
 
 fn compile_segments(
-    segments: &BTreeMap<String, Segment>,
+    segments: &BTreeMap<String, (Segment, Option<AttributeRewriteContext>)>,
     string_table: &mut StringTable,
 ) -> Result<Vec<(u16, Expression)>, CompilerError> {
     let mut compiled = Vec::new();
-    for (name, segment) in segments {
-        let segment_expr = parse_expression(&segment.when)?;
-        let processed_expr = string_table.process_expression(&segment_expr)?;
+    for (name, (segment, rewrite)) in segments {
+        let processed_expr =
+            compile_when_expression(&segment.when, rewrite.as_ref(), string_table)?;
         let name_index = string_table.add(name)?;
         compiled.push((name_index, processed_expr));
     }
@@ -325,6 +363,7 @@ fn compile_segments(
 fn compile_flag_rules(
     flag_name: &str,
     rules: &[CatalogRule],
+    attribute_rewrite: Option<&AttributeRewriteContext>,
     string_table: &mut StringTable,
 ) -> Result<Vec<Rule>, CompilerError> {
     if rules.is_empty() {
@@ -332,15 +371,36 @@ fn compile_flag_rules(
     }
     let mut compiled = Vec::with_capacity(rules.len());
     for (index, rule) in rules.iter().enumerate() {
-        compiled.push(compile_catalog_rule(rule, flag_name, index, string_table)?);
+        compiled.push(compile_catalog_rule(
+            rule,
+            flag_name,
+            index,
+            attribute_rewrite,
+            string_table,
+        )?);
     }
     Ok(compiled)
+}
+
+fn compile_when_expression(
+    when: &str,
+    attribute_rewrite: Option<&AttributeRewriteContext>,
+    string_table: &mut StringTable,
+) -> Result<Expression, CompilerError> {
+    let parsed = parse_expression(when)?;
+    let parsed = if let Some(ctx) = attribute_rewrite {
+        rewrite_namespaced_attribute_properties(&parsed, &ctx.namespace, &ctx.namespaced_fields)
+    } else {
+        parsed
+    };
+    string_table.process_expression(&parsed)
 }
 
 fn compile_catalog_rule(
     rule: &CatalogRule,
     flag_name: &str,
     rule_index: usize,
+    attribute_rewrite: Option<&AttributeRewriteContext>,
     string_table: &mut StringTable,
 ) -> Result<Rule, CompilerError> {
     if rule.serve.is_none() && rule.rollout.is_none() {
@@ -362,8 +422,11 @@ fn compile_catalog_rule(
     }
 
     let when_expr = if let Some(when) = &rule.when {
-        let parsed = parse_expression(when)?;
-        Some(string_table.process_expression(&parsed)?)
+        Some(compile_when_expression(
+            when,
+            attribute_rewrite,
+            string_table,
+        )?)
     } else {
         None
     };

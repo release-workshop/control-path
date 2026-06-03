@@ -14,7 +14,7 @@ PUSHMAIN_SCRIPT="${SCRIPT_DIR}/pushmain.sh"
 echo "Setting up git aliases for Control Path..."
 
 PRE_COMMIT_SCRIPT="${SCRIPT_DIR}/run-pre-commit-checks.sh"
-for hook_script in "${PUSHMAIN_SCRIPT}" "${PRE_COMMIT_SCRIPT}"; do
+for hook_script in "${PUSHMAIN_SCRIPT}" "${PRE_COMMIT_SCRIPT}" "${SCRIPT_DIR}/pre-commit-test-scope.sh"; do
   if [ ! -x "${hook_script}" ]; then
     chmod +x "${hook_script}"
   fi

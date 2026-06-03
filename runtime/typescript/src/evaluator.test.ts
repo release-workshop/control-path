@@ -5,9 +5,29 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { evaluate, evaluateRule } from './evaluator';
 import type { Artifact, Attributes, Rule } from './types';
 import { RuleType, ExpressionType, BinaryOp, LogicalOp, FuncCode } from './types';
+
+type ImportedNamespacedEvalFixture = {
+  propertyPath: string;
+  literalValue: string;
+  flagName: string;
+  evaluations: Array<{
+    attributes: Attributes;
+    value: boolean;
+  }>;
+};
+
+function loadImportedNamespacedEvalFixture(): ImportedNamespacedEvalFixture {
+  const path = join(
+    __dirname,
+    '../../../schemas/test-fixtures/imported-namespaced-eval.fixture.json'
+  );
+  return JSON.parse(readFileSync(path, 'utf8')) as ImportedNamespacedEvalFixture;
+}
 
 describe('Evaluator', () => {
   const mockArtifact: Artifact = {
@@ -464,6 +484,44 @@ describe('Evaluator', () => {
 
       const result = evaluateRule(rule, artifact, user);
       expect(result).toBe(true);
+    });
+
+    it('should evaluate imported catalog attribute paths under import namespace', () => {
+      const fixture = loadImportedNamespacedEvalFixture();
+      const propertyIndex = 2;
+      const literalIndex = 3;
+      const flagNameIndex = 4;
+      const artifact: Artifact = {
+        v: '1.0',
+        env: 'production',
+        strs: [
+          'ON',
+          'OFF',
+          fixture.propertyPath,
+          fixture.literalValue,
+          fixture.flagName,
+        ],
+        flags: [
+          [
+            [
+              RuleType.SERVE,
+              [
+                ExpressionType.BINARY_OP,
+                BinaryOp.EQ,
+                [ExpressionType.PROPERTY, propertyIndex],
+                [ExpressionType.LITERAL, literalIndex],
+              ],
+              0,
+            ],
+            [RuleType.SERVE, undefined, 1],
+          ],
+        ],
+        flagNames: [flagNameIndex],
+      };
+
+      for (const { attributes, value } of fixture.evaluations) {
+        expect(evaluate(0, artifact, attributes)).toBe(value);
+      }
     });
 
     it('should handle multiple rules with precedence', () => {
