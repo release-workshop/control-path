@@ -4,6 +4,8 @@
 # Usage: from repo root, or via .githooks/pre-commit
 #   PRE_COMMIT_FULL=1       — run full workspace + runtime checks (legacy behavior)
 #   PRE_COMMIT_SKIP_TESTS=1 — fmt, check, and clippy only (no cargo test / npm test)
+#   PRE_COMMIT_SEQUENTIAL=1 — run scoped test jobs one at a time (parallel is default)
+#   PRE_COMMIT_TEST_JOBS=N  — max concurrent scoped test jobs (default: CPU count)
 
 # Copyright 2025 Release Workshop Ltd
 # Licensed under the Elastic License 2.0; you may not use this file except in compliance with the Elastic License 2.0.
@@ -219,6 +221,7 @@ main() {
   echo "Verifying staged changes (affected checks only)..."
   echo "  Tip: PRE_COMMIT_FULL=1 git commit … for full workspace + runtime checks"
   echo "  Tip: PRE_COMMIT_SKIP_TESTS=1 git commit … for fmt/check/clippy only"
+  echo "  Tip: PRE_COMMIT_SEQUENTIAL=1 git commit … to disable parallel scoped tests"
   if [ "${PRE_COMMIT_SKIP_TESTS:-}" != "1" ] && [ "${PRE_COMMIT_FULL:-}" != "1" ] && [ "$WORKSPACE" != true ] && [ "$WORKFLOWS" != true ]; then
     if [ "$CLI" = true ] || [ "$COMPILER" = true ] || [ "${#PRE_COMMIT_CLI_INTEGRATION_TESTS[@]}" -gt 0 ]; then
       if [ "$PRE_COMMIT_CLI_FULL" = true ] || [ "$PRE_COMMIT_COMPILER_FULL" = true ]; then
