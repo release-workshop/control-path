@@ -7,6 +7,6 @@
 mod evaluate;
 
 pub use evaluate::{
-    evaluate_flag, evaluate_rule, find_flag_index, rollout_bucket, user_id, EvaluationAttributes,
-    RuleEvaluation,
+    evaluate_flag, evaluate_rule, find_flag_index, get_property, rollout_bucket, user_id,
+    EvaluationAttributes, RuleEvaluation,
 };

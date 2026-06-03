@@ -42,7 +42,7 @@ Check:
 Use trace mode:
 
 ```bash
-controlpath explain --flag <flag> --user user.json --env <env> --trace
+controlpath explain --flag <flag> --attributes attributes.json --env <env> --trace
 ```
 
 Confirm evaluation attributes include fields referenced by rules (see [`rules.md`](rules.md#evaluation-attributes)).

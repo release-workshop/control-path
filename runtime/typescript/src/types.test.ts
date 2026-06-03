@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Artifact, Rule, Expression } from './types';
+import type { Artifact, Rule, Expression, Attributes, BaseAttributes } from './types';
 import {
   RuleType,
   ExpressionType,
@@ -16,6 +16,32 @@ import {
   isRule,
   isExpression,
 } from './types';
+
+describe('BaseAttributes and Attributes', () => {
+  it('exports BaseAttributes with platform-owned evaluation fields', () => {
+    const base: BaseAttributes = {
+      id: 'user-1',
+      email: 'a@example.com',
+      role: 'admin',
+      environment: 'production',
+      device: 'ios',
+      app_version: '1.2.3',
+    };
+    expect(base.id).toBe('user-1');
+    expect(base.app_version).toBe('1.2.3');
+  });
+
+  it('accepts evaluation objects that are a structural superset of Attributes', () => {
+    const attributes: Attributes = {
+      id: 'user-1',
+      role: 'admin',
+      plan: 'enterprise',
+      platform: { org_tier: 'gold' },
+    };
+    expect(attributes.plan).toBe('enterprise');
+    expect(attributes.platform).toEqual({ org_tier: 'gold' });
+  });
+});
 
 describe('Type Guards', () => {
   describe('isArtifact', () => {

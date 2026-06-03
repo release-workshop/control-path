@@ -124,13 +124,13 @@ Reference them in rules with `segment('beta_users')` or `IN_SEGMENT('beta_users'
 Rules read fields from a **single attributes object** passed into the SDK (and into `explain`). Typical fields include `id`, `role`, `environment`, and your own properties.
 
 - In **application code**, pass one object to generated flag methods or `setAttributes()` (see [`sdk-typescript.md`](sdk-typescript.md)).
-- In **`explain`**, pass JSON with `--user`. Optional `--context` supplies extra keys for debugging; bare property names resolve on `--user` first, then `--context`.
+- In **`explain`**, pass evaluation attributes as JSON with `--attributes` (file path or inline JSON). Omit `--attributes` to evaluate with an empty object.
 
 **Prefixes in rule strings:** `user.role` and `role` compile to the same property (`role` on the attributes object). `context.environment` and `environment` compile the same way. Prefer bare names (`role`, `plan`) in new rules.
 
 **Rollout bucketing** uses a stable string `id` on that object (or a string user value). Without `id`, rollout rules may not bucket as expected; `explain` warns when `id` is missing.
 
-Example `user.json` for explain:
+Example `attributes.json` for explain:
 
 ```json
 {
@@ -141,12 +141,12 @@ Example `user.json` for explain:
 ```
 
 ```bash
-controlpath explain --flag new_dashboard --user user.json --env production --trace
+controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
 ```
 
 ### Planned: catalog-driven attribute typing
 
-Today the generated SDK exports a base `Attributes` interface plus `[key: string]: unknown`. A future catalog section will declare extra attribute fields so `generate-sdk` emits **base ∪ your fields**, giving compile-time checks that call sites pass a complete object.
+Today the generated SDK exports a base `Attributes` interface plus `[key: string]: unknown`. The optional top-level `attributes:` section will declare extra fields so `generate-sdk` emits **base ∪ your fields**, giving compile-time checks that call sites pass a complete object.
 
 ## Expression language
 
@@ -248,7 +248,7 @@ CLI `flag enable` does not create `rollout` rules; add them in YAML, then run `c
 ```bash
 controlpath validate
 controlpath compile --env staging
-controlpath explain --flag new_dashboard --user user.json --env staging --trace
+controlpath explain --flag new_dashboard --attributes attributes.json --env staging --trace
 ```
 
 See [`troubleshooting.md`](troubleshooting.md) for common compile and expression errors.

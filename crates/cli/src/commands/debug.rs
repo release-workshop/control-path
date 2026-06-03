@@ -1,14 +1,14 @@
 //! Debug UI command implementation
 //!
 //! Provides an interactive web-based UI for debugging flag evaluation.
-//! The debug UI allows testing flags with different user and context values,
+//! The debug UI allows testing flags with different evaluation context values,
 //! showing detailed rule matching information and evaluation results.
 //!
 //! # Security Notes
 //! - Binds to `127.0.0.1` by default (localhost only) for security
 //! - CORS is permissive for local development only
 //! - Prototype pollution protection in property access
-//! - Input validation for user/context JSON
+//! - Input validation for context JSON
 
 use crate::error::{CliError, CliResult};
 use axum::{
@@ -19,6 +19,7 @@ use axum::{
     Router,
 };
 use controlpath_compiler::ast::{Artifact, BinaryOp, Expression, FuncCode, LogicalOp, Rule};
+use controlpath_compiler::{get_property, user_id};
 use rmp_serde::from_slice;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -74,8 +75,7 @@ struct RuleEvaluation {
 #[derive(Deserialize)]
 struct EvaluateRequest {
     flag: String,
-    user: Option<Value>,
-    context: Option<Value>,
+    attributes: Option<Value>,
 }
 
 #[derive(Serialize)]
@@ -97,50 +97,16 @@ fn find_flag_index(artifact: &Artifact, flag_name: &str) -> Option<usize> {
         })
 }
 
-/// Get property value from user or context using dot notation
-fn get_property(prop_path: &str, user: &Value, context: &Option<Value>) -> Option<Value> {
-    let parts: Vec<&str> = prop_path.split('.').collect();
-    if parts.is_empty() {
-        return None;
-    }
-
-    // Reject prototype-polluting paths
-    let prototype_polluting = ["__proto__", "constructor", "prototype"];
-    if parts.iter().any(|part| prototype_polluting.contains(part)) {
-        return None;
-    }
-
-    // First part determines the root object
-    let root = parts[0];
-    let obj = if root == "user" {
-        Some(user)
-    } else if root == "context" {
-        context.as_ref()
-    } else {
-        // Try user first, then context
-        user.get(root).or_else(|| context.as_ref()?.get(root))
-    }?;
-
-    // Navigate nested properties
-    let mut current = obj;
-    for part in parts.iter().skip(1) {
-        current = current.get(part)?;
-    }
-
-    Some(current.clone())
-}
-
 /// Evaluate expression to a value
 fn evaluate_expression_value(
     expr: &Expression,
     artifact: &Artifact,
-    user: &Value,
-    context: &Option<Value>,
+    context: &Value,
 ) -> Option<Value> {
     match expr {
         Expression::Property { prop_index } => {
             let prop_path = artifact.string_table.get(*prop_index as usize)?;
-            get_property(prop_path, user, context)
+            get_property(prop_path, context)
         }
         Expression::Literal { value } => {
             // Handle string table indices for string literals
@@ -156,8 +122,8 @@ fn evaluate_expression_value(
             left,
             right,
         } => {
-            let left_val = evaluate_expression_value(left, artifact, user, context)?;
-            let right_val = evaluate_expression_value(right, artifact, user, context)?;
+            let left_val = evaluate_expression_value(left, artifact, context)?;
+            let right_val = evaluate_expression_value(right, artifact, context)?;
             evaluate_binary_op(*op_code, &left_val, &right_val)
         }
         Expression::LogicalOp {
@@ -166,29 +132,24 @@ fn evaluate_expression_value(
             right,
         } => {
             if *op_code == LogicalOp::Not as u8 {
-                let left_val = evaluate_expression_value(left, artifact, user, context)?;
+                let left_val = evaluate_expression_value(left, artifact, context)?;
                 return Some(Value::Bool(!coerce_to_boolean(&left_val).unwrap_or(false)));
             }
-            let left_val = evaluate_expression_value(left, artifact, user, context)?;
+            let left_val = evaluate_expression_value(left, artifact, context)?;
             let right_val = right
                 .as_ref()
-                .and_then(|r| evaluate_expression_value(r, artifact, user, context))?;
+                .and_then(|r| evaluate_expression_value(r, artifact, context))?;
             evaluate_logical_op(*op_code, &left_val, &right_val)
         }
         Expression::Func { func_code, args } => {
-            evaluate_function(*func_code, args, artifact, user, context)
+            evaluate_function(*func_code, args, artifact, context)
         }
     }
 }
 
 /// Evaluate expression to boolean
-fn evaluate_expression(
-    expr: &Expression,
-    artifact: &Artifact,
-    user: &Value,
-    context: &Option<Value>,
-) -> bool {
-    evaluate_expression_value(expr, artifact, user, context)
+fn evaluate_expression(expr: &Expression, artifact: &Artifact, context: &Value) -> bool {
+    evaluate_expression_value(expr, artifact, context)
         .and_then(|v| coerce_to_boolean(&v))
         .unwrap_or(false)
 }
@@ -323,19 +284,14 @@ fn hash_string(s: &str) -> u32 {
 fn select_variation(
     variations: &[controlpath_compiler::ast::Variation],
     artifact: &Artifact,
-    user: &Value,
+    context: &Value,
 ) -> Option<Value> {
     if variations.is_empty() {
         return None;
     }
 
-    let user_id = user
-        .as_object()
-        .and_then(|obj| obj.get("id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    let hash = hash_string(user_id);
+    let identity = user_id(context).unwrap_or_default();
+    let hash = hash_string(&identity);
     let total_pct: u8 = variations.iter().map(|v| v.percentage).sum();
     if total_pct == 0 {
         let first = variations.first()?;
@@ -366,7 +322,7 @@ fn select_variation(
 }
 
 /// Select rollout based on percentage
-fn select_rollout(user: &Value, pct: u8) -> bool {
+fn select_rollout(context: &Value, pct: u8) -> bool {
     if pct == 0 {
         return false;
     }
@@ -374,13 +330,8 @@ fn select_rollout(user: &Value, pct: u8) -> bool {
         return true;
     }
 
-    let user_id = user
-        .as_object()
-        .and_then(|obj| obj.get("id"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    let hash = hash_string(user_id);
+    let identity = user_id(context).unwrap_or_default();
+    let hash = hash_string(&identity);
     let bucket = (hash % 100) as u8;
     bucket < pct
 }
@@ -390,16 +341,15 @@ fn evaluate_function(
     func_code: u8,
     args: &[Expression],
     artifact: &Artifact,
-    user: &Value,
-    context: &Option<Value>,
+    context: &Value,
 ) -> Option<Value> {
     match func_code {
         x if x == FuncCode::StartsWith as u8 => {
             if args.len() < 2 {
                 return Some(Value::Bool(false));
             }
-            let str_val = evaluate_expression_value(&args[0], artifact, user, context)?;
-            let prefix = evaluate_expression_value(&args[1], artifact, user, context)?;
+            let str_val = evaluate_expression_value(&args[0], artifact, context)?;
+            let prefix = evaluate_expression_value(&args[1], artifact, context)?;
             if let (Value::String(s), Value::String(p)) = (str_val, prefix) {
                 Some(Value::Bool(s.starts_with(&p)))
             } else {
@@ -410,8 +360,8 @@ fn evaluate_function(
             if args.len() < 2 {
                 return Some(Value::Bool(false));
             }
-            let str_val = evaluate_expression_value(&args[0], artifact, user, context)?;
-            let suffix = evaluate_expression_value(&args[1], artifact, user, context)?;
+            let str_val = evaluate_expression_value(&args[0], artifact, context)?;
+            let suffix = evaluate_expression_value(&args[1], artifact, context)?;
             if let (Value::String(s), Value::String(suf)) = (str_val, suffix) {
                 Some(Value::Bool(s.ends_with(&suf)))
             } else {
@@ -422,8 +372,8 @@ fn evaluate_function(
             if args.len() < 2 {
                 return Some(Value::Bool(false));
             }
-            let container = evaluate_expression_value(&args[0], artifact, user, context)?;
-            let value = evaluate_expression_value(&args[1], artifact, user, context)?;
+            let container = evaluate_expression_value(&args[0], artifact, context)?;
+            let value = evaluate_expression_value(&args[1], artifact, context)?;
             match (container, value) {
                 (Value::String(s), Value::String(v)) => Some(Value::Bool(s.contains(&v))),
                 (Value::Array(arr), val) => Some(Value::Bool(arr.iter().any(|item| item == &val))),
@@ -434,8 +384,8 @@ fn evaluate_function(
             if args.len() < 2 {
                 return Some(Value::Bool(false));
             }
-            let str_val = evaluate_expression_value(&args[0], artifact, user, context)?;
-            let pattern = evaluate_expression_value(&args[1], artifact, user, context)?;
+            let str_val = evaluate_expression_value(&args[0], artifact, context)?;
+            let pattern = evaluate_expression_value(&args[1], artifact, context)?;
             if let (Value::String(s), Value::String(p)) = (str_val, pattern) {
                 use regex::Regex;
                 let result = Regex::new(&p)
@@ -457,7 +407,7 @@ fn evaluate_function(
             if args.is_empty() {
                 return Some(Value::String(String::new()));
             }
-            let str_val = evaluate_expression_value(&args[0], artifact, user, context)?;
+            let str_val = evaluate_expression_value(&args[0], artifact, context)?;
             let s = match str_val {
                 Value::String(s) => s,
                 _ => str_val.to_string(),
@@ -468,7 +418,7 @@ fn evaluate_function(
             if args.is_empty() {
                 return Some(Value::String(String::new()));
             }
-            let str_val = evaluate_expression_value(&args[0], artifact, user, context)?;
+            let str_val = evaluate_expression_value(&args[0], artifact, context)?;
             let s = match str_val {
                 Value::String(s) => s,
                 _ => str_val.to_string(),
@@ -479,7 +429,7 @@ fn evaluate_function(
             if args.is_empty() {
                 return Some(Value::Number(0.into()));
             }
-            let value = evaluate_expression_value(&args[0], artifact, user, context)?;
+            let value = evaluate_expression_value(&args[0], artifact, context)?;
             let len = match value {
                 Value::String(s) => s.len(),
                 Value::Array(arr) => arr.len(),
@@ -491,8 +441,8 @@ fn evaluate_function(
             if args.len() < 2 {
                 return Some(Value::Bool(false));
             }
-            let value = evaluate_expression_value(&args[0], artifact, user, context)?;
-            let array = evaluate_expression_value(&args[1], artifact, user, context)?;
+            let value = evaluate_expression_value(&args[0], artifact, context)?;
+            let array = evaluate_expression_value(&args[1], artifact, context)?;
             if let Value::Array(arr) = array {
                 Some(Value::Bool(arr.iter().any(|item| item == &value)))
             } else {
@@ -595,12 +545,7 @@ fn format_expression(expr: &Expression, artifact: &Artifact, depth: usize) -> St
 }
 
 /// Evaluate a rule and return detailed information
-fn evaluate_rule_detailed(
-    rule: &Rule,
-    artifact: &Artifact,
-    user: &Value,
-    context: &Option<Value>,
-) -> RuleEvaluation {
+fn evaluate_rule_detailed(rule: &Rule, artifact: &Artifact, context: &Value) -> RuleEvaluation {
     match rule {
         Rule::ServeWithoutWhen(payload) => {
             let value = match payload {
@@ -623,7 +568,7 @@ fn evaluate_rule_detailed(
             }
         }
         Rule::ServeWithWhen(when_expr, payload) => {
-            let when_result = evaluate_expression(when_expr, artifact, user, context);
+            let when_result = evaluate_expression(when_expr, artifact, context);
             let value = if when_result {
                 match payload {
                     controlpath_compiler::ast::ServePayload::String(s) => {
@@ -652,7 +597,7 @@ fn evaluate_rule_detailed(
             }
         }
         Rule::VariationsWithoutWhen(variations) => {
-            let value = select_variation(variations, artifact, user);
+            let value = select_variation(variations, artifact, context);
             RuleEvaluation {
                 index: 0,
                 matched: value.is_some(),
@@ -664,9 +609,9 @@ fn evaluate_rule_detailed(
             }
         }
         Rule::VariationsWithWhen(when_expr, variations) => {
-            let when_result = evaluate_expression(when_expr, artifact, user, context);
+            let when_result = evaluate_expression(when_expr, artifact, context);
             let value = if when_result {
-                select_variation(variations, artifact, user)
+                select_variation(variations, artifact, context)
             } else {
                 None
             };
@@ -685,7 +630,7 @@ fn evaluate_rule_detailed(
             }
         }
         Rule::RolloutWithoutWhen(payload) => {
-            let matched = select_rollout(user, payload.percentage);
+            let matched = select_rollout(context, payload.percentage);
             let value = if matched {
                 match &payload.value_index {
                     controlpath_compiler::ast::RolloutValue::String(s) => {
@@ -714,8 +659,8 @@ fn evaluate_rule_detailed(
             }
         }
         Rule::RolloutWithWhen(when_expr, payload) => {
-            let when_result = evaluate_expression(when_expr, artifact, user, context);
-            let matched = when_result && select_rollout(user, payload.percentage);
+            let when_result = evaluate_expression(when_expr, artifact, context);
+            let matched = when_result && select_rollout(context, payload.percentage);
             let value = if matched {
                 match &payload.value_index {
                     controlpath_compiler::ast::RolloutValue::String(s) => {
@@ -845,12 +790,12 @@ async fn list_flags(State(state): State<Arc<AppState>>) -> Json<Vec<FlagInfo>> {
 
 /// API handler: Evaluate a flag
 ///
-/// Evaluates a flag with the provided user and context, returning detailed
+/// Evaluates a flag with the provided evaluation context, returning detailed
 /// information about rule matching. All rules are evaluated for debugging
 /// visibility, but only the first matching rule's value is used.
 ///
 /// # Validation
-/// - Validates that user and context are valid JSON objects (if provided)
+/// - Validates that context is a JSON object when provided
 /// - Returns structured error responses for invalid input
 async fn evaluate_flag(
     State(state): State<Arc<AppState>>,
@@ -875,34 +820,18 @@ async fn evaluate_flag(
         )
     })?;
 
-    // Validate and parse user JSON
-    let user = if let Some(user_val) = req.user {
-        if !user_val.is_object() {
+    let attributes = if let Some(attributes_val) = req.attributes {
+        if !attributes_val.is_object() {
             return Err((
                 StatusCode::BAD_REQUEST,
                 Json(ErrorResponse {
-                    error: "User must be a JSON object".to_string(),
+                    error: "Attributes must be a JSON object".to_string(),
                 }),
             ));
         }
-        user_val
+        attributes_val
     } else {
         Value::Object(serde_json::Map::new())
-    };
-
-    // Validate context JSON if provided
-    let context = if let Some(context_val) = req.context {
-        if !context_val.is_object() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "Context must be a JSON object".to_string(),
-                }),
-            ));
-        }
-        Some(context_val)
-    } else {
-        None
     };
 
     let mut matched_rule_index = None;
@@ -912,7 +841,7 @@ async fn evaluate_flag(
     // Evaluate all rules for debugging visibility
     // The compiler appends a default rule at the end, so at least one rule should match
     for (rule_index, rule) in flag_rules.iter().enumerate() {
-        let mut eval = evaluate_rule_detailed(rule, &state.artifact, &user, &context);
+        let mut eval = evaluate_rule_detailed(rule, &state.artifact, &attributes);
         eval.index = rule_index;
 
         // Track first match for final value
@@ -1079,26 +1008,23 @@ mod tests {
 
     #[test]
     fn test_get_property_from_user() {
-        let user = serde_json::json!({"id": "user-1", "role": "admin"});
-        let context = None;
+        let attrs = serde_json::json!({"id": "user-1", "role": "admin"});
 
-        let result1 = get_property("user.id", &user, &context);
+        let result1 = get_property("user.id", &attrs);
         assert_eq!(result1, Some(Value::String("user-1".to_string())));
 
-        let result2 = get_property("user.role", &user, &context);
+        let result2 = get_property("user.role", &attrs);
         assert_eq!(result2, Some(Value::String("admin".to_string())));
     }
 
     #[test]
     fn test_get_property_prototype_pollution_protection() {
-        let user = serde_json::json!({"id": "user-1"});
-        let context = None;
+        let attrs = serde_json::json!({"id": "user-1"});
 
-        // Should reject prototype-polluting paths
-        assert_eq!(get_property("__proto__", &user, &context), None);
-        assert_eq!(get_property("constructor", &user, &context), None);
-        assert_eq!(get_property("prototype", &user, &context), None);
-        assert_eq!(get_property("user.__proto__", &user, &context), None);
+        assert_eq!(get_property("__proto__", &attrs), None);
+        assert_eq!(get_property("constructor", &attrs), None);
+        assert_eq!(get_property("prototype", &attrs), None);
+        assert_eq!(get_property("user.__proto__", &attrs), None);
     }
 
     #[test]
@@ -1247,7 +1173,7 @@ mod tests {
         let user = serde_json::json!({"id": "user-1"});
         let rule = Rule::ServeWithoutWhen(ServePayload::Number(0));
 
-        let eval = evaluate_rule_detailed(&rule, &artifact, &user, &None);
+        let eval = evaluate_rule_detailed(&rule, &artifact, &user);
         assert!(eval.matched);
         assert_eq!(eval.rule_type, "serve");
         assert_eq!(eval.value, Some(Value::String("ON".to_string())));
@@ -1336,12 +1262,11 @@ mod tests {
             &[expr1, expr2],
             &artifact,
             &user,
-            &None,
         );
         assert_eq!(result, Some(Value::Bool(true)));
 
         // Test with insufficient args
-        let result2 = evaluate_function(FuncCode::StartsWith as u8, &[], &artifact, &user, &None);
+        let result2 = evaluate_function(FuncCode::StartsWith as u8, &[], &artifact, &user);
         assert_eq!(result2, Some(Value::Bool(false)));
     }
 
@@ -1365,13 +1290,7 @@ mod tests {
             value: Value::Number(1.into()),
         };
 
-        let result = evaluate_function(
-            FuncCode::EndsWith as u8,
-            &[expr1, expr2],
-            &artifact,
-            &user,
-            &None,
-        );
+        let result = evaluate_function(FuncCode::EndsWith as u8, &[expr1, expr2], &artifact, &user);
         assert_eq!(result, Some(Value::Bool(true)));
     }
 
@@ -1395,13 +1314,7 @@ mod tests {
             value: Value::Number(1.into()),
         };
 
-        let result = evaluate_function(
-            FuncCode::Contains as u8,
-            &[expr1, expr2],
-            &artifact,
-            &user,
-            &None,
-        );
+        let result = evaluate_function(FuncCode::Contains as u8, &[expr1, expr2], &artifact, &user);
         assert_eq!(result, Some(Value::Bool(true)));
 
         // Test with array
@@ -1414,13 +1327,8 @@ mod tests {
         let expr4 = Expression::Literal {
             value: Value::String("a".to_string()),
         };
-        let result2 = evaluate_function(
-            FuncCode::Contains as u8,
-            &[expr3, expr4],
-            &artifact,
-            &user,
-            &None,
-        );
+        let result2 =
+            evaluate_function(FuncCode::Contains as u8, &[expr3, expr4], &artifact, &user);
         assert_eq!(result2, Some(Value::Bool(true)));
     }
 
@@ -1449,7 +1357,6 @@ mod tests {
             &[expr1.clone(), expr2],
             &artifact,
             &user,
-            &None,
         );
         assert_eq!(result, Some(Value::Bool(true)));
 
@@ -1465,7 +1372,6 @@ mod tests {
             &[expr1_clone, expr3],
             &artifact,
             &user,
-            &None,
         );
         assert_eq!(result2, Some(Value::Bool(false)));
     }
@@ -1492,15 +1398,14 @@ mod tests {
             std::slice::from_ref(&expr),
             &artifact,
             &user,
-            &None,
         );
         assert_eq!(result, Some(Value::String("HELLO".to_string())));
 
-        let result2 = evaluate_function(FuncCode::Lower as u8, &[expr], &artifact, &user, &None);
+        let result2 = evaluate_function(FuncCode::Lower as u8, &[expr], &artifact, &user);
         assert_eq!(result2, Some(Value::String("hello".to_string())));
 
         // Test with empty args
-        let result3 = evaluate_function(FuncCode::Upper as u8, &[], &artifact, &user, &None);
+        let result3 = evaluate_function(FuncCode::Upper as u8, &[], &artifact, &user);
         assert_eq!(result3, Some(Value::String(String::new())));
     }
 
@@ -1521,7 +1426,7 @@ mod tests {
             value: Value::Number(0.into()),
         };
 
-        let result = evaluate_function(FuncCode::Length as u8, &[expr], &artifact, &user, &None);
+        let result = evaluate_function(FuncCode::Length as u8, &[expr], &artifact, &user);
         assert_eq!(result, Some(Value::Number(5.into())));
 
         // Test with array
@@ -1531,11 +1436,11 @@ mod tests {
                 Value::String("b".to_string()),
             ]),
         };
-        let result2 = evaluate_function(FuncCode::Length as u8, &[expr2], &artifact, &user, &None);
+        let result2 = evaluate_function(FuncCode::Length as u8, &[expr2], &artifact, &user);
         assert_eq!(result2, Some(Value::Number(2.into())));
 
         // Test with empty args
-        let result3 = evaluate_function(FuncCode::Length as u8, &[], &artifact, &user, &None);
+        let result3 = evaluate_function(FuncCode::Length as u8, &[], &artifact, &user);
         assert_eq!(result3, Some(Value::Number(0.into())));
     }
 
@@ -1567,7 +1472,6 @@ mod tests {
             &[expr1.clone(), expr2.clone()],
             &artifact,
             &user,
-            &None,
         );
         assert_eq!(result, Some(Value::Bool(true)));
 
@@ -1581,21 +1485,15 @@ mod tests {
                 Value::String("b".to_string()),
             ]),
         };
-        let result2 = evaluate_function(
-            FuncCode::In as u8,
-            &[expr3, expr2_clone],
-            &artifact,
-            &user,
-            &None,
-        );
+        let result2 =
+            evaluate_function(FuncCode::In as u8, &[expr3, expr2_clone], &artifact, &user);
         assert_eq!(result2, Some(Value::Bool(false)));
 
         // Test with non-array
         let expr4 = Expression::Literal {
             value: Value::String("not an array".to_string()),
         };
-        let result3 =
-            evaluate_function(FuncCode::In as u8, &[expr1, expr4], &artifact, &user, &None);
+        let result3 = evaluate_function(FuncCode::In as u8, &[expr1, expr4], &artifact, &user);
         assert_eq!(result3, Some(Value::Bool(false)));
     }
 
@@ -1614,7 +1512,7 @@ mod tests {
         let user = serde_json::json!({"id": "user-123"});
         let expr = Expression::Property { prop_index: 0 };
 
-        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        let result = evaluate_expression_value(&expr, &artifact, &user);
         assert_eq!(result, Some(Value::String("user-123".to_string())));
     }
 
@@ -1639,7 +1537,7 @@ mod tests {
             right: None,
         };
 
-        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        let result = evaluate_expression_value(&expr, &artifact, &user);
         assert_eq!(result, Some(Value::Bool(false)));
     }
 
@@ -1686,31 +1584,28 @@ mod tests {
 
     #[test]
     fn test_get_property_nested() {
-        let user = serde_json::json!({"profile": {"name": "John", "age": 30}});
-        let context = None;
+        let attrs = serde_json::json!({"profile": {"name": "John", "age": 30}});
 
-        let result = get_property("user.profile.name", &user, &context);
+        let result = get_property("profile.name", &attrs);
         assert_eq!(result, Some(Value::String("John".to_string())));
 
-        let result2 = get_property("user.profile.age", &user, &context);
+        let result2 = get_property("profile.age", &attrs);
         assert_eq!(result2, Some(Value::Number(30.into())));
     }
 
     #[test]
-    fn test_get_property_from_context() {
-        let user = serde_json::json!({"id": "user-1"});
-        let context = Some(serde_json::json!({"region": "us-east"}));
+    fn test_get_property_region() {
+        let attrs = serde_json::json!({"id": "user-1", "region": "us-east"});
 
-        let result = get_property("context.region", &user, &context);
+        let result = get_property("region", &attrs);
         assert_eq!(result, Some(Value::String("us-east".to_string())));
     }
 
     #[test]
     fn test_get_property_empty_path() {
-        let user = serde_json::json!({"id": "user-1"});
-        let context = None;
+        let attrs = serde_json::json!({"id": "user-1"});
 
-        let result = get_property("", &user, &context);
+        let result = get_property("", &attrs);
         assert_eq!(result, None);
     }
 
@@ -1833,7 +1728,7 @@ mod tests {
             value: Value::Bool(true),
         };
         let rule1 = Rule::ServeWithWhen(when_expr.clone(), ServePayload::String("ON".to_string()));
-        let eval1 = evaluate_rule_detailed(&rule1, &artifact, &user, &None);
+        let eval1 = evaluate_rule_detailed(&rule1, &artifact, &user);
         assert!(eval1.matched);
         assert_eq!(eval1.rule_type, "serve");
 
@@ -1843,13 +1738,13 @@ mod tests {
             percentage: 100,
         }];
         let rule2 = Rule::VariationsWithoutWhen(variations.clone());
-        let eval2 = evaluate_rule_detailed(&rule2, &artifact, &user, &None);
+        let eval2 = evaluate_rule_detailed(&rule2, &artifact, &user);
         assert!(eval2.matched);
         assert_eq!(eval2.rule_type, "variations");
 
         // Test VariationsWithWhen
         let rule3 = Rule::VariationsWithWhen(when_expr.clone(), variations);
-        let eval3 = evaluate_rule_detailed(&rule3, &artifact, &user, &None);
+        let eval3 = evaluate_rule_detailed(&rule3, &artifact, &user);
         assert!(eval3.matched);
         assert_eq!(eval3.rule_type, "variations");
 
@@ -1859,12 +1754,12 @@ mod tests {
             percentage: 50,
         };
         let rule4 = Rule::RolloutWithoutWhen(rollout_payload.clone());
-        let eval4 = evaluate_rule_detailed(&rule4, &artifact, &user, &None);
+        let eval4 = evaluate_rule_detailed(&rule4, &artifact, &user);
         assert_eq!(eval4.rule_type, "rollout");
 
         // Test RolloutWithWhen
         let rule5 = Rule::RolloutWithWhen(when_expr, rollout_payload);
-        let eval5 = evaluate_rule_detailed(&rule5, &artifact, &user, &None);
+        let eval5 = evaluate_rule_detailed(&rule5, &artifact, &user);
         assert_eq!(eval5.rule_type, "rollout");
     }
 
@@ -2015,30 +1910,26 @@ mod tests {
 
     #[test]
     fn test_get_property_prototype_pollution() {
-        let user = serde_json::json!({"id": "user-1"});
-        let context = None;
+        let attrs = serde_json::json!({"id": "user-1"});
 
-        // Test prototype pollution protection
-        let result = get_property("__proto__.polluted", &user, &context);
+        let result = get_property("__proto__.polluted", &attrs);
         assert_eq!(result, None);
 
-        let result2 = get_property("constructor.prototype", &user, &context);
+        let result2 = get_property("constructor.prototype", &attrs);
         assert_eq!(result2, None);
 
-        let result3 = get_property("user.__proto__", &user, &context);
+        let result3 = get_property("user.__proto__", &attrs);
         assert_eq!(result3, None);
     }
 
     #[test]
     fn test_get_property_from_root() {
-        let user = serde_json::json!({"id": "user-1", "role": "admin"});
-        let context = Some(serde_json::json!({"region": "us-east"}));
+        let attrs = serde_json::json!({"id": "user-1", "role": "admin", "region": "us-east"});
 
-        // Test accessing root-level properties
-        let result = get_property("id", &user, &context);
+        let result = get_property("id", &attrs);
         assert_eq!(result, Some(Value::String("user-1".to_string())));
 
-        let result2 = get_property("region", &user, &context);
+        let result2 = get_property("region", &attrs);
         assert_eq!(result2, Some(Value::String("us-east".to_string())));
     }
 
@@ -2063,7 +1954,7 @@ mod tests {
             right: None, // This should cause evaluation to fail
         };
 
-        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        let result = evaluate_expression_value(&expr, &artifact, &user);
         assert_eq!(result, None);
     }
 
@@ -2129,13 +2020,7 @@ mod tests {
             value: Value::String("[invalid regex".to_string()),
         };
 
-        let result = evaluate_function(
-            FuncCode::Matches as u8,
-            &[expr1, expr2],
-            &artifact,
-            &user,
-            &None,
-        );
+        let result = evaluate_function(FuncCode::Matches as u8, &[expr1, expr2], &artifact, &user);
         assert_eq!(result, Some(Value::Bool(false))); // Should return false for invalid regex
     }
 
@@ -2154,13 +2039,13 @@ mod tests {
         let user = serde_json::json!({"id": "user-1"});
 
         // Test functions that require args with insufficient args
-        let result1 = evaluate_function(FuncCode::StartsWith as u8, &[], &artifact, &user, &None);
+        let result1 = evaluate_function(FuncCode::StartsWith as u8, &[], &artifact, &user);
         assert_eq!(result1, Some(Value::Bool(false)));
 
-        let result2 = evaluate_function(FuncCode::Contains as u8, &[], &artifact, &user, &None);
+        let result2 = evaluate_function(FuncCode::Contains as u8, &[], &artifact, &user);
         assert_eq!(result2, Some(Value::Bool(false)));
 
-        let result3 = evaluate_function(FuncCode::Matches as u8, &[], &artifact, &user, &None);
+        let result3 = evaluate_function(FuncCode::Matches as u8, &[], &artifact, &user);
         assert_eq!(result3, Some(Value::Bool(false)));
     }
 
@@ -2194,7 +2079,7 @@ mod tests {
             value: Value::Number(0.into()),
         };
 
-        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        let result = evaluate_expression_value(&expr, &artifact, &user);
         assert_eq!(result, Some(Value::String("test_string".to_string())));
     }
 
@@ -2216,7 +2101,7 @@ mod tests {
             value: Value::Number(999.into()),
         };
 
-        let result = evaluate_expression_value(&expr, &artifact, &user, &None);
+        let result = evaluate_expression_value(&expr, &artifact, &user);
         // Should return the number itself since it's out of bounds
         assert_eq!(result, Some(Value::Number(999.into())));
     }

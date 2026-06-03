@@ -32,7 +32,7 @@ Typical flow:
 Pass a single attributes object (for example `{ id: 'user-42', role: 'admin', plan: 'beta' }`). Rule `when` clauses read properties from this object. Stable `id` is required for consistent rollout bucketing.
 
 - Field names, expression syntax, and `explain` usage: [`rules.md`](rules.md#evaluation-attributes)
-- Generated SDK type: `Attributes` in `types.ts` (base fields plus index signature until catalog-driven typing ships)
+- Generated SDK type: `Attributes` in `types.ts` extends `BaseAttributes` from `@controlpath/runtime` (index signature for extra fields until catalog `attributes:` opts in to closed typing)
 
 Generated runtime supports:
 

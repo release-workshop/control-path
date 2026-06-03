@@ -67,9 +67,15 @@ fn test_generate_sdk_command() {
     project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
 
     // Verify SDK was generated (default path is node_modules/@controlpath/generated)
+    let generated = project.path("node_modules/@controlpath/generated");
     assert!(project.file_exists("node_modules/@controlpath/generated/index.ts"));
     assert!(project.file_exists("node_modules/@controlpath/generated/types.ts"));
     assert!(project.file_exists("node_modules/@controlpath/generated/package.json"));
+
+    let types_content = std::fs::read_to_string(generated.join("types.ts")).unwrap();
+    assert!(types_content.contains("import type { BaseAttributes } from '@controlpath/runtime'"));
+    assert!(types_content.contains("export interface Attributes extends BaseAttributes"));
+    assert!(!types_content.contains("/** User ID */"));
 }
 
 #[test]
@@ -91,7 +97,7 @@ fn test_explain_command() {
         "explain",
         "--flag",
         "my_flag",
-        "--user",
+        "--attributes",
         "user.json",
         "--env",
         "production",
@@ -118,7 +124,7 @@ fn test_explain_command_with_inline_user_json() {
         "explain",
         "--flag",
         "my_flag",
-        "--user",
+        "--attributes",
         r#"{"id":"user-1","role":"admin"}"#,
         "--env",
         "production",
@@ -148,7 +154,7 @@ fn test_explain_command_with_trace() {
         "explain",
         "--flag",
         "my_flag",
-        "--user",
+        "--attributes",
         "user.json",
         "--env",
         "production",
@@ -158,8 +164,8 @@ fn test_explain_command_with_trace() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("User ID: user-1"),
-        "trace header should show user id for rollout debugging, got: {stdout}"
+        stdout.contains("ID: user-1"),
+        "trace header should show identity id for rollout debugging, got: {stdout}"
     );
     assert!(stdout.contains("Rule trace:"));
 }
@@ -392,7 +398,7 @@ fn test_explain_invalid_user_json() {
         "explain",
         "--flag",
         "my_flag",
-        "--user",
+        "--attributes",
         "user.json",
         "--env",
         "production",
@@ -416,7 +422,7 @@ fn test_explain_missing_user_file() {
         "explain",
         "--flag",
         "my_flag",
-        "--user",
+        "--attributes",
         "nonexistent.json",
         "--env",
         "production",
@@ -435,20 +441,13 @@ fn test_explain_invalid_context_json() {
     // Compile first
     project.run_command_success(&["compile", "--env", "production"]);
 
-    // Create valid user file
-    project.write_file("user.json", r#"{"id": "user-1"}"#);
-
-    // Create invalid context JSON file
     project.write_file("context.json", r#"{"env": "prod", invalid}"#);
 
-    // Explain should fail with invalid context JSON
     let output = project.run_command_failure(&[
         "explain",
         "--flag",
         "my_flag",
-        "--user",
-        "user.json",
-        "--context",
+        "--attributes",
         "context.json",
         "--env",
         "production",

@@ -61,7 +61,15 @@ export {
   type EvaluateBooleanFlagOptions,
 } from './generated-evaluator-runtime';
 export { buildFlagNameMap, buildFlagNameMapFromArtifact } from './utils';
-export type { Artifact, Rule, Expression, Attributes, Logger, KillSwitchFile } from './types';
+export type {
+  Artifact,
+  Rule,
+  Expression,
+  BaseAttributes,
+  Attributes,
+  Logger,
+  KillSwitchFile,
+} from './types';
 export {
   RuleType,
   ExpressionType,

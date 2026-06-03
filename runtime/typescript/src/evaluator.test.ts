@@ -91,6 +91,56 @@ describe('Evaluator', () => {
       expect(result).toBe(true);
     });
 
+    it('resolves legacy user./context. paths in the string table against bare attributes', () => {
+      const legacyArtifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'OFF', 'user.role', 'admin'],
+        flags: [
+          [
+            [
+              RuleType.SERVE,
+              [
+                ExpressionType.BINARY_OP,
+                BinaryOp.EQ,
+                [ExpressionType.PROPERTY, 2],
+                [ExpressionType.LITERAL, 3],
+              ],
+              0,
+            ],
+            [RuleType.SERVE, undefined, 1],
+          ],
+        ],
+      };
+
+      const admin: Attributes = { id: 'a1', role: 'admin' };
+      expect(evaluate(0, legacyArtifact, admin)).toBe(true);
+
+      const member: Attributes = { id: 'm1', role: 'member' };
+      expect(evaluate(0, legacyArtifact, member)).toBe(false);
+
+      const contextArtifact: Artifact = {
+        v: '1.0',
+        env: 'test',
+        strs: ['ON', 'context.environment', 'production'],
+        flags: [
+          [
+            [
+              RuleType.SERVE,
+              [
+                ExpressionType.BINARY_OP,
+                BinaryOp.EQ,
+                [ExpressionType.PROPERTY, 1],
+                [ExpressionType.LITERAL, 2],
+              ],
+              0,
+            ],
+          ],
+        ],
+      };
+      expect(evaluate(0, contextArtifact, { environment: 'production' })).toBe(true);
+    });
+
     it('should return undefined when when clause does not match', () => {
       const rule: Rule = [
         RuleType.SERVE,

@@ -112,7 +112,7 @@ Pass an optional `logger` to `init({ artifact, logger })` to emit warnings when 
 - `ArtifactRefreshCoordinator`, `refreshArtifactFromUrl`, `validateArtifactPoll`, `assertArtifactAccepted` — compiled artifact polling and init guardrails
 - `startJitteredPoll`, `pollInitDelayMs` — generic jittered poll helpers (aliases of kill-switch names)
 - `refreshKillSwitchFromUrl`, `startKillSwitchPoll` — low-level fetch and interval helper
-- `Artifact`, `Rule` (serve and rollout only), `Expression`, `Attributes` — AST types
+- `Artifact`, `Rule` (serve and rollout only), `Expression`, `BaseAttributes`, `Attributes` — AST types
 
 ## Development
 

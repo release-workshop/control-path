@@ -15,8 +15,7 @@ use std::path::{Path, PathBuf};
 
 pub struct Options {
     pub flag: String,
-    pub user: Option<String>,
-    pub context: Option<String>,
+    pub attributes: Option<String>,
     pub env: Option<String>,
     pub trace: bool,
     pub ast: Option<String>,
@@ -24,12 +23,12 @@ pub struct Options {
 
 pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
-        Ok((trace, user)) => {
+        Ok((trace, attributes)) => {
             if runtime::is_json_output() {
                 print_json(options, &trace);
             } else {
                 if options.trace {
-                    print_trace_header(options, &trace, &user);
+                    print_trace_header(options, &trace, &attributes);
                     print_rule_trace(&trace);
                 }
                 print_human(options, &trace);
@@ -86,15 +85,10 @@ fn run_inner(options: &Options) -> CliResult<(ExplainTrace, Value)> {
             ))
         })?;
 
-    let user_json = if let Some(user_input) = &options.user {
-        parse_json_or_file(user_input, "--user")?
+    let attributes_json = if let Some(attributes_input) = &options.attributes {
+        parse_json_or_file(attributes_input, "--attributes")?
     } else {
         Value::Object(serde_json::Map::new())
-    };
-    let context_json = if let Some(context_input) = &options.context {
-        Some(parse_json_or_file(context_input, "--context")?)
-    } else {
-        None
     };
 
     let kill_path = kill_switch::kill_switch_path(&environment);
@@ -108,8 +102,7 @@ fn run_inner(options: &Options) -> CliResult<(ExplainTrace, Value)> {
         catalog: &bundle.catalog,
         imports: &bundle.imports,
         sdk_flag,
-        user: &user_json,
-        context: context_json.as_ref(),
+        attributes: &attributes_json,
         kill_switch: (!kill_switch.is_empty()).then_some(&kill_switch),
         saas_mode: bundle.catalog.mode == CatalogMode::Saas,
         include_rule_trace: options.trace && !runtime::is_json_output(),
@@ -120,7 +113,7 @@ fn run_inner(options: &Options) -> CliResult<(ExplainTrace, Value)> {
         .warnings
         .extend(env_ast_warnings(options, &environment, &artifact));
 
-    Ok((trace, user_json))
+    Ok((trace, attributes_json))
 }
 
 fn map_explain_error(ast_path: &Path, err: ExplainError) -> CliError {
@@ -286,9 +279,9 @@ fn print_human(options: &Options, trace: &ExplainTrace) {
             println!("  Reason: {reason}");
         }
     }
-    if trace.missing_user_id {
+    if trace.missing_id {
         println!();
-        println!("  ⚠ Missing user.id — rollout rules need a stable identity for bucketing");
+        println!("  ⚠ Missing id — rollout rules need a stable identity for bucketing");
     }
     println!();
 }
@@ -314,8 +307,8 @@ fn print_json(options: &Options, trace: &ExplainTrace) {
     for warning in &trace.warnings {
         warnings.push(json!(warning));
     }
-    if trace.missing_user_id {
-        warnings.push(json!("missing user.id for rollout bucketing"));
+    if trace.missing_id {
+        warnings.push(json!("missing id for rollout bucketing"));
     }
     if let Some(rule) = &trace.catalog_rule {
         body["catalogRule"] = json!({
@@ -331,15 +324,15 @@ fn print_json(options: &Options, trace: &ExplainTrace) {
     println!("{body}");
 }
 
-/// Line printed under `--trace` when the user has a stable id (object `id` or string user).
-fn trace_user_line(user: &Value) -> Option<String> {
-    user_id(user).map(|id| format!("User ID: {id}"))
+/// Line printed under `--trace` when context has a stable `id` (object field or string context).
+fn trace_identity_line(attributes: &Value) -> Option<String> {
+    user_id(attributes).map(|id| format!("ID: {id}"))
 }
 
-fn print_trace_header(options: &Options, trace: &ExplainTrace, user: &Value) {
+fn print_trace_header(options: &Options, trace: &ExplainTrace, attributes: &Value) {
     println!("Flag: {}", options.flag);
     println!("Environment: {}", trace.environment);
-    if let Some(line) = trace_user_line(user) {
+    if let Some(line) = trace_identity_line(attributes) {
         println!("{line}");
     }
     println!();
@@ -392,8 +385,7 @@ mod tests {
     fn determine_ast_path_prefers_explicit_ast() {
         let options = Options {
             flag: "f".to_string(),
-            user: None,
-            context: None,
+            attributes: None,
             env: None,
             trace: false,
             ast: Some("custom.ast".to_string()),
@@ -405,16 +397,16 @@ mod tests {
     }
 
     #[test]
-    fn trace_user_line_uses_user_id_semantics() {
+    fn trace_identity_line_uses_user_id_semantics() {
         assert_eq!(
-            trace_user_line(&json!({ "id": "user-1" })).as_deref(),
-            Some("User ID: user-1")
+            trace_identity_line(&json!({ "id": "user-1" })).as_deref(),
+            Some("ID: user-1")
         );
         assert_eq!(
-            trace_user_line(&json!("abc")).as_deref(),
-            Some("User ID: abc")
+            trace_identity_line(&json!("abc")).as_deref(),
+            Some("ID: abc")
         );
-        assert_eq!(trace_user_line(&json!({ "plan": "beta" })), None);
+        assert_eq!(trace_identity_line(&json!({ "plan": "beta" })), None);
     }
 
     #[test]
@@ -438,8 +430,7 @@ mod tests {
         };
         let options = Options {
             flag: "f".into(),
-            user: None,
-            context: None,
+            attributes: None,
             env: Some("staging".into()),
             trace: false,
             ast: Some(".controlpath/production.ast".into()),

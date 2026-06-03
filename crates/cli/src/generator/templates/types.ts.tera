@@ -3,23 +3,13 @@
  * DO NOT EDIT - This file is auto-generated
  */
 
+import type { BaseAttributes } from '@controlpath/runtime';
+
 /**
  * Attributes object - represents all attributes used for flag evaluation.
  * Consolidates user identity, user attributes, and environmental context into a single object.
  */
-export interface Attributes {
-  /** User ID */
-  id?: string;
-  /** User email */
-  email?: string;
-  /** User role */
-  role?: string;
-  /** Environment name */
-  environment?: string;
-  /** Device information */
-  device?: string;
-  /** Application version */
-  app_version?: string;
+export interface Attributes extends BaseAttributes {
   /** Additional attributes */
   [key: string]: unknown;
 }

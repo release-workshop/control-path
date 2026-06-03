@@ -53,7 +53,7 @@ pub struct ExplainTrace {
     pub imported: bool,
     pub deprecated: bool,
     pub rollout_bucket: Option<u32>,
-    pub missing_user_id: bool,
+    pub missing_id: bool,
     pub warnings: Vec<String>,
     pub rule_trace: Vec<ExplainRuleTrace>,
 }
@@ -69,7 +69,7 @@ pub enum ExplainError {
 
 /// Inputs for [`explain_flag`]. Catalog metadata is used for `reason`, rollout display, and SaaS warnings.
 ///
-/// [`ExplainTrace::rollout_bucket`] and [`ExplainTrace::missing_user_id`] are derived from the matched
+/// [`ExplainTrace::rollout_bucket`] and [`ExplainTrace::missing_id`] are derived from the matched
 /// catalog YAML row when present. A rollout rule can match in the artifact while catalog rows are missing
 /// or out of sync (common with stale SaaS AST); in that case evaluation still uses the artifact but rollout
 /// diagnostics are omitted until catalog metadata aligns with the artifact index.
@@ -82,8 +82,7 @@ pub struct ExplainRequest<'a> {
     pub catalog: &'a CatalogDocument,
     pub imports: &'a BTreeMap<String, CatalogDocument>,
     pub sdk_flag: &'a SdkFlag,
-    pub user: &'a Value,
-    pub context: Option<&'a Value>,
+    pub attributes: &'a Value,
     pub kill_switch: Option<&'a KillSwitchOverrides>,
     /// When true, suppress warnings for missing local YAML rows (SaaS / remote AST).
     pub saas_mode: bool,
@@ -123,7 +122,7 @@ pub fn explain_flag(request: ExplainRequest<'_>) -> Result<ExplainTrace, Explain
                 imported,
                 deprecated,
                 rollout_bucket: None,
-                missing_user_id: false,
+                missing_id: false,
                 warnings,
                 rule_trace: Vec::new(),
             });
@@ -131,8 +130,7 @@ pub fn explain_flag(request: ExplainRequest<'_>) -> Result<ExplainTrace, Explain
     }
 
     let attrs = EvaluationAttributes {
-        user: request.user,
-        context: request.context,
+        attributes: request.attributes,
     };
 
     let (matched_rule_index, raw_value, rule_trace) = if request.include_rule_trace {
@@ -178,7 +176,7 @@ pub fn explain_flag(request: ExplainRequest<'_>) -> Result<ExplainTrace, Explain
     }
 
     let rollout_rule = catalog_rule.as_ref().is_some_and(|r| r.rollout.is_some());
-    let missing_user_id = rollout_rule && user_id(request.user).is_none();
+    let missing_id = rollout_rule && user_id(request.attributes).is_none();
 
     Ok(ExplainTrace {
         environment: request.artifact.environment.clone(),
@@ -190,11 +188,11 @@ pub fn explain_flag(request: ExplainRequest<'_>) -> Result<ExplainTrace, Explain
         imported,
         deprecated,
         rollout_bucket: if rollout_rule {
-            rollout_bucket(request.user)
+            rollout_bucket(request.attributes)
         } else {
             None
         },
-        missing_user_id,
+        missing_id,
         warnings,
         rule_trace,
     })
@@ -207,7 +205,6 @@ fn build_rule_trace(
     catalog_rules: &[CatalogRuleRow],
     saas_mode: bool,
 ) -> Vec<ExplainRuleTrace> {
-    let context_owned = attrs.context.cloned();
     let rules = match artifact.flags.get(flag_index) {
         Some(r) => r,
         None => return Vec::new(),
@@ -217,7 +214,7 @@ fn build_rule_trace(
         .iter()
         .enumerate()
         .map(|(index, rule)| {
-            let eval = evaluate_rule(rule, artifact, attrs.user, &context_owned);
+            let eval = evaluate_rule(rule, artifact, attrs.attributes);
             let catalog_reason = catalog_rules.get(index).and_then(|r| r.reason.clone());
             let catalog_note = if catalog_reason.is_some() {
                 None
@@ -395,8 +392,7 @@ mod tests {
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &user,
-            context: None,
+            attributes: &user,
             kill_switch: Some(&kill_switch),
             saas_mode: false,
             include_rule_trace: false,
@@ -424,8 +420,7 @@ mod tests {
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &user,
-            context: None,
+            attributes: &user,
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
@@ -453,8 +448,7 @@ mod tests {
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &user,
-            context: None,
+            attributes: &user,
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
@@ -482,8 +476,7 @@ mod tests {
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &user,
-            context: None,
+            attributes: &user,
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: true,
@@ -533,8 +526,7 @@ environments:
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &with_id,
-            context: None,
+            attributes: &with_id,
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
@@ -546,7 +538,7 @@ environments:
         assert!(trace.value);
         assert!(trace.catalog_rule.as_ref().unwrap().rollout.is_some());
         assert_eq!(trace.rollout_bucket, rollout_bucket(&with_id));
-        assert!(!trace.missing_user_id);
+        assert!(!trace.missing_id);
 
         let without_id = json!({ "segment": "anon" });
         let trace = explain_flag(ExplainRequest {
@@ -556,15 +548,14 @@ environments:
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &without_id,
-            context: None,
+            attributes: &without_id,
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
         })
         .unwrap();
 
-        assert!(trace.missing_user_id);
+        assert!(trace.missing_id);
         assert!(trace.rollout_bucket.is_none());
     }
 
@@ -582,8 +573,7 @@ environments:
             catalog: &catalog,
             imports: &imports,
             sdk_flag: flag,
-            user: &json!({ "id": "u1" }),
-            context: None,
+            attributes: &json!({ "id": "u1" }),
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
@@ -649,8 +639,7 @@ environments:
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &json!({ "id": "any" }),
-            context: None,
+            attributes: &json!({ "id": "any" }),
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
@@ -678,8 +667,7 @@ environments:
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &json!({ "id": "equiv-user", "plan": "standard" }),
-            context: None,
+            attributes: &json!({ "id": "equiv-user", "plan": "standard" }),
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,
@@ -728,8 +716,7 @@ environments:
             catalog: &catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &user,
-            context: None,
+            attributes: &user,
             kill_switch: None,
             saas_mode: true,
             include_rule_trace: false,
@@ -759,8 +746,7 @@ environments:
             catalog: &thin_catalog,
             imports: &BTreeMap::new(),
             sdk_flag: flag,
-            user: &user,
-            context: None,
+            attributes: &user,
             kill_switch: None,
             saas_mode: false,
             include_rule_trace: false,

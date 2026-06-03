@@ -92,6 +92,7 @@ flags: {}
 
     let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
     let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
-    assert!(types_content.contains("export interface Attributes"));
+    assert!(types_content.contains("import type { BaseAttributes } from '@controlpath/runtime'"));
+    assert!(types_content.contains("export interface Attributes extends BaseAttributes"));
     assert!(index_content.contains("export class Evaluator"));
 }

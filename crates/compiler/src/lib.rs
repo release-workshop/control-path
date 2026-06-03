@@ -93,8 +93,8 @@ impl<'a> Serialize for BytesWrapper<'a> {
 // Re-export error types for public API
 pub use error::CompilerError;
 pub use runtime::{
-    evaluate_flag, evaluate_rule, find_flag_index, rollout_bucket, user_id, EvaluationAttributes,
-    RuleEvaluation,
+    evaluate_flag, evaluate_rule, find_flag_index, get_property, rollout_bucket, user_id,
+    EvaluationAttributes, RuleEvaluation,
 };
 
 /// Parse flag definitions from YAML/JSON string

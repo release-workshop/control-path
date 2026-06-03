@@ -44,6 +44,9 @@ fn generates_boolean_sdk_from_v2_local_catalog() {
     generator.generate(&sdk, temp_dir.path()).unwrap();
 
     let types_content = fs::read_to_string(temp_dir.path().join("types.ts")).unwrap();
+    assert!(types_content.contains("import type { BaseAttributes } from '@controlpath/runtime'"));
+    assert!(types_content.contains("export interface Attributes extends BaseAttributes"));
+    assert!(!types_content.contains("/** User ID */"));
     assert!(types_content.contains("'newDashboard'"));
     assert!(types_content.contains("newDashboard: boolean"));
     assert!(!types_content.contains("Variation"));

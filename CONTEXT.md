@@ -41,8 +41,24 @@ Ordered targeting rules under `environments.<name>.rules`, keyed by local flag n
 _Avoid_: Deployment, targeting config
 
 **Evaluation attributes**:
-The single object passed at runtime (and to `explain`) whose fields rule `when` expressions read — identity (`id`), opinionated defaults (`role`, `environment`, …), and service-specific properties. Not a nested **user** inside a separate **context** bag: `user.` and `context.` prefixes in rule strings are optional authoring sugar, compiled to top-level keys on this object. The generated SDK types a base shape today; a future catalog-declared attribute schema will extend that base so call sites must pass a satisfying object.
+The single object passed at runtime (and to `explain`) whose fields rule `when` expressions read — **base attributes**, service-local **attribute schema** fields, and **namespaced attributes** for each **import namespace**. Not a nested **user** inside a separate **context** bag: `user.` and `context.` prefixes in rule strings are optional authoring sugar, compiled to top-level keys on this object. The generated SDK types a closed shape when the service opts into **attribute schema**; each flag method uses a **per-flag attribute type** from catalog ownership (not from **environment rules**).
 _Avoid_: User object, context object (as parallel runtime bags), evaluation context (unqualified)
+
+**Attribute schema**:
+Optional `attributes:` map declaring service-specific evaluation attribute names and scalar types only in v1: `string`, `number`, `boolean`. Scoped like flags: the service catalog owns top-level fields; each **import namespace** owns fields declared in that imported catalog’s **attribute schema** (not flattened into the service file). Omitting `attributes:` on a catalog leaves legacy behavior for that scope (including `controlpath init`, which does not scaffold **attribute schema** by default). Opting in on the service catalog enables strict property validation and a closed generated SDK type. In **local mode**, `validate` / `compile` / `generate-sdk` reject unknown property names in **environment rules** and **segments** under that catalog. In **SaaS mode**, the service validates **attribute schema**, flags, and imports only — remote **environment rules** are validated where they are authored, not from the service repo. Distinct from the runtime **evaluation attributes** object passed at call sites.
+_Avoid_: Context schema, user schema, property definitions (unqualified)
+
+**Per-flag attribute type**:
+Generated flag method parameter type derived from Git-stable catalog data only — not from **environment rules** (those can change via **compiled artifact** / SaaS without an SDK rebuild). Local flags: **base attributes** plus the full service **attribute schema**. Imported flags: **base attributes** plus that flag’s **import namespace** object only. Callers may pass a wider **evaluation attributes** object (structural superset), never a narrower one.
+_Avoid_: Rule-derived minimum types, environment-rule typing, SaaS-synced TypeScript
+
+**Namespaced attributes**:
+Evaluation attribute fields from an imported catalog are grouped under that catalog’s **import namespace** in the runtime object and generated TypeScript (e.g. service passes `{ platform: { org_tier: 'gold' } }`; rules in the shared catalog author bare `org_tier`, compiled into the merged artifact as `platform.org_tier`). Service-local **attribute schema** fields stay at the top level beside **base attributes**. Aligns attribute typing with **import namespace** the same way flag names are qualified in the SDK.
+_Avoid_: Flat import fields, global attribute bag, qualified property names in shared-catalog rule strings
+
+**Base attributes**:
+Platform-owned evaluation attribute fields (`id`, `email`, `role`, `environment`, `device`, `app_version`, …), exported from `@controlpath/runtime` as `BaseAttributes`. Not redeclared in catalog **attribute schema** — doing so fails validation. The generated SDK extends **base attributes** with service and **namespaced attributes** types; the runtime package owns the base field list so it is not duplicated in the generator template.
+_Avoid_: Default context, standard user object, built-in context, duplicated base fields in generated types
 
 **Declared metadata**:
 Git-authored fields on flags expressing intent: required `kind`; optional `owner`, `ticket`, `expires`, `tags`, `description`, `lifecycle` (defaults to `active`), and free-form `metadata`. Validation warns on missing recommended fields; strict enforcement is optional in CI.

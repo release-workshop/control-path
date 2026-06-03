@@ -464,6 +464,22 @@ function coerceToBoolean(value: unknown): boolean | null {
 }
 
 /**
+ * Strip optional `user.` / `context.` authoring prefixes so legacy artifacts
+ * whose string table still stores prefixed paths match bare evaluation attributes.
+ * Keep in sync with `normalize_property_path` in `crates/compiler/src/runtime/evaluate.rs`
+ * and `crates/compiler/src/compiler/string_table.rs` (compile-time normalization).
+ */
+function normalizePropertyPath(propPath: string): string {
+  if (propPath.startsWith('user.')) {
+    return propPath.slice('user.'.length);
+  }
+  if (propPath.startsWith('context.')) {
+    return propPath.slice('context.'.length);
+  }
+  return propPath;
+}
+
+/**
  * Get a property value from attributes using dot notation.
  * Rejects prototype-polluting property paths for security.
  */
@@ -472,7 +488,7 @@ function getProperty(propPath: string, attributes?: Attributes): unknown {
     return undefined;
   }
 
-  const parts = propPath.split('.');
+  const parts = normalizePropertyPath(propPath).split('.');
   if (parts.length === 0) {
     return undefined;
   }

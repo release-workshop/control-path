@@ -83,7 +83,7 @@ Management Commands:
   kill-switch - Manage runtime kill switches
 
 Debug Commands:
-  explain - Explain flag evaluation with user/context
+  explain - Explain flag evaluation with evaluation attributes
   debug - Start interactive debug UI
 
 Development Commands:
@@ -299,41 +299,35 @@ enum Commands {
         #[arg(long)]
         no_sdk: bool,
     },
-    /// Explain flag evaluation with user/context
+    /// Explain flag evaluation with evaluation attributes
     ///
-    /// Use this to debug why a flag evaluates to a specific value for a user. Shows detailed
-    /// information about how a flag evaluates for a given user and context, including which
-    /// rules matched and why. Essential for troubleshooting flag behavior.
+    /// Use this to debug why a flag evaluates to a specific value for given evaluation
+    /// attributes. Shows which rules matched and why. Essential for troubleshooting flag behavior.
     ///
     /// When to use:
     ///   - Debugging why a flag isn't working as expected
-    ///   - Understanding which rules matched for a specific user
+    ///   - Understanding which rules matched for specific attributes
     ///   - Testing flag logic before deploying
     ///
     /// Examples:
-    ///   # Explain with user file
-    ///   controlpath explain --flag new_dashboard --user user.json --env production
+    ///   # Explain with attributes file
+    ///   controlpath explain --flag new_dashboard --attributes attributes.json --env production
     ///
     ///   # Explain with detailed trace
-    ///   controlpath explain --flag new_dashboard --user user.json --env production --trace
+    ///   controlpath explain --flag new_dashboard --attributes attributes.json --env production --trace
     ///
     ///   # Explain with JSON string
-    ///   controlpath explain --flag new_dashboard --user '{"id":"123","role":"admin"}' --env production
+    ///   controlpath explain --flag new_dashboard --attributes '{"id":"123","role":"admin"}' --env production
     Explain {
         /// Flag name to explain
         #[arg(long)]
         flag: String,
-        /// Path to user JSON file or JSON string
+        /// Path to evaluation attributes JSON file or inline JSON (optional)
         ///
-        /// The user object used for evaluation. Can be a file path or a JSON string.
-        /// Example: --user user.json or --user '{"id":"123","role":"admin"}'
+        /// Attributes used for evaluation (identity, role, environment, custom fields).
+        /// Example: --attributes attributes.json or --attributes '{"id":"123","role":"admin"}'
         #[arg(long)]
-        user: Option<String>,
-        /// Path to context JSON file or JSON string (optional)
-        ///
-        /// The context object used for evaluation. Can be a file path or a JSON string.
-        #[arg(long)]
-        context: Option<String>,
+        attributes: Option<String>,
         /// Environment name (uses .controlpath/<env>.ast)
         ///
         /// Specifies which environment's AST to use for evaluation.
@@ -356,14 +350,14 @@ enum Commands {
     /// Start interactive debug UI
     ///
     /// Use this for visual debugging of flag evaluation. Launches a web-based UI for debugging
-    /// flag evaluation. The UI allows you to test flags with different user and context values,
+    /// flag evaluation. The UI lets you edit a single evaluation attributes JSON object,
     /// see which rules match, and view detailed evaluation information.
     ///
     /// The debug UI is available at http://localhost:8080 by default.
     ///
     /// When to use:
     ///   - Visual debugging of complex flag rules
-    ///   - Testing multiple user scenarios quickly
+    ///   - Testing multiple attribute payloads quickly
     ///   - Exploring flag behavior interactively
     ///
     /// Examples:
@@ -867,16 +861,14 @@ fn main() {
         }
         Commands::Explain {
             flag,
-            user,
-            context,
+            attributes,
             env,
             ast,
             trace,
         } => {
             let opts = explain::Options {
                 flag,
-                user,
-                context,
+                attributes,
                 env,
                 ast,
                 trace,

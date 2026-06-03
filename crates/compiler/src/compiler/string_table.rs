@@ -6,8 +6,9 @@
 use crate::ast::Expression;
 use crate::compiler::expressions::IntermediateExpression;
 
-/// Normalize property path by removing user. and context. prefixes.
-/// This matches the simplified runtime API where all attributes are in a single object.
+/// Strip `user.` / `context.` prefixes when building the string table.
+/// Runtime evaluators apply the same rule for legacy artifacts that still store
+/// prefixed paths — see `runtime/evaluate.rs` and `runtime/typescript/src/evaluator.ts`.
 fn normalize_property_path(path: &str) -> String {
     if path.starts_with("user.") {
         path.strip_prefix("user.").unwrap_or(path).to_string()

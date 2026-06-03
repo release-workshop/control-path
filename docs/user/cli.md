@@ -16,7 +16,7 @@ Use this as the default rollout loop for release safety:
 ```bash
 controlpath new-flag checkout_revamp --type boolean --default false
 controlpath flag enable checkout_revamp --env staging --rule "role == 'admin'"
-controlpath explain --flag checkout_revamp --user user.json --env staging --trace
+controlpath explain --flag checkout_revamp --attributes attributes.json --env staging --trace
 controlpath ci --env staging
 controlpath deploy --env staging
 ```
@@ -139,13 +139,12 @@ Common options:
 
 ### `explain`
 
-Show evaluation details for one flag/user/context.
+Show evaluation details for one flag and evaluation context.
 
 Common options:
 
 - `--flag <name>` (required)
-- `--user <path-or-json>`
-- `--context <path-or-json>`
+- `--attributes <path-or-json>` — evaluation attributes (optional; defaults to `{}`)
 - `--env <env>` or `--ast <path>`
 - `--trace`
 

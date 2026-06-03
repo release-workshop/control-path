@@ -309,7 +309,7 @@
     <div class="container">
         <header>
             <h1>🚀 Control Path Debug UI</h1>
-            <div class="subtitle">Test flag evaluation with different user and context values</div>
+            <div class="subtitle">Test flag evaluation with evaluation attributes (JSON)</div>
         </header>
 
         <div class="main-content">
@@ -322,12 +322,8 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label for="user-input">User (JSON)</label>
-                    <textarea id="user-input" placeholder='{"id": "user-123", "role": "admin", "email": "user@example.com"}'></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="context-input">Context (JSON, optional)</label>
-                    <textarea id="context-input" placeholder='{"environment": "production", "device": {"type": "mobile"}}'></textarea>
+                    <label for="attributes-input">Attributes (JSON)</label>
+                    <textarea id="attributes-input" placeholder='{"id": "user-123", "role": "admin", "environment": "production"}'></textarea>
                 </div>
                 <button id="evaluate-btn" onclick="evaluateFlag()">Evaluate Flag</button>
             </div>
@@ -338,7 +334,7 @@
                     <button onclick="loadExample('admin')" style="background: #10b981;">Admin User</button>
                     <button onclick="loadExample('regular')" style="background: #3b82f6;">Regular User</button>
                     <button onclick="loadExample('mobile')" style="background: #8b5cf6;">Mobile Device</button>
-                    <button onclick="loadExample('empty')" style="background: #6b7280;">Empty Context</button>
+                    <button onclick="loadExample('empty')" style="background: #6b7280;">Empty</button>
                 </div>
             </div>
         </div>
@@ -398,8 +394,7 @@
 
         async function evaluateFlag() {
             const flagSelect = document.getElementById('flag-select');
-            const userInput = document.getElementById('user-input');
-            const contextInput = document.getElementById('context-input');
+            const attributesInput = document.getElementById('attributes-input');
             const evaluateBtn = document.getElementById('evaluate-btn');
             const resultPanel = document.getElementById('result-panel');
             const errorMessage = document.getElementById('error-message');
@@ -414,27 +409,14 @@
                 return;
             }
 
-            // Parse user JSON
-            let user = null;
+            let attributes = null;
             try {
-                const userText = userInput.value.trim();
-                if (userText) {
-                    user = JSON.parse(userText);
+                const attributesText = attributesInput.value.trim();
+                if (attributesText) {
+                    attributes = JSON.parse(attributesText);
                 }
             } catch (e) {
-                showError('Invalid user JSON: ' + e.message);
-                return;
-            }
-
-            // Parse context JSON
-            let context = null;
-            try {
-                const contextText = contextInput.value.trim();
-                if (contextText) {
-                    context = JSON.parse(contextText);
-                }
-            } catch (e) {
-                showError('Invalid context JSON: ' + e.message);
+                showError('Invalid attributes JSON: ' + e.message);
                 return;
             }
 
@@ -452,8 +434,7 @@
                     },
                     body: JSON.stringify({
                         flag: flagName,
-                        user: user,
-                        context: context,
+                        attributes: attributes,
                     }),
                 });
 
@@ -571,41 +552,34 @@
         }
 
         function loadExample(type) {
-            const userInput = document.getElementById('user-input');
-            const contextInput = document.getElementById('context-input');
+            const attributesInput = document.getElementById('attributes-input');
 
             switch (type) {
                 case 'admin':
-                    userInput.value = JSON.stringify({
+                    attributesInput.value = JSON.stringify({
                         id: 'admin-123',
                         role: 'admin',
-                        email: 'admin@example.com'
+                        email: 'admin@example.com',
+                        environment: 'production'
                     }, null, 2);
-                    contextInput.value = '';
                     break;
                 case 'regular':
-                    userInput.value = JSON.stringify({
+                    attributesInput.value = JSON.stringify({
                         id: 'user-456',
                         role: 'user',
-                        email: 'user@example.com'
+                        email: 'user@example.com',
+                        environment: 'production'
                     }, null, 2);
-                    contextInput.value = '';
                     break;
                 case 'mobile':
-                    userInput.value = JSON.stringify({
+                    attributesInput.value = JSON.stringify({
                         id: 'user-789',
-                        role: 'user'
-                    }, null, 2);
-                    contextInput.value = JSON.stringify({
-                        device: {
-                            type: 'mobile',
-                            platform: 'ios'
-                        }
+                        role: 'user',
+                        device: { type: 'mobile', platform: 'ios' }
                     }, null, 2);
                     break;
                 case 'empty':
-                    userInput.value = '';
-                    contextInput.value = '';
+                    attributesInput.value = '';
                     break;
             }
         }

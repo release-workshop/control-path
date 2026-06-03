@@ -278,10 +278,9 @@ export function isExpression(value: unknown): value is Expression {
 }
 
 /**
- * Attributes object - represents all attributes used for flag evaluation.
- * Consolidates user identity, user attributes, and environmental context into a single object.
+ * Platform-owned evaluation attribute fields (not redeclared in catalog attribute schema).
  */
-export interface Attributes {
+export interface BaseAttributes {
   /** User ID */
   id?: string;
   /** User email */
@@ -294,6 +293,13 @@ export interface Attributes {
   device?: string;
   /** Application version */
   app_version?: string;
+}
+
+/**
+ * Attributes object - represents all attributes used for flag evaluation.
+ * Consolidates user identity, user attributes, and environmental context into a single object.
+ */
+export interface Attributes extends BaseAttributes {
   /** Additional attributes */
   [key: string]: unknown;
 }
