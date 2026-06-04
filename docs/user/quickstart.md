@@ -68,4 +68,5 @@ See `docs/user/sdk-typescript.md` for full integration details.
 - Command reference: [`cli.md`](cli.md)
 - Catalog structure: [`configuration.md`](configuration.md)
 - Environment rules and expressions: [`rules.md`](rules.md)
+- Entitlement access gates: [`entitlements.md`](entitlements.md)
 - Runtime integration: [`sdk-typescript.md`](sdk-typescript.md)

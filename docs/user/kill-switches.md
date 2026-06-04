@@ -39,6 +39,7 @@ controlpath kill-switch clear emergency_stop --env production
 - Keep kill-switch values explicit and time-bounded.
 - Prefer `kind: kill_switch` flags for incident response paths.
 - Remove stale kill switches after root-cause remediation.
+- For **entitled** capabilities, use a **companion** `kind: kill_switch` flag (not the entitlement name). The application ANDs entitlement evaluation and kill-switch evaluation. Do not run `kill-switch set` on an entitlement flag — the CLI requires `kind: kill_switch`. See [`entitlements.md`](entitlements.md).
 
 ## Related docs
 

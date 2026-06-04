@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Entitlement authoring guide and schema examples
 
@@ -26,10 +26,10 @@ Cross-link from `configuration.md`, `rules.md`, `kill-switches.md`, and `quickst
 
 ## Acceptance criteria
 
-- [ ] New or expanded user doc (e.g. `docs/user/entitlements.md`) covers the topics above
-- [ ] Cross-links added from existing user docs
-- [ ] Schema example under `schemas/examples/` demonstrates entitlement patterns and passes `controlpath validate`
-- [ ] No contradiction with `CONTEXT.md` glossary or ADR 0004
+- [x] New or expanded user doc (e.g. `docs/user/entitlements.md`) covers the topics above
+- [x] Cross-links added from existing user docs
+- [x] Schema example under `schemas/examples/` demonstrates entitlement patterns and passes `controlpath validate`
+- [x] No contradiction with `CONTEXT.md` glossary or ADR 0004
 
 ## Blocked by
 

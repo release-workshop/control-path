@@ -31,7 +31,7 @@ Each rule is a YAML object. Provide **`serve`** or **`rollout`**, not both.
 
 **Kill switch flags** (`kind: kill_switch`) may only use plain `serve` rules—no `when` or `rollout`. Use the kill switch file for incident overrides ([`kill-switches.md`](kill-switches.md)).
 
-**Entitlement flags** (`kind: entitlement`) may use `when` and plain `serve`—no `rollout`. Use a separate `kind: release` flag for percentage rollout.
+**Entitlement flags** (`kind: entitlement`) may use `when` and plain `serve`—no `rollout`. Use a separate `kind: release` flag for percentage rollout. See [`entitlements.md`](entitlements.md) for access gates, fail-closed defaults, and composition with release and kill-switch flags.
 
 ### Example (YAML)
 

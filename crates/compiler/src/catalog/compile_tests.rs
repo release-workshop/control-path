@@ -186,6 +186,31 @@ fn compiles_production_targeted_and_rollout_rules() {
         }
         other => panic!("expected default OFF rule, got {other:?}"),
     }
+
+    let premium_checkout = flag_rules(&artifact, "premium_checkout");
+    assert_eq!(
+        premium_checkout.len(),
+        3,
+        "when+serve, explicit deny tail, and catalog-default serve"
+    );
+    match &premium_checkout[0] {
+        Rule::ServeWithWhen(expr, ServePayload::Number(idx)) => {
+            assert_eq!(str_at(&artifact, *idx), "ON");
+            assert!(matches!(
+                expr,
+                Expression::LogicalOp { .. } | Expression::BinaryOp { .. }
+            ));
+        }
+        other => panic!("expected entitlement when+serve rule, got {other:?}"),
+    }
+    for rule in &premium_checkout[1..] {
+        match rule {
+            Rule::ServeWithoutWhen(ServePayload::Number(idx)) => {
+                assert_eq!(str_at(&artifact, *idx), "OFF");
+            }
+            other => panic!("expected entitlement OFF tail/default rules, got {other:?}"),
+        }
+    }
 }
 
 #[test]
@@ -271,7 +296,7 @@ fn compiles_kill_switch_serve_only_rule() {
     assert_eq!(kill_switch.kind, FlagKind::KillSwitch);
 
     let artifact = compile_catalog(&catalog, "production").unwrap();
-    assert_eq!(artifact.flags.len(), 1);
+    assert_eq!(artifact.flags.len(), 3);
 
     let rules = flag_rules(&artifact, "emergency_kill_switch");
     assert_eq!(rules.len(), 2);
@@ -511,7 +536,7 @@ fn compiles_imported_flags_with_source_environment_rules() {
     let (catalog, imports) = imported_global_fixture();
     let artifact = compile_catalog_with_imports(&catalog, &imports, "production").unwrap();
 
-    assert_eq!(artifact.flags.len(), 2);
+    assert_eq!(artifact.flags.len(), 5);
 
     let imported = flag_rules(&artifact, "platform.emergency_kill_switch");
     assert_eq!(imported.len(), 2);
@@ -522,13 +547,47 @@ fn compiles_imported_flags_with_source_environment_rules() {
         other => panic!("expected imported kill switch serve rule, got {other:?}"),
     }
 
-    let local = flag_rules(&artifact, "new_dashboard");
-    assert_eq!(local.len(), 1);
-    match &local[0] {
+    let local_dashboard = flag_rules(&artifact, "new_dashboard");
+    assert_eq!(local_dashboard.len(), 1);
+    match &local_dashboard[0] {
         Rule::ServeWithoutWhen(ServePayload::Number(idx)) => {
             assert_eq!(str_at(&artifact, *idx), "OFF");
         }
         other => panic!("expected local default rule, got {other:?}"),
+    }
+
+    let ui = flag_rules(&artifact, "premium_export_ui");
+    assert_eq!(ui.len(), 2);
+    match &ui[0] {
+        Rule::RolloutWithoutWhen(_) => {}
+        other => panic!("expected rollout rule for premium_export_ui, got {other:?}"),
+    }
+
+    let entitlement = flag_rules(&artifact, "platform.premium_export");
+    assert_eq!(entitlement.len(), 3);
+    match &entitlement[0] {
+        Rule::ServeWithWhen(expr, ServePayload::Number(idx)) => {
+            assert_eq!(str_at(&artifact, *idx), "ON");
+            assert!(matches!(expr, Expression::Func { .. }));
+        }
+        other => panic!("expected imported entitlement when+serve rule, got {other:?}"),
+    }
+    for rule in &entitlement[1..] {
+        match rule {
+            Rule::ServeWithoutWhen(ServePayload::Number(idx)) => {
+                assert_eq!(str_at(&artifact, *idx), "OFF");
+            }
+            other => panic!("expected imported entitlement OFF tail/default rules, got {other:?}"),
+        }
+    }
+
+    let kill = flag_rules(&artifact, "platform.premium_export_kill");
+    assert_eq!(kill.len(), 2, "serve rule plus catalog-default append");
+    match &kill[0] {
+        Rule::ServeWithoutWhen(ServePayload::Number(idx)) => {
+            assert_eq!(str_at(&artifact, *idx), "OFF");
+        }
+        other => panic!("expected imported kill switch default-off rule, got {other:?}"),
     }
 }
 
@@ -553,6 +612,15 @@ fn compiles_local_and_imported_environment_rules_for_same_env() {
             assert_eq!(str_at(&artifact, *idx), "OFF");
         }
         other => panic!("expected imported default rule, got {other:?}"),
+    }
+
+    let ui = flag_rules(&artifact, "premium_export_ui");
+    assert_eq!(ui.len(), 2);
+    match &ui[0] {
+        Rule::ServeWithoutWhen(ServePayload::Number(idx)) => {
+            assert_eq!(str_at(&artifact, *idx), "ON");
+        }
+        other => panic!("expected staging serve rule for premium_export_ui, got {other:?}"),
     }
 }
 

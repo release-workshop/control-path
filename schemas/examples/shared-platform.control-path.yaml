@@ -1,5 +1,7 @@
 # Shared platform catalog (monorepo root or org repo).
 # Environment rules for imported flags live HERE, not in consuming services.
+# Illustrative platform flags (premium_export*) — paired in docs with imported-global + local-only
+# as teaching siblings, not one end-to-end product feature.
 
 catalog:
   id: platform
@@ -11,9 +13,30 @@ flags:
     owner: platform
     description: Global incident kill switch
 
+  premium_export:
+    kind: entitlement
+    default: false
+    owner: platform
+    description: Illustrative platform-wide export gate (role only in this catalog)
+    expires: 2027-12-31
+
+  premium_export_kill:
+    kind: kill_switch
+    default: false
+    owner: platform
+    description: Incident disable for premium export; AND with premium_export at call site
+
 environments:
   production:
     rules:
       emergency_kill_switch:
         - serve: false
           reason: Default off; enable only during incidents via platform catalog
+      premium_export:
+        - when: "role IN ['admin', 'billing']"
+          serve: true
+        - serve: false
+          reason: Deny when role does not match
+      premium_export_kill:
+        - serve: false
+          reason: Default off; toggle via kill switch file during incidents

@@ -62,7 +62,7 @@ fn build_sdk_catalog_includes_imported_flags_under_namespace() {
 
     let sdk = build_sdk_catalog(&catalog, &imports).unwrap();
 
-    assert_eq!(sdk.flags.len(), 2);
+    assert_eq!(sdk.flags.len(), 5);
     let local = local_flag(&sdk, "new_dashboard");
     assert_eq!(local.sdk_method_name, "newDashboard");
 
@@ -70,6 +70,11 @@ fn build_sdk_catalog_includes_imported_flags_under_namespace() {
     assert!(!imported.default);
     assert_eq!(imported.kind, FlagKind::KillSwitch);
     assert_eq!(imported.sdk_method_name, "platformEmergencyKillSwitch");
+
+    let entitlement = local_flag(&sdk, "platform.premium_export");
+    assert_eq!(entitlement.kind, FlagKind::Entitlement);
+    let kill = local_flag(&sdk, "platform.premium_export_kill");
+    assert_eq!(kill.kind, FlagKind::KillSwitch);
 }
 
 #[test]

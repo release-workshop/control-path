@@ -1,5 +1,6 @@
 # Service catalog importing a shared platform catalog.
-# SDK includes platform.emergency_kill_switch; service must NOT add rules for it.
+# SDK includes platform.* flags; service must NOT add rules for imported flags.
+# AND platform.premium_export + premium_export_ui (+ platform.premium_export_kill) at call site.
 
 catalog:
   id: checkout-service
@@ -16,9 +17,26 @@ flags:
     default: false
     owner: team-web
 
+  premium_export_ui:
+    kind: release
+    default: false
+    owner: team-web
+    description: Gradual UI rollout for export; entitlement rules live in platform catalog
+    expires: 2026-12-01
+
 environments:
   staging:
     rules:
       new_dashboard:
         - serve: true
+      premium_export_ui:
+        - serve: true
       # platform.emergency_kill_switch — NOT allowed here (validation error)
+
+  production:
+    rules:
+      premium_export_ui:
+        - rollout:
+            percentage: 25
+            serve: true
+          reason: UI rollout for entitled users

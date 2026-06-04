@@ -1,10 +1,14 @@
 # Local-only service catalog with environment rules.
 # Effective catalog id: acme.checkout-service (namespace from workspace file).
+# Illustrative service-local entitlement (premium_checkout) — not wired to platform.* in shared-platform.
 
 catalog:
   id: checkout-service
 
 mode: local
+
+attributes:
+  plan: string
 
 flags:
   new_dashboard:
@@ -23,7 +27,7 @@ flags:
 
 segments:
   beta_users:
-    when: "user.plan == 'beta'"
+    when: "plan == 'beta'"
 
 kill_switches:
   staging:
@@ -53,3 +57,8 @@ environments:
             percentage: 10
             serve: true
           reason: Gradual rollout after beta validation
+      premium_checkout:
+        - when: "plan == 'pro' AND role IN ['admin', 'billing']"
+          serve: true
+        - serve: false
+          reason: Deny when plan or role does not match

@@ -92,7 +92,7 @@ Validation can **warn** when recommended fields are missing; CI may enforce stri
 
 **Kill switch flags** (`kind: kill_switch`): environment rules may only use plain `serve` (no `when` / `rollout`). Incidents use the kill switch file or SaaS dashboard toggles.
 
-**Entitlement flags** (`kind: entitlement`): environment rules may use `when` and plain `serve` (no `rollout`). Use a separate `kind: release` flag for gradual rollout. Prefer `default: false` so access is deny-by-default when rules do not match; `controlpath validate` warns when `default` is `true`.
+**Entitlement flags** (`kind: entitlement`): environment rules may use `when` and plain `serve` (no `rollout`). Use a separate `kind: release` flag for gradual rollout. Prefer `default: false` so access is deny-by-default when rules do not match; `controlpath validate` warns when `default` is `true`. Authoring guide: [`entitlements.md`](entitlements.md).
 
 Full machine-readable schema: [`schemas/control-path.schema.v2.json`](../../schemas/control-path.schema.v2.json).
 
@@ -215,12 +215,14 @@ controlpath init --service-id checkout-service   # service catalog in a package 
 
 ## Example catalogs
 
+Entitlement authoring (composition, shared catalogs, fail-closed defaults): [`entitlements.md`](entitlements.md).
+
 | File | Shows |
 | --- | --- |
-| [`local-only.control-path.yaml`](../../schemas/examples/local-only.control-path.yaml) | Local rules, segments, rollout, artifact/kill-switch URLs |
-| [`imported-global.control-path.yaml`](../../schemas/examples/imported-global.control-path.yaml) | `imports` and consumer rule boundaries |
+| [`local-only.control-path.yaml`](../../schemas/examples/local-only.control-path.yaml) | Local rules, segments, rollout, service-local entitlement (`premium_checkout`), `attributes`, artifact/kill-switch URLs |
+| [`imported-global.control-path.yaml`](../../schemas/examples/imported-global.control-path.yaml) | `imports`, consumer rule boundaries, stacked `release` + platform entitlements |
 | [`saas.control-path.yaml`](../../schemas/examples/saas.control-path.yaml) | SaaS mode catalog without local environments |
-| [`shared-platform.control-path.yaml`](../../schemas/examples/shared-platform.control-path.yaml) | Shared platform catalog for import |
+| [`shared-platform.control-path.yaml`](../../schemas/examples/shared-platform.control-path.yaml) | Shared platform catalog: entitlements, kill switches, import source rules |
 | [`control-path.workspace.yaml`](../../schemas/examples/control-path.workspace.yaml) | Monorepo workspace scaffold |
 
 ## Validation

@@ -757,21 +757,35 @@ flags:
 
 #[test]
 fn catalog_without_attributes_is_not_opted_in() {
-    let doc = parse_catalog(LOCAL_ONLY, Some("local-only.control-path.yaml")).unwrap();
+    let content = r#"
+catalog:
+  id: svc
+flags:
+  f:
+    default: false
+    kind: release
+"#;
+    let doc = parse_catalog(content, Some("no-attrs.yaml")).unwrap();
     assert!(!doc.attribute_schema_opted_in());
     assert!(doc.attribute_schema_fields().is_none());
-    let value =
-        crate::catalog::parse_catalog_value(LOCAL_ONLY, Some("local-only.control-path.yaml"))
-            .unwrap();
+    let value = crate::catalog::parse_catalog_value(content, Some("no-attrs.yaml")).unwrap();
     for mode in [ValidationMode::SdkGenerate, ValidationMode::Compile] {
         let result = validate_catalog_value(
-            "local-only.control-path.yaml",
+            "no-attrs.yaml",
             &value,
             &CatalogValidationContext::default(),
             mode,
         );
         assert!(result.is_ok(), "{mode:?}: {:?}", result.errors);
     }
+}
+
+#[test]
+fn example_local_only_catalog_opts_in_to_attribute_schema() {
+    let doc = parse_catalog(LOCAL_ONLY, Some("local-only.control-path.yaml")).unwrap();
+    assert!(doc.attribute_schema_opted_in());
+    let fields = doc.attribute_schema_fields().expect("opted in");
+    assert_eq!(fields.get("plan"), Some(&AttributeScalarType::String));
 }
 
 #[test]
