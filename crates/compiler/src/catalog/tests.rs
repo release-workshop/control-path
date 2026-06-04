@@ -571,6 +571,110 @@ flags:
 }
 
 #[test]
+fn warns_on_entitlement_with_default_true() {
+    let content = r#"
+catalog:
+  id: svc
+flags:
+  premium_feature:
+    default: true
+    kind: entitlement
+    owner: team-a
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("warn.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "warn.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(result.valid);
+    let default_warnings: Vec<_> = result
+        .warnings
+        .iter()
+        .filter(|w| w.path.as_deref() == Some("flags.premium_feature.default"))
+        .collect();
+    assert_eq!(default_warnings.len(), 1);
+    assert!(default_warnings[0].message.contains("entitlement"));
+    assert!(default_warnings[0].message.contains("default"));
+}
+
+#[test]
+fn release_default_true_emits_no_entitlement_default_warning() {
+    let content = r#"
+catalog:
+  id: svc
+flags:
+  rollout_flag:
+    default: true
+    kind: release
+    owner: team-a
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("warn.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "warn.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(result.valid);
+    assert!(!result
+        .warnings
+        .iter()
+        .any(|w| w.path.as_deref() == Some("flags.rollout_flag.default")));
+}
+
+#[test]
+fn entitlement_default_false_emits_no_default_warning() {
+    let content = r#"
+catalog:
+  id: svc
+flags:
+  premium_feature:
+    default: false
+    kind: entitlement
+    owner: team-a
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("warn.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "warn.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(result.valid);
+    assert!(!result
+        .warnings
+        .iter()
+        .any(|w| w.path.as_deref() == Some("flags.premium_feature.default")));
+}
+
+#[test]
+fn entitlement_without_expires_emits_no_expires_warning() {
+    let content = r#"
+catalog:
+  id: svc
+flags:
+  premium_feature:
+    default: false
+    kind: entitlement
+    owner: team-a
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("warn.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "warn.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(result.valid);
+    assert!(!result
+        .warnings
+        .iter()
+        .any(|w| w.message.contains("expires")));
+}
+
+#[test]
 fn rejects_local_flag_colliding_with_import_namespace() {
     let content = r#"
 catalog:

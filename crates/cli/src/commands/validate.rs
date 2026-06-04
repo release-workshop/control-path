@@ -1,8 +1,10 @@
 //! Validate command implementation
 
 use crate::error::{CliError, CliResult};
-use crate::utils::catalog;
+use crate::utils::catalog::{self, emit_catalog_warnings};
 use crate::utils::runtime;
+use controlpath_compiler::validator::error::ValidationWarning;
+use std::collections::BTreeSet;
 use std::env;
 
 pub struct Options {
@@ -32,10 +34,9 @@ fn auto_detect_files() -> Vec<FileToValidate> {
     vec![FileToValidate::UnifiedConfig]
 }
 
-fn validate_file(file: &FileToValidate) -> CliResult<()> {
+fn validate_file(file: &FileToValidate) -> CliResult<Vec<ValidationWarning>> {
     let base_dir = env::current_dir()
         .map_err(|e| CliError::Message(format!("Failed to resolve working directory: {e}")))?;
-    catalog::load_for_explain(&base_dir).map(|_| ())?;
 
     if let FileToValidate::Environment(env) = file {
         let unified = crate::utils::unified_config::read_unified_config()?;
@@ -47,24 +48,45 @@ fn validate_file(file: &FileToValidate) -> CliResult<()> {
         }
     }
 
-    Ok(())
+    let bundle = catalog::load_for_explain(&base_dir)?;
+    Ok(bundle.warnings)
+}
+
+fn dedupe_warnings(warnings: Vec<ValidationWarning>) -> Vec<ValidationWarning> {
+    let mut seen = BTreeSet::new();
+    warnings
+        .into_iter()
+        .filter(|w| seen.insert((w.file.clone(), w.message.clone(), w.path.clone())))
+        .collect()
 }
 
 pub fn run(options: &Options) -> i32 {
     match run_inner(options) {
-        Ok(valid_count) => {
+        Ok((valid_count, warnings)) => {
             if runtime::is_json_output() {
+                let warning_values: Vec<serde_json::Value> = warnings
+                    .iter()
+                    .map(|w| {
+                        serde_json::json!({
+                            "file": w.file,
+                            "message": w.message,
+                            "path": w.path,
+                        })
+                    })
+                    .collect();
                 println!(
                     "{}",
                     serde_json::json!({
                         "status": if valid_count > 0 { "ok" } else { "error" },
                         "command": "validate",
                         "validated": valid_count,
+                        "warnings": warning_values,
                         "error": if valid_count == 0 { Some("No files to validate") } else { None::<&str> }
                     })
                 );
                 return if valid_count > 0 { 0 } else { 1 };
             }
+            emit_catalog_warnings(&warnings);
             if valid_count > 0 {
                 println!(
                     "✓ Validation passed ({} file{})",
@@ -102,7 +124,7 @@ pub fn run(options: &Options) -> i32 {
     }
 }
 
-fn run_inner(options: &Options) -> CliResult<usize> {
+fn run_inner(options: &Options) -> CliResult<(usize, Vec<ValidationWarning>)> {
     let mut files_to_validate = collect_files_from_options(options);
 
     if files_to_validate.is_empty() || options.all {
@@ -119,11 +141,13 @@ fn run_inner(options: &Options) -> CliResult<usize> {
 
     let mut valid_count = 0;
     let mut has_errors = false;
+    let mut all_warnings = Vec::new();
 
     for file in &files_to_validate {
         match validate_file(file) {
-            Ok(()) => {
+            Ok(warnings) => {
                 valid_count += 1;
+                all_warnings.extend(warnings);
             }
             Err(e) => {
                 eprintln!("✗ Failed to validate {file:?}");
@@ -139,7 +163,7 @@ fn run_inner(options: &Options) -> CliResult<usize> {
         ));
     }
 
-    Ok(valid_count)
+    Ok((valid_count, dedupe_warnings(all_warnings)))
 }
 
 #[cfg(test)]

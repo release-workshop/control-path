@@ -92,7 +92,7 @@ Validation can **warn** when recommended fields are missing; CI may enforce stri
 
 **Kill switch flags** (`kind: kill_switch`): environment rules may only use plain `serve` (no `when` / `rollout`). Incidents use the kill switch file or SaaS dashboard toggles.
 
-**Entitlement flags** (`kind: entitlement`): environment rules may use `when` and plain `serve` (no `rollout`). Use a separate `kind: release` flag for gradual rollout.
+**Entitlement flags** (`kind: entitlement`): environment rules may use `when` and plain `serve` (no `rollout`). Use a separate `kind: release` flag for gradual rollout. Prefer `default: false` so access is deny-by-default when rules do not match; `controlpath validate` warns when `default` is `true`.
 
 Full machine-readable schema: [`schemas/control-path.schema.v2.json`](../../schemas/control-path.schema.v2.json).
 

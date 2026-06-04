@@ -496,7 +496,8 @@ fn flag_metadata_warnings(file_path: &str, flag_key: &str, flag: &Value) -> Vec<
     let owner = flag.get("owner").and_then(|o| o.as_str());
     let expires = flag.get("expires").and_then(|e| e.as_str());
     let kind = flag.get("kind").and_then(|k| k.as_str());
-    flag_metadata_warnings_inner(file_path, flag_key, owner, expires, kind)
+    let default = flag.get("default").and_then(|d| d.as_bool());
+    flag_metadata_warnings_inner(file_path, flag_key, owner, expires, kind, default)
 }
 
 fn flag_metadata_warnings_inner(
@@ -505,6 +506,7 @@ fn flag_metadata_warnings_inner(
     owner: Option<&str>,
     expires: Option<&str>,
     kind: Option<&str>,
+    default: Option<bool>,
 ) -> Vec<ValidationWarning> {
     let mut warnings = Vec::new();
     if owner.map(str::is_empty).unwrap_or(true) {
@@ -519,6 +521,15 @@ fn flag_metadata_warnings_inner(
             file: file_path.to_string(),
             message: format!("Flag '{flag_key}' has kind 'release' but no 'expires' date"),
             path: Some(format!("flags.{flag_key}.expires")),
+        });
+    }
+    if kind == Some("entitlement") && default == Some(true) {
+        warnings.push(ValidationWarning {
+            file: file_path.to_string(),
+            message: format!(
+                "Flag '{flag_key}' has kind 'entitlement' with default: true; use default: false for deny-by-default access"
+            ),
+            path: Some(format!("flags.{flag_key}.default")),
         });
     }
     warnings

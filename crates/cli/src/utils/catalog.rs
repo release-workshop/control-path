@@ -18,6 +18,7 @@
 use crate::error::{CliError, CliResult};
 use crate::saas::FilesystemAstCache;
 use crate::utils::atomic_write::{atomic_write, atomic_write_string};
+use controlpath_compiler::validator::error::ValidationWarning;
 use controlpath_compiler::{
     build_saas_runtime_url_maps, build_sdk_catalog, compile_catalog_with_imports,
     effective_catalog_id, load_and_validate_catalog, load_and_validate_workspace, parse_workspace,
@@ -38,6 +39,17 @@ pub struct CatalogBundle {
     pub imports: BTreeMap<String, CatalogDocument>,
     pub sdk: SdkCatalog,
     pub workspace: Option<WorkspaceDocument>,
+    /// Semantic validation warnings (missing metadata, entitlement default, etc.).
+    pub warnings: Vec<ValidationWarning>,
+}
+
+/// Print catalog semantic warnings to stderr (path when present, else file).
+pub fn emit_catalog_warnings(warnings: &[ValidationWarning]) {
+    for warning in warnings {
+        let at = warning.path.as_deref().unwrap_or(warning.file.as_str());
+        eprintln!("⚠ Warning: {}", warning.message);
+        eprintln!("  at {at}");
+    }
 }
 
 fn load_validated_catalog_bundle(
@@ -79,12 +91,14 @@ fn load_validated_catalog_bundle(
         )));
     }
 
+    let mut warnings = initial_validation.warnings;
     build_validated_bundle(
         base_dir,
         &catalog_path,
         catalog,
         workspace,
         import_validation_mode,
+        &mut warnings,
     )
 }
 
@@ -94,16 +108,20 @@ fn build_validated_bundle(
     catalog: CatalogDocument,
     workspace: Option<WorkspaceDocument>,
     import_validation_mode: ValidationMode,
+    warnings: &mut Vec<ValidationWarning>,
 ) -> CliResult<CatalogBundle> {
-    let imports = resolve_imports(base_dir, &catalog, workspace.as_ref())?;
+    let (imports, import_warnings) = resolve_imports(base_dir, &catalog, workspace.as_ref())?;
+    warnings.extend(import_warnings);
     let validation = validate_catalog(
         catalog_path.to_string_lossy().as_ref(),
         &catalog,
         &CatalogValidationContext::with_imports(workspace.clone(), &imports),
         import_validation_mode,
     );
+    let catalog_valid = validation.is_ok();
+    warnings.extend(validation.warnings);
 
-    if !validation.is_ok() {
+    if !catalog_valid {
         let messages: Vec<String> = validation
             .errors
             .iter()
@@ -123,6 +141,7 @@ fn build_validated_bundle(
         imports,
         sdk,
         workspace,
+        warnings: std::mem::take(warnings),
     })
 }
 
@@ -147,6 +166,7 @@ pub fn load_for_explain_with_document(
         catalog.clone(),
         workspace,
         ValidationMode::SdkGenerate,
+        &mut Vec::new(),
     )
 }
 
@@ -231,8 +251,9 @@ fn resolve_imports(
     base_dir: &Path,
     catalog: &CatalogDocument,
     workspace: Option<&WorkspaceDocument>,
-) -> CliResult<BTreeMap<String, CatalogDocument>> {
+) -> CliResult<(BTreeMap<String, CatalogDocument>, Vec<ValidationWarning>)> {
     let mut imports = BTreeMap::new();
+    let mut warnings = Vec::new();
 
     for (namespace, import_ref) in &catalog.imports {
         let import_path = resolve_import_path(base_dir, &import_ref.path)?;
@@ -273,10 +294,11 @@ fn resolve_imports(
             )));
         }
 
+        warnings.extend(validation.warnings);
         imports.insert(namespace.clone(), imported);
     }
 
-    Ok(imports)
+    Ok((imports, warnings))
 }
 
 fn resolve_import_path(base_dir: &Path, import_path: &str) -> CliResult<PathBuf> {

@@ -103,7 +103,7 @@ Common options:
 
 ### `validate`
 
-Validate catalog/environment configuration.
+Validate catalog/environment configuration. Semantic warnings (missing `owner`, release without `expires`, entitlement with `default: true`, etc.) are printed to stderr; validation still succeeds unless schema or semantic **errors** are present. Strict CI may treat stderr warnings as failures.
 
 Common options:
 

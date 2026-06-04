@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Warn when entitlement catalog default is true
 
@@ -21,10 +21,10 @@ No runtime or SDK changes — validation-only slice.
 
 ## Acceptance criteria
 
-- [ ] Compiler semantic warnings include entitlement + `default: true`
-- [ ] Compiler unit tests: warning emitted for `default: true`; no warning for `default: false`; no `expires`-missing warning on entitlements
-- [ ] Brief note in user docs that entitlements should use `default: false` for deny-by-default access
-- [ ] `cargo test`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo fmt --all -- --check` pass
+- [x] Compiler semantic warnings include entitlement + `default: true`
+- [x] Compiler unit tests: warning emitted for `default: true`; no warning for `default: false`; no `expires`-missing warning on entitlements
+- [x] Brief note in user docs that entitlements should use `default: false` for deny-by-default access
+- [x] `cargo test`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo fmt --all -- --check` pass
 
 ## Blocked by
 
