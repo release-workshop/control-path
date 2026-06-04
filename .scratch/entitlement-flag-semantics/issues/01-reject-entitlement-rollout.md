@@ -1,4 +1,4 @@
-Status: ready-for-agent
+Status: done
 
 # Reject rollout on entitlement environment rules
 
@@ -21,10 +21,10 @@ Mirror the existing **kill_switch** rule constraint pattern in the compiler vali
 
 ## Acceptance criteria
 
-- [ ] Compiler rejects `rollout` on **environment rules** for flags with `kind: entitlement`
-- [ ] Compiler unit tests: invalid catalog (entitlement + rollout) fails; valid catalog (entitlement + `when` + `serve`) passes
-- [ ] `configuration.md` or `rules.md` rule-types table notes that **`kind: entitlement`** forbids `rollout` ( **`when`** allowed)
-- [ ] `cargo test`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo fmt --all -- --check` pass
+- [x] Compiler rejects `rollout` on **environment rules** for flags with `kind: entitlement`
+- [x] Compiler unit tests: invalid catalog (entitlement + rollout) fails; valid catalog (entitlement + `when` + `serve`) passes
+- [x] `configuration.md` or `rules.md` rule-types table notes that **`kind: entitlement`** forbids `rollout` ( **`when`** allowed)
+- [x] `cargo test`, `cargo clippy --workspace --all-targets --all-features -- -D warnings`, and `cargo fmt --all -- --check` pass
 
 ## Blocked by
 

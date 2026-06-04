@@ -441,6 +441,11 @@ fn semantic_errors(
                                     file_path, env_name, flag_key, idx, rule,
                                 ));
                             }
+                            if kind == Some(&FlagKind::Entitlement) {
+                                errors.extend(entitlement_rule_errors(
+                                    file_path, env_name, flag_key, idx, rule,
+                                ));
+                            }
                         }
                     }
                 }
@@ -560,6 +565,31 @@ fn kill_switch_rule_errors(
             format!("Kill switch flag '{flag_key}' cannot use 'rollout' in environment rules"),
             Some(format!("{path}.rollout")),
             Some("Use plain serve rules only for kind: kill_switch".to_string()),
+        ));
+    }
+    errors
+}
+
+fn entitlement_rule_errors(
+    file_path: &str,
+    env_name: &str,
+    flag_key: &str,
+    rule_index: usize,
+    rule: &Value,
+) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+    let path = format!("environments.{env_name}.rules.{flag_key}[{rule_index}]");
+    if rule.get("rollout").is_some() {
+        errors.push(validation_error(
+            file_path,
+            format!(
+                "Entitlement flag '{flag_key}' cannot use 'rollout' in environment rules"
+            ),
+            Some(format!("{path}.rollout")),
+            Some(
+                "Use when and plain serve for kind: entitlement; use a separate kind: release flag for gradual rollout"
+                    .to_string(),
+            ),
         ));
     }
     errors

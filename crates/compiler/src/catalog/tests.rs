@@ -384,6 +384,120 @@ environments:
     assert!(result.errors.iter().any(|e| e.message.contains("rollout")));
 }
 
+const ENTITLEMENT_RULE_WITH_ROLLOUT: &str = r#"
+catalog:
+  id: billing
+flags:
+  premium_export:
+    default: false
+    kind: entitlement
+environments:
+  production:
+    rules:
+      premium_export:
+        - rollout:
+            percentage: 50
+            serve: true
+"#;
+
+#[test]
+fn rejects_entitlement_rule_with_rollout() {
+    let value =
+        crate::catalog::parse_catalog_value(ENTITLEMENT_RULE_WITH_ROLLOUT, Some("bad.yaml"))
+            .unwrap();
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(!result.valid);
+    let rollout_err = result
+        .errors
+        .iter()
+        .find(|e| e.message.contains("rollout"))
+        .expect("rollout error");
+    assert!(rollout_err.message.contains("premium_export"));
+    assert!(rollout_err.message.contains("Entitlement"));
+    assert_eq!(
+        rollout_err.path.as_deref(),
+        Some("environments.production.rules.premium_export[0].rollout")
+    );
+    assert!(rollout_err
+        .suggestion
+        .as_deref()
+        .is_some_and(|s| s.contains("when")));
+}
+
+#[test]
+fn rejects_entitlement_rule_with_rollout_at_authoring() {
+    let value =
+        crate::catalog::parse_catalog_value(ENTITLEMENT_RULE_WITH_ROLLOUT, Some("bad.yaml"))
+            .unwrap();
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Authoring,
+    );
+    assert!(!result.is_ok());
+    assert!(result
+        .errors
+        .iter()
+        .any(|e| e.message.contains("rollout") && e.message.contains("Entitlement")));
+}
+
+#[test]
+fn entitlement_rule_with_when_and_serve_is_valid() {
+    let content = r#"
+catalog:
+  id: billing
+flags:
+  premium_export:
+    default: false
+    kind: entitlement
+environments:
+  production:
+    rules:
+      premium_export:
+        - when: "plan == 'enterprise'"
+          serve: true
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("ok.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "ok.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(result.valid, "{:?}", result.errors);
+}
+
+#[test]
+fn entitlement_rule_with_plain_serve_is_valid() {
+    let content = r#"
+catalog:
+  id: billing
+flags:
+  premium_export:
+    default: false
+    kind: entitlement
+environments:
+  production:
+    rules:
+      premium_export:
+        - serve: true
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("ok.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "ok.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    );
+    assert!(result.valid, "{:?}", result.errors);
+}
+
 #[test]
 fn rejects_telemetry_in_flag_metadata() {
     let content = r#"
