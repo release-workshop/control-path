@@ -1,5 +1,72 @@
 # Changelog
 
+## [0.7.0](https://github.com/release-workshop/control-path/compare/control-path-v0.6.0...control-path-v0.7.0) (2026-06-08)
+
+
+### Features
+
+* **actions:** adds compile github action ([2c34fbd](https://github.com/release-workshop/control-path/commit/2c34fbdd79ca4c9cc41e1b1a067e8a981b5e901c))
+* add catalog store and migrate catalog mutations off unified_config ([8c86fdd](https://github.com/release-workshop/control-path/commit/8c86fdd943f0b9004d8ad4d8c45afc96ce12cd40))
+* adds attribute typing for ts sdk generation ([7c61c55](https://github.com/release-workshop/control-path/commit/7c61c55be14396e26f50a8b72c030d31841a52e6))
+* adds code signing for macos ([87581d5](https://github.com/release-workshop/control-path/commit/87581d52f5022592eb152f4d5f9ef4e6b4af5e83))
+* adds namespaced attributes ([5400d3f](https://github.com/release-workshop/control-path/commit/5400d3f61a9552682ddc6b36e83ecc644a4b00af))
+* **cli:** adds auto compile ([64f3311](https://github.com/release-workshop/control-path/commit/64f33119890a90591fdeceef4e816ff5e3003fd7))
+* **cli:** adds debug mode ([dca3ca2](https://github.com/release-workshop/control-path/commit/dca3ca23543581ae41fd8f1caac85c5468f24a3a))
+* **cli:** adds debug mode ([a6a0474](https://github.com/release-workshop/control-path/commit/a6a04745dd5839c76c6d6bc710cc61ea8e07df84))
+* **cli:** adds dev command ([f6a9585](https://github.com/release-workshop/control-path/commit/f6a95851e28105526c642187b3d8f0a6fec9f6b3))
+* **cli:** adds env and flag management ([0154648](https://github.com/release-workshop/control-path/commit/0154648890add5c3fae57e8dc7a0d2b068b8165e))
+* **cli:** adds monorepo support ([21bba53](https://github.com/release-workshop/control-path/commit/21bba531bf3cc370b3a0050591c088d073faa7a5))
+* **cli:** adds monorepo support ([dcbef8e](https://github.com/release-workshop/control-path/commit/dcbef8e24fb14f22d0d2e454331548eb7f7e5af1))
+* **cli:** adds override history ([05acbf6](https://github.com/release-workshop/control-path/commit/05acbf6400a4521362e329a9fa0ca2f4b5f8f1d4))
+* **cli:** adds override management ([62eb53c](https://github.com/release-workshop/control-path/commit/62eb53c7a8619a6fe97079f4b7e45f8d756725d0))
+* **cli:** adds shell completion ([2404c1a](https://github.com/release-workshop/control-path/commit/2404c1a2604241daa02ea853927bf40b80a65f00))
+* **cli:** adds smart defaults ([355a991](https://github.com/release-workshop/control-path/commit/355a9916e4fc3dfd8af715d486e034a177a42c4d))
+* **cli:** adds the setup command ([2b386fe](https://github.com/release-workshop/control-path/commit/2b386fe7618b841c314d701ab7f190f3967b3301))
+* **cli:** adds the workflow commands ([2140e04](https://github.com/release-workshop/control-path/commit/2140e0454d72b09b74fba9d413933a8e92a2f85c))
+* **cli:** adds typescript sdk generation ([7debe85](https://github.com/release-workshop/control-path/commit/7debe85906cfbf86a525c6106cbc07efa0302332))
+* **cli:** adds watch mode ([4ef5c83](https://github.com/release-workshop/control-path/commit/4ef5c83d430bbabf5d3a4634f39cd0bbc3d83af4))
+* **cli:** setup primary bootstrap ([7553fa3](https://github.com/release-workshop/control-path/commit/7553fa37405807575a57fc6f1d66136f27d05b95))
+* **cli:** test improvements ([afe3d47](https://github.com/release-workshop/control-path/commit/afe3d4770c8105371b3f1c38821befe22956235d))
+* **cli:** test improvements ([7871425](https://github.com/release-workshop/control-path/commit/7871425ac06e5c43dafd27e8edd083bdb2f8aed7))
+* **cli:** update to use tera for templating ([3f04207](https://github.com/release-workshop/control-path/commit/3f04207e67d83747d85d948d6b65d98bd9b6f2f7))
+* **cli:** uses manifest version in build ([7e43d1c](https://github.com/release-workshop/control-path/commit/7e43d1c57c734ae7e8d95ae24444e2b736e99582))
+* **compiler:** test improvements ([6a1260b](https://github.com/release-workshop/control-path/commit/6a1260b1bbcb0960405d252c061e11f590871c3d))
+* docs fixup ([4d0e9e3](https://github.com/release-workshop/control-path/commit/4d0e9e311fa0316e68daf5872b249d3ab603b1a5))
+* entitlement authoring guide and schema examples ([5cc0226](https://github.com/release-workshop/control-path/commit/5cc0226d94eec405f79ca539dd5e0bbcd360ae16))
+* entitlement flag reject rollout rules ([d9201f1](https://github.com/release-workshop/control-path/commit/d9201f171337a44395b18419348c99e52474208b))
+* improvements ([949fee6](https://github.com/release-workshop/control-path/commit/949fee6f9f4575fd5f3a839751d00f66a1431d91))
+* introduces base attributes in typescript runtime ([e8c9239](https://github.com/release-workshop/control-path/commit/e8c92394e4331eb23f842edbc47d12cca0c31123))
+* large scale refactor for unified config, effectively v2 ([e7fbf57](https://github.com/release-workshop/control-path/commit/e7fbf57d479b00db972bcaf7ad963f7bba3dfc01))
+* local mode attribute checking ([654cfa0](https://github.com/release-workshop/control-path/commit/654cfa0e6824ac23af6e6f7d71cc0722a8b9006c))
+* **platform-spine:** replace skip_validation with ValidationMode ([63ad755](https://github.com/release-workshop/control-path/commit/63ad7551b304189b4027bdfd8b9bd9f57d08735e))
+* removal of typescript based compiler and cli ([740038d](https://github.com/release-workshop/control-path/commit/740038d4a4f5d0e8d806601ab5f5567bda8beec1))
+* remove legacy json shim ([421e275](https://github.com/release-workshop/control-path/commit/421e275687e4fc75ea5aeecd4fdc5eacd3b94566))
+* runtime loader hardening and generated SDK contract coverage ([d5a1942](https://github.com/release-workshop/control-path/commit/d5a194222597ecb9b745d4a452d69987a1f38d43))
+* **runtime:** completes expression engine for typescript ([7f3c9f4](https://github.com/release-workshop/control-path/commit/7f3c9f4ccc7504904ef8b543ef723d7a5ed05c2e))
+* **sdk:** adds override file handling ([99007d1](https://github.com/release-workshop/control-path/commit/99007d144063b80684e4878227d0e1193ebb8e98))
+* **sdk:** checks override before ast evaluation ([d6a9d33](https://github.com/release-workshop/control-path/commit/d6a9d333b76fc01bc233fabab1d4d818e1279812))
+* separates cdn url construction from env discovery ([de05514](https://github.com/release-workshop/control-path/commit/de055144fd8bb34498e54001eb861a7c3ba66372))
+* shared explain evaluation trace ([c15ccc4](https://github.com/release-workshop/control-path/commit/c15ccc4ae99b0600fbd561959d334e3991b1e020))
+* thin generated SDK and deep TypeScript runtime ([8b53c17](https://github.com/release-workshop/control-path/commit/8b53c17de3ad59426af71af2098c7130eb0b46ca))
+* unified configuration files and removes openfeature support ([111071c](https://github.com/release-workshop/control-path/commit/111071c51681fe5cea53f95171b80854e32075cf))
+* unify generate sdk command and ops helper ([8063f05](https://github.com/release-workshop/control-path/commit/8063f056bc3165b965afaeffa495ea0a2b457d8c))
+* warn when entitlement catalog default is true ([1725de2](https://github.com/release-workshop/control-path/commit/1725de257fb8d38fb3842d1329c3ca71376ca96b))
+
+
+### Bug Fixes
+
+* **ci:** e2e tests fix ([a1a7834](https://github.com/release-workshop/control-path/commit/a1a78346307f5b0c3bbaad87a637b4a492ee3bc1))
+* **ci:** typescript sdk generation ([2d16b6a](https://github.com/release-workshop/control-path/commit/2d16b6ad4d61019d00d7f195dc40b3f4f36da77c))
+* **cli:** compute values in rust for typescript sdk generator ([be79860](https://github.com/release-workshop/control-path/commit/be798602da59a7f0c7517ec1193e83ed0af3e595))
+* **cli:** compute values in rust for typescript sdk generator ([25af409](https://github.com/release-workshop/control-path/commit/25af409ce859d66b185db46a84e0a54e06da64fd))
+* **cli:** compute values in rust for typescript sdk generator ([5fa5aef](https://github.com/release-workshop/control-path/commit/5fa5aeff3ff0c7967bafc300530a758172e721c6))
+* **cli:** fixes explain command lint errors ([5e5650b](https://github.com/release-workshop/control-path/commit/5e5650b406b27c0f68dd052b5e56f4c0bd9ca286))
+* **cli:** test fixes ([6359349](https://github.com/release-workshop/control-path/commit/63593492d7d3ea900ec112acab5c7ca34c508bb6))
+* push main script ([32751ff](https://github.com/release-workshop/control-path/commit/32751ffe61eb1f9837d31fadae83d5099e1385d5))
+* push main script ([7686f5a](https://github.com/release-workshop/control-path/commit/7686f5a6dbf09c6de209e6572a0ca7f307744cc6))
+* push main script ([abadb04](https://github.com/release-workshop/control-path/commit/abadb04f7f636767ad69d266c59177bd7dd5aead))
+* **sdk:** updates flaky test ([10af3e9](https://github.com/release-workshop/control-path/commit/10af3e9212ad79dd721deb92297861bffd61ef59))
+
 ## [0.6.0](https://github.com/release-workshop/control-path/compare/control-path-v0.5.0...control-path-v0.6.0) (2026-01-03)
 
 
