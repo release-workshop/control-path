@@ -25,8 +25,10 @@ export {
 } from './kill-switch-loader';
 export { evaluate, evaluateBoolean, evaluateRule, coerceServePayloadToBoolean } from './evaluator';
 export { resolveBooleanFlag, type ResolveBooleanFlagOptions } from './resolve-flag';
+export { refreshFromFile, type FileFingerprint, type FileRefreshResult } from './file-refresh';
 export {
   refreshKillSwitchFromUrl,
+  refreshKillSwitchFromPath,
   KillSwitchRefreshCoordinator,
   startKillSwitchPoll,
   killSwitchInitDelayMs,

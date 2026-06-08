@@ -204,6 +204,7 @@ fn sdk_from_bundle(base_dir: &Path, bundle: CatalogBundle) -> CliResult<SdkCatal
         flags: bundle.sdk.flags,
         artifact_urls: url_maps.artifact_urls,
         kill_switch_urls: url_maps.kill_switch_urls,
+        kill_switch_paths: BTreeMap::new(),
         attribute_schema: bundle.sdk.attribute_schema.clone(),
     })
 }
@@ -592,6 +593,7 @@ environments:
             &controlpath_compiler::CatalogIdentity {
                 id: "checkout-service".to_string(),
                 namespace: Some("acme".to_string()),
+                scope: Default::default(),
             },
             None,
         );

@@ -14,6 +14,9 @@
     },
     "scaffold": {
       "$ref": "#/$defs/scaffold"
+    },
+    "saas": {
+      "$ref": "#/$defs/workspaceSaas"
     }
   },
   "additionalProperties": false,
@@ -76,6 +79,23 @@
             }
           },
           "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "workspaceSaas": {
+      "type": "object",
+      "description": "Org-wide SaaS endpoints discovered by walk-up from service catalogs. Service file saas.api_url / saas.cdn_url take precedence when set.",
+      "properties": {
+        "api_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Control Path API base URL for catalog sync (not SDK runtime polls)."
+        },
+        "cdn_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "CDN origin for SDK runtime polls (compiled artifacts and kill switch files)."
         }
       },
       "additionalProperties": false

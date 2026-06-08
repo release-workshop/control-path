@@ -25,9 +25,7 @@ describe('loader-utils', () => {
 
   describe('validateHttpUrl', () => {
     it('rejects unsupported protocols', () => {
-      expect(() => validateHttpUrl('file:///tmp/rules.ast')).toThrow(
-        'Unsupported URL protocol'
-      );
+      expect(() => validateHttpUrl('file:///tmp/rules.ast')).toThrow('Unsupported URL protocol');
     });
 
     it('accepts https URLs', () => {

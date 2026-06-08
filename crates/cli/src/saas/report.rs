@@ -187,6 +187,7 @@ mod tests {
         let sdk_catalog = SdkCatalog {
             flags: vec![sdk_flag("stale_feature", FlagLifecycle::Active, false)],
             kill_switch_urls: BTreeMap::new(),
+            kill_switch_paths: BTreeMap::new(),
             artifact_urls: BTreeMap::new(),
             attribute_schema: None,
         };
@@ -215,6 +216,7 @@ mod tests {
                 ),
             ],
             kill_switch_urls: BTreeMap::new(),
+            kill_switch_paths: BTreeMap::new(),
             artifact_urls: BTreeMap::new(),
             attribute_schema: None,
         };

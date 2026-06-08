@@ -476,10 +476,145 @@ fn semantic_errors(
         }
     }
 
+    errors.extend(catalog_scope_errors(file_path, data));
     errors.extend(attribute_schema_errors(file_path, data));
     errors.extend(attribute_schema_rule_property_errors(file_path, data));
+    errors.extend(refresh_target_errors(
+        file_path,
+        "kill_switches",
+        obj.get("kill_switches"),
+    ));
+    errors.extend(refresh_target_errors(
+        file_path,
+        "artifacts",
+        obj.get("artifacts"),
+    ));
 
     errors
+}
+
+fn catalog_scope_errors(file_path: &str, data: &Value) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+    let Some(obj) = data.as_object() else {
+        return errors;
+    };
+
+    let scope = obj
+        .get("catalog")
+        .and_then(|c| c.as_object())
+        .and_then(|c| c.get("scope"))
+        .and_then(|s| s.as_str())
+        .unwrap_or("service");
+
+    if scope != "org" {
+        return errors;
+    }
+
+    let Some(flags_obj) = obj.get("flags").and_then(|f| f.as_object()) else {
+        return errors;
+    };
+
+    for (flag_key, flag_val) in flags_obj {
+        let kind = flag_val
+            .get("kind")
+            .and_then(|k| k.as_str())
+            .unwrap_or("release");
+        if kind == "release" {
+            errors.push(validation_error(
+                file_path,
+                format!(
+                    "Flag '{flag_key}' has kind 'release' but catalog.scope is 'org'"
+                ),
+                Some(format!("flags.{flag_key}.kind")),
+                Some(
+                    "Org-scoped catalogs must not define kind: release flags; use kind: entitlement or kind: kill_switch"
+                        .to_string(),
+                ),
+            ));
+        }
+    }
+
+    errors
+}
+
+fn refresh_target_errors(
+    file_path: &str,
+    block: &str,
+    targets: Option<&Value>,
+) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+    let Some(targets_obj) = targets.and_then(|t| t.as_object()) else {
+        return errors;
+    };
+
+    for (env, target) in targets_obj {
+        let path_key = format!("{block}.{env}");
+        let Some(target_obj) = target.as_object() else {
+            continue;
+        };
+
+        let url = target_obj.get("url").and_then(|v| v.as_str());
+        let path = target_obj.get("path").and_then(|v| v.as_str());
+        let has_url = url.is_some_and(|u| !u.is_empty());
+        let has_path = path.is_some_and(|p| !p.is_empty());
+
+        if has_url && has_path {
+            errors.push(validation_error(
+                file_path,
+                format!("'{block}.{env}' must specify either 'url' or 'path', not both"),
+                Some(path_key.clone()),
+                Some("Use a single refresh transport per environment target".to_string()),
+            ));
+            continue;
+        }
+
+        if !has_url && !has_path {
+            errors.push(validation_error(
+                file_path,
+                format!("'{block}.{env}' must specify either 'url' or 'path'"),
+                Some(path_key),
+                None,
+            ));
+            continue;
+        }
+
+        if let Some(path_value) = path {
+            if let Some(message) = posix_absolute_path_error(path_value) {
+                errors.push(validation_error(
+                    file_path,
+                    message,
+                    Some(format!("{block}.{env}.path")),
+                    Some(
+                        "Use a POSIX absolute path starting with '/' (e.g. /mnt/flags/kill.json)"
+                            .to_string(),
+                    ),
+                ));
+            }
+        }
+    }
+
+    errors
+}
+
+/// Returns an error message when `path` is not a valid v1 POSIX absolute refresh path.
+fn posix_absolute_path_error(path: &str) -> Option<String> {
+    if path.is_empty() {
+        return Some("path must not be empty".to_string());
+    }
+    if !path.starts_with('/') {
+        return Some(format!(
+            "path '{path}' must be a POSIX absolute path starting with '/'"
+        ));
+    }
+    if path.contains('\\') {
+        return Some(format!("path '{path}' must not contain backslashes"));
+    }
+    if path.as_bytes().get(1).is_some_and(|b| *b == b':')
+        && path.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+    {
+        return Some(format!("path '{path}' must not be a Windows drive path"));
+    }
+    None
 }
 
 fn semantic_warnings(file_path: &str, data: &Value) -> Vec<ValidationWarning> {

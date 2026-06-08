@@ -112,6 +112,39 @@ artifacts:
 }
 
 #[test]
+fn generates_kill_switch_paths_from_catalog() {
+    let catalog = parse_catalog(
+        r#"
+catalog:
+  id: svc
+flags:
+  f:
+    default: false
+    kind: kill_switch
+kill_switches:
+  production:
+    path: /mnt/flags/production.kill-switches.json
+"#,
+        Some("svc.yaml"),
+    )
+    .unwrap();
+    let sdk = build_sdk_catalog(&catalog, &BTreeMap::new()).unwrap();
+    assert_eq!(
+        sdk.kill_switch_paths.get("production").map(String::as_str),
+        Some("/mnt/flags/production.kill-switches.json")
+    );
+
+    let generator = TypeScriptGenerator::new().unwrap();
+    let temp_dir = TempDir::new().unwrap();
+    generator.generate(&sdk, temp_dir.path()).unwrap();
+
+    let index_content = fs::read_to_string(temp_dir.path().join("index.ts")).unwrap();
+    assert!(index_content.contains("KILL_SWITCH_PATHS"));
+    assert!(index_content.contains("killSwitchPaths: KILL_SWITCH_PATHS"));
+    assert!(index_content.contains("\"/mnt/flags/production.kill-switches.json\""));
+}
+
+#[test]
 fn generates_kill_switch_urls_from_catalog() {
     let sdk = sdk_from_yaml(LOCAL_ONLY, "local-only.control-path.yaml");
     assert!(sdk.kill_switch_urls.contains_key("production"));
@@ -417,7 +450,18 @@ flags:
 
 #[test]
 fn legacy_catalog_without_attributes_keeps_loose_attributes_type() {
-    let sdk = sdk_from_yaml(LOCAL_ONLY, "local-only.control-path.yaml");
+    let sdk = sdk_from_yaml(
+        r#"
+catalog:
+  id: checkout-service
+mode: local
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+"#,
+        "legacy-no-attributes.yaml",
+    );
     assert!(sdk.attribute_schema.is_none());
 
     let generator = TypeScriptGenerator::new().unwrap();

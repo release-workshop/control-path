@@ -729,6 +729,7 @@ flags:
             &controlpath_compiler::CatalogIdentity {
                 id: "checkout-service".to_string(),
                 namespace: Some("acme".to_string()),
+                scope: Default::default(),
             },
             None,
         );

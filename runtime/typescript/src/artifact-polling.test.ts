@@ -58,23 +58,21 @@ describe('resolveExpectedArtifactEnv', () => {
 
   it('prefers <env>.ast in the artifact path when that env has a catalog URL', () => {
     const artifact = sampleArtifact({ env: 'staging' });
-    expect(
-      resolveExpectedArtifactEnv('.controlpath/production.ast', artifact, urls)
-    ).toBe('production');
+    expect(resolveExpectedArtifactEnv('.controlpath/production.ast', artifact, urls)).toBe(
+      'production'
+    );
   });
 
   it('normalizes path env segment to lowercase catalog keys', () => {
     const artifact = sampleArtifact({ env: 'staging' });
-    expect(
-      resolveExpectedArtifactEnv('.controlpath/Production.ast', artifact, urls)
-    ).toBe('production');
+    expect(resolveExpectedArtifactEnv('.controlpath/Production.ast', artifact, urls)).toBe(
+      'production'
+    );
   });
 
   it('matches init URL to catalog artifact URL', () => {
     const artifact = sampleArtifact();
-    expect(
-      resolveExpectedArtifactEnv(urls.production, artifact, urls)
-    ).toBe('production');
+    expect(resolveExpectedArtifactEnv(urls.production, artifact, urls)).toBe('production');
   });
 });
 
@@ -88,16 +86,14 @@ describe('resolveExpectedArtifactEnv (SaaS CDN contract URLs)', () => {
 
   it('matches init source to SaaS CDN artifact poll URL', () => {
     const artifact = sampleArtifact({ env: 'production' });
-    expect(resolveExpectedArtifactEnv(saasUrls.production, artifact, saasUrls)).toBe(
-      'production'
-    );
+    expect(resolveExpectedArtifactEnv(saasUrls.production, artifact, saasUrls)).toBe('production');
   });
 
   it('resolves env from bundled path when SaaS CDN URLs are embedded', () => {
     const artifact = sampleArtifact();
-    expect(
-      resolveExpectedArtifactEnv('.controlpath/production.ast', artifact, saasUrls)
-    ).toBe('production');
+    expect(resolveExpectedArtifactEnv('.controlpath/production.ast', artifact, saasUrls)).toBe(
+      'production'
+    );
   });
 });
 
@@ -290,16 +286,8 @@ describe('ArtifactRefreshCoordinator', () => {
       etag: '"fast"',
     });
 
-    const slow = coordinator.refresh(
-      'https://example.com/rules.ast',
-      'production',
-      SDK_FLAGS
-    );
-    const fast = coordinator.refresh(
-      'https://example.com/rules.ast',
-      'production',
-      SDK_FLAGS
-    );
+    const slow = coordinator.refresh('https://example.com/rules.ast', 'production', SDK_FLAGS);
+    const fast = coordinator.refresh('https://example.com/rules.ast', 'production', SDK_FLAGS);
 
     releaseSlow!();
     await Promise.all([slow, fast]);

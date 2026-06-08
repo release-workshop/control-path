@@ -1,0 +1,46 @@
+# Local service catalog with filesystem refresh targets (volume mounts).
+# Effective catalog id: acme.checkout-service (namespace from workspace file).
+# Demonstrates path XOR url per environment; mixed transports across envs.
+
+catalog:
+  id: checkout-service
+
+mode: local
+
+flags:
+  new_dashboard:
+    kind: release
+    default: false
+
+  emergency_stop:
+    kind: kill_switch
+    default: false
+
+segments:
+  beta_users:
+    when: "true"
+
+# Per environment: exactly one of `url` or `path` (POSIX absolute, starts with `/`).
+kill_switches:
+  staging:
+    path: /mnt/flags/staging.kill-switches.json
+  production:
+    path: /mnt/flags/production.kill-switches.json
+
+artifacts:
+  staging:
+    path: /mnt/rules/staging.ast
+  production:
+    url: https://flags.example.com/production/rules.ast
+
+environments:
+  staging:
+    rules:
+      new_dashboard:
+        - serve: true
+
+  production:
+    rules:
+      new_dashboard:
+        - when: "segment('beta_users')"
+          serve: true

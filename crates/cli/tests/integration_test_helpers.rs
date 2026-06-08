@@ -399,6 +399,104 @@ main();
         let attributes: serde_json::Value = serde_json::from_str(attributes_str).ok()?;
         self.evaluate_flag(flag_name, env, &attributes)
     }
+
+    /// Assert flag evaluation via [`GeneratedEvaluatorRuntime`] (kill switch path + artifact init).
+    ///
+    /// Exercises the same stack as the generated SDK: `init({ artifact })`, `refreshKillSwitch()`,
+    /// then `evaluateBooleanFlag`. Requires `runtime/typescript/dist` and Node.js on PATH.
+    #[allow(dead_code)]
+    pub fn assert_generated_boolean_flag(
+        &self,
+        flag_name: &str,
+        env: &str,
+        attributes_str: &str,
+        catalog_default: bool,
+        kill_switch_path: &str,
+        expected: bool,
+    ) {
+        self.assert_ast_compiled(env);
+
+        if !typescript_runtime_built() {
+            if std::env::var_os("CI").is_some() {
+                panic!(
+                    "CI must build runtime/typescript before workspace tests (missing {}). \
+                     Local dev: cd runtime/typescript && npm ci && npm run build",
+                    runtime_dist_dir()
+                        .join("generated-evaluator-runtime.js")
+                        .display()
+                );
+            }
+            return;
+        }
+
+        let runtime_dist = runtime_dist_dir();
+        let ast_path = self.path(&format!(".controlpath/{env}.ast"));
+        let runtime_path = runtime_dist.join("generated-evaluator-runtime.js");
+        let catalog_default_js = if catalog_default { "true" } else { "false" };
+
+        let script_content = format!(
+            r#"
+const {{ GeneratedEvaluatorRuntime }} = require('{}');
+const path = require('path');
+
+async function main() {{
+  const runtime = new GeneratedEvaluatorRuntime({{
+    killSwitchUrls: {{}},
+    killSwitchPaths: {{ '{env}': '{}' }},
+    artifactUrls: {{}},
+    sdkQualifiedFlagNames: new Set(['{flag_name}']),
+  }});
+
+  await runtime.init({{ artifact: '{}' }});
+  await runtime.refreshKillSwitch();
+  runtime.stopKillSwitchPolling();
+
+  const result = runtime.evaluateBooleanFlag({{
+    qualifiedName: '{flag_name}',
+    catalogDefault: {catalog_default_js},
+    attributes: {attributes_str},
+  }});
+
+  console.log(result ? 'true' : 'false');
+}}
+
+main().catch((err) => {{
+  console.error(err.message);
+  process.exit(1);
+}});
+"#,
+            runtime_path.to_string_lossy().replace('\\', "/"),
+            kill_switch_path.replace('\\', "/"),
+            ast_path.to_string_lossy().replace('\\', "/"),
+        );
+
+        let script_path = self.path("evaluate_generated_flag_temp.js");
+        fs::write(&script_path, script_content).expect("write evaluation script");
+
+        let output = Command::new("node")
+            .current_dir(&self.project_path)
+            .arg("evaluate_generated_flag_temp.js")
+            .output()
+            .unwrap_or_else(|e| panic!("spawn node for generated evaluation: {e}"));
+
+        let _ = fs::remove_file(&script_path);
+
+        assert!(
+            output.status.success(),
+            "generated evaluation failed (exit {:?}): {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parsed = parse_boolean_eval_result(stdout.trim()).unwrap_or_else(|| {
+            panic!("expected boolean from GeneratedEvaluatorRuntime for '{flag_name}' in '{env}'");
+        });
+        assert_eq!(
+            parsed, expected,
+            "flag '{flag_name}' in '{env}' with attributes {attributes_str} (kill switch path)"
+        );
+    }
 }
 
 /// Create a simple v2 test catalog with one environment (`production`) and an initial serve rule.

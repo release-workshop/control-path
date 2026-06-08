@@ -15,7 +15,7 @@ Environment rule syntax and expressions: [`rules.md`](rules.md).
 | `segments` | Local-mode reusable `when` predicates |
 | `imports` | Shared catalogs by namespace |
 | `attributes` | Optional evaluation attribute schema (scalar types) |
-| `artifacts` / `kill_switches` | Local-mode per-environment poll URLs |
+| `artifacts` / `kill_switches` | Local-mode per-environment refresh targets (`url` or `path`, one per env) |
 | `saas` | SaaS project identity when `mode: saas` |
 
 Tooling also writes under `.controlpath/` (compiled `.ast` files, CLI config). Treat that directory as **generated output**, not hand-edited configuration.
@@ -47,7 +47,7 @@ mode: local   # default
 
 | `mode` | Rules in Git | Typical workflow |
 | --- | --- | --- |
-| `local` | `environments`, `segments`, `artifacts`, `kill_switches` allowed | Edit YAML → `validate` → `deploy` / upload artifact URLs |
+| `local` | `environments`, `segments`, `artifacts`, `kill_switches` allowed | Edit YAML → `validate` → `deploy` / publish to artifact or kill-switch targets |
 | `saas` | `environments` / `segments` / local URLs **not** allowed | Edit flags in Git → platform owns rules → `controlpath sync` for `.controlpath/*.ast` |
 
 SaaS example: [`schemas/examples/saas.control-path.yaml`](../../schemas/examples/saas.control-path.yaml).
@@ -153,20 +153,39 @@ environments:
 
 Complete example: [`schemas/examples/local-only.control-path.yaml`](../../schemas/examples/local-only.control-path.yaml).
 
-## Remote URLs (local mode)
+## Refresh targets (local mode)
 
-When pods should poll for updated rules or kill switches, declare URLs per environment:
+When running apps should **hot-swap** rules or kill switches without restart, declare a refresh target per environment under `artifacts` and `kill_switches`. Each entry must have **exactly one** of:
+
+| Field | Use when |
+| --- | --- |
+| `url` | HTTP(S) object storage or CDN (same model as before) |
+| `path` | POSIX absolute filesystem path (volume mount, sidecar-written file) |
+
+Paths must start with `/` (v1). Relative paths and native Windows drive paths are rejected. `url` and `path` are mutually exclusive on the same environment entry.
 
 ```yaml
 artifacts:
+  staging:
+    path: /mnt/rules/staging.ast
   production:
     url: https://flags.example.com/production/rules.ast
 kill_switches:
   production:
-    url: https://flags.example.com/production/kill-switches.json
+    path: /mnt/flags/production.kill-switches.json
 ```
 
-Omit these sections for purely local workflows without remote polling. Invalid when `mode: saas` (platform CDN serves URLs after sync).
+**Semantics (see ADR 0003):**
+
+- **Refresh-only** — cold start still uses `init({ artifact })` (bundled file, mount, or URL). Configured `path` / `url` is where the SDK polls afterward; it may differ from the init source (e.g. bundled `.ast` in the image, live rules on a volume).
+- **Kill switch path / URL** — no kill switch at init; first successful poll loads the file, then polling continues on the faster kill-switch interval.
+- **Polling** — interval-based with mtime + size check; unchanged files are not re-read.
+- **Failures** — missing file, I/O error, invalid bytes, or rejected artifact guardrails keep **last-good** in-memory state; the runtime logs a warning.
+- **Publishers** — replace files atomically (write-then-rename) to avoid torn reads.
+
+Omit `artifacts` and `kill_switches` entirely for workflows that only load rules via `init({ artifact })` with no background refresh. Do not add empty environment stubs — validation requires `url` or `path` on every entry you declare. Invalid when `mode: saas` (platform CDN URLs are embedded at SDK generation after sync).
+
+Volume-mount example: [`schemas/examples/volume-mount.control-path.yaml`](../../schemas/examples/volume-mount.control-path.yaml).
 
 ## Imports and shared catalogs
 
@@ -220,6 +239,7 @@ Entitlement authoring (composition, shared catalogs, fail-closed defaults): [`en
 | File | Shows |
 | --- | --- |
 | [`local-only.control-path.yaml`](../../schemas/examples/local-only.control-path.yaml) | Local rules, segments, rollout, service-local entitlement (`premium_checkout`), `attributes`, artifact/kill-switch URLs |
+| [`volume-mount.control-path.yaml`](../../schemas/examples/volume-mount.control-path.yaml) | Mixed `path` and `url` refresh targets (staging mount paths, production artifact URL) |
 | [`imported-global.control-path.yaml`](../../schemas/examples/imported-global.control-path.yaml) | `imports`, consumer rule boundaries, stacked `release` + platform entitlements |
 | [`saas.control-path.yaml`](../../schemas/examples/saas.control-path.yaml) | SaaS mode catalog without local environments |
 | [`shared-platform.control-path.yaml`](../../schemas/examples/shared-platform.control-path.yaml) | Shared platform catalog: entitlements, kill switches, import source rules |

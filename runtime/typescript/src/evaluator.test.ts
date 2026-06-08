@@ -211,7 +211,6 @@ describe('Evaluator', () => {
       const result2 = evaluateRule(rule, artifact, user1);
       expect(result2).toBe(result1);
     });
-
   });
 
   describe('complex expressions', () => {
@@ -494,13 +493,7 @@ describe('Evaluator', () => {
       const artifact: Artifact = {
         v: '1.0',
         env: 'production',
-        strs: [
-          'ON',
-          'OFF',
-          fixture.propertyPath,
-          fixture.literalValue,
-          fixture.flagName,
-        ],
+        strs: ['ON', 'OFF', fixture.propertyPath, fixture.literalValue, fixture.flagName],
         flags: [
           [
             [
@@ -1084,7 +1077,12 @@ describe('Evaluator', () => {
         [
           ExpressionType.BINARY_OP,
           BinaryOp.EQ,
-          [ExpressionType.BINARY_OP, BinaryOp.EQ, [ExpressionType.LITERAL, 1], [ExpressionType.LITERAL, 2]], // Nested BINARY_OP
+          [
+            ExpressionType.BINARY_OP,
+            BinaryOp.EQ,
+            [ExpressionType.LITERAL, 1],
+            [ExpressionType.LITERAL, 2],
+          ], // Nested BINARY_OP
           [ExpressionType.LITERAL, 3],
         ],
         0,
@@ -1417,11 +1415,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.LOWER,
-              [[ExpressionType.LITERAL, 'ADMIN']],
-            ],
+            [ExpressionType.FUNC, FuncCode.LOWER, [[ExpressionType.LITERAL, 'ADMIN']]],
             [ExpressionType.LITERAL, 1], // 'admin'
           ],
           4,
@@ -1465,11 +1459,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.LENGTH,
-              [[ExpressionType.LITERAL, ['a', 'b', 'c']]],
-            ],
+            [ExpressionType.FUNC, FuncCode.LENGTH, [[ExpressionType.LITERAL, ['a', 'b', 'c']]]],
             [ExpressionType.LITERAL, 10], // Use 10 which is not in string table (only has 5 items)
           ],
           4,
@@ -1491,11 +1481,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.LENGTH,
-              [[ExpressionType.LITERAL, ['a', 'b', 'c']]],
-            ],
+            [ExpressionType.FUNC, FuncCode.LENGTH, [[ExpressionType.LITERAL, ['a', 'b', 'c']]]],
             [ExpressionType.LITERAL, '3'], // Use string '3' which will coerce to number 3
           ],
           4,
@@ -1806,11 +1792,7 @@ describe('Evaluator', () => {
 
         const rule: Rule = [
           RuleType.SERVE,
-          [
-            ExpressionType.FUNC,
-            FuncCode.IS_AFTER,
-            [[ExpressionType.LITERAL, past.toISOString()]],
-          ],
+          [ExpressionType.FUNC, FuncCode.IS_AFTER, [[ExpressionType.LITERAL, past.toISOString()]]],
           0,
         ];
         const result = evaluateRule(rule, artifact, mockAttributes);
@@ -1844,11 +1826,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.HOUR_OF_DAY,
-              [],
-            ],
+            [ExpressionType.FUNC, FuncCode.HOUR_OF_DAY, []],
             [ExpressionType.LITERAL, hour],
           ],
           0,
@@ -1867,11 +1845,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.DAY_OF_WEEK,
-              [],
-            ],
+            [ExpressionType.FUNC, FuncCode.DAY_OF_WEEK, []],
             [ExpressionType.LITERAL, day],
           ],
           0,
@@ -1889,11 +1863,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.DAY_OF_MONTH,
-              [],
-            ],
+            [ExpressionType.FUNC, FuncCode.DAY_OF_MONTH, []],
             [ExpressionType.LITERAL, day],
           ],
           0,
@@ -1911,11 +1881,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.EQ,
-            [
-              ExpressionType.FUNC,
-              FuncCode.MONTH,
-              [],
-            ],
+            [ExpressionType.FUNC, FuncCode.MONTH, []],
             [ExpressionType.LITERAL, month],
           ],
           0,
@@ -1932,11 +1898,7 @@ describe('Evaluator', () => {
           [
             ExpressionType.BINARY_OP,
             BinaryOp.GT,
-            [
-              ExpressionType.FUNC,
-              FuncCode.CURRENT_TIMESTAMP,
-              [],
-            ],
+            [ExpressionType.FUNC, FuncCode.CURRENT_TIMESTAMP, []],
             [ExpressionType.LITERAL, '2000-01-01T00:00:00Z'],
           ],
           0,

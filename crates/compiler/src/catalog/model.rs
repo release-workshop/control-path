@@ -26,11 +26,30 @@ impl EffectiveCatalogId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogScope {
+    #[default]
+    Service,
+    Org,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CatalogIdentity {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    #[serde(default)]
+    pub scope: CatalogScope,
+}
+
+/// Org-wide SaaS endpoints from `control-path.workspace.yaml` (walk-up fallback).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WorkspaceSaasConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cdn_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -130,12 +149,15 @@ pub struct Environment {
     pub rules: BTreeMap<String, Vec<Rule>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct KillSwitchTarget {
-    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
-/// Per-environment compiled artifact URL (`artifacts.<env>.url` in local mode).
+/// Per-environment compiled artifact refresh target (`artifacts.<env>.url` or `.path` in local mode).
 pub type ArtifactTarget = KillSwitchTarget;
 
 /// Scalar type for catalog `attributes:` entries (v1).
@@ -206,4 +228,6 @@ pub struct WorkspaceDocument {
     pub namespace: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scaffold: Option<WorkspaceScaffold>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub saas: Option<WorkspaceSaasConfig>,
 }

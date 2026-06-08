@@ -104,22 +104,37 @@ Regenerate the SDK (`controlpath generate-sdk`) when the **flag catalog** or `at
 
 Generated runtime supports:
 
-- artifact polling and refresh
-- kill switch polling and refresh
+- artifact polling and refresh (via embedded `ARTIFACT_URLS`)
+- kill switch polling and refresh (via `KILL_SWITCH_URLS` and `KILL_SWITCH_PATHS`)
 - evaluation order: kill switch -> artifact rules -> catalog default
 
 ## Runtime behavior notes
 
-- `init({ artifact })` seeds runtime state.
+- `init({ artifact })` seeds runtime state from the **compiled artifact** only. Kill switch state loads on the first successful poll when a **kill switch URL** or **kill switch path** is configured for the artifact environment.
 - Re-running `init()` without a new artifact keeps existing loaded state and restarts polling.
-- Failed refresh keeps prior good state.
-- Artifact and kill switch polling run on separate timers.
+- Failed refresh (missing file, network error, invalid bytes, rejected artifact guardrails) keeps **last-good** state; check application logs for warnings.
+- Artifact and kill switch polling run on separate timers with init jitter and per-tick interval jitter.
+
+### Filesystem refresh (`path`)
+
+Catalog `kill_switches.<env>.path` and `artifacts.<env>.path` are POSIX absolute refresh targets (mutually exclusive with `url` on the same entry). See [`configuration.md`](configuration.md#refresh-targets-local-mode).
+
+| Target | Embedded in generated SDK | Poll behavior |
+| --- | --- | --- |
+| **Kill switch path** | `KILL_SWITCH_PATHS` | mtime + size check; hot-swap without restart |
+| **Kill switch URL** | `KILL_SWITCH_URLS` | conditional GET with ETag when available |
+| **Artifact URL** | `ARTIFACT_URLS` | conditional GET with ETag when available |
+| **Artifact path** | (not yet embedded) | Same filesystem model as kill switch path — validate in catalog today; SDK `ARTIFACT_PATHS` polling ships separately |
+
+For **kill switch path**, regenerate the SDK after changing `control-path.yaml`, then place or atomically replace the JSON at the configured path; running pods pick it up on the kill-switch poll interval.
+
+For **rules-only** updates today, publish `.controlpath/<env>.ast` to each environment’s **artifact URL** (or re-run `init({ artifact })` when not using URL polling). When **artifact path** is embedded in the SDK, placement at `artifacts.<env>.path` will hot-swap rules the same way as URL polling.
 
 ## Deployment velocities
 
 - Catalog changes: regenerate SDK and redeploy app.
-- Rules-only changes: publish new artifact to artifact URL.
-- Incident toggles: update kill switch file for faster propagation.
+- Rules-only changes: publish new **compiled artifact** to the environment’s **artifact URL** (or **artifact path** once SDK embedding is available).
+- Incident toggles: update kill switch file at **kill switch URL** or **kill switch path** for faster propagation (no app restart when refresh targets are configured).
 
 ## See also
 

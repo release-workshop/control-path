@@ -275,6 +275,7 @@ mod tests {
                 &CatalogIdentity {
                     id: "checkout".to_string(),
                     namespace: Some("acme".to_string()),
+                    scope: Default::default(),
                 },
                 None,
             ),
@@ -307,6 +308,7 @@ mod tests {
             &CatalogIdentity {
                 id: "checkout".to_string(),
                 namespace: Some("acme".to_string()),
+                scope: Default::default(),
             },
             None,
         );
@@ -351,6 +353,7 @@ mod tests {
             &CatalogIdentity {
                 id: "other".to_string(),
                 namespace: Some("acme".to_string()),
+                scope: Default::default(),
             },
             None,
         );

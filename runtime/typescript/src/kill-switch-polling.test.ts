@@ -5,17 +5,18 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import {
   refreshKillSwitchFromUrl,
+  refreshKillSwitchFromPath,
   KillSwitchRefreshCoordinator,
   startKillSwitchPoll,
   killSwitchInitDelayMs,
   type KillSwitchRefreshState,
 } from './kill-switch-polling';
-import {
-  loadKillSwitchFromURL,
-  KillSwitchFileNotModifiedError,
-} from './kill-switch-loader';
+import { loadKillSwitchFromURL, KillSwitchFileNotModifiedError } from './kill-switch-loader';
 
 vi.mock('./kill-switch-loader', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./kill-switch-loader')>();
@@ -26,6 +27,81 @@ vi.mock('./kill-switch-loader', async (importOriginal) => {
 });
 
 const mockedLoad = vi.mocked(loadKillSwitchFromURL);
+
+describe('refreshKillSwitchFromPath', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = join(
+      tmpdir(),
+      'cp-ks-path-poll-test',
+      `${Date.now()}-${Math.random().toString(36).substring(7)}`
+    );
+    mkdirSync(testDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    try {
+      rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors.
+    }
+  });
+
+  const prior: KillSwitchRefreshState = {
+    file: { version: '2.0', flags: { old_flag: true } },
+    fileFingerprint: { mtimeMs: 0, size: 1 },
+  };
+
+  it('updates state when file changes', async () => {
+    const filePath = join(testDir, 'kill.json');
+    writeFileSync(filePath, JSON.stringify({ version: '2.0', flags: { new_dashboard: false } }));
+
+    const result = await refreshKillSwitchFromPath(filePath, { file: null });
+
+    expect(result.status).toBe('updated');
+    expect(result.state.file?.flags.new_dashboard).toBe(false);
+    expect(result.state.fileFingerprint).toBeDefined();
+  });
+
+  it('retains prior state when file is unchanged', async () => {
+    const filePath = join(testDir, 'kill.json');
+    writeFileSync(filePath, JSON.stringify({ version: '2.0', flags: { old_flag: true } }));
+
+    const loaded = await refreshKillSwitchFromPath(filePath, { file: null });
+    expect(loaded.status).toBe('updated');
+
+    const again = await refreshKillSwitchFromPath(filePath, loaded.state);
+    expect(again.status).toBe('not-modified');
+    expect(again.state).toBe(loaded.state);
+  });
+
+  it('retains prior state when file is missing', async () => {
+    const filePath = join(testDir, 'missing.json');
+    const warn = vi.fn();
+
+    const result = await refreshKillSwitchFromPath(filePath, prior, {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.state).toBe(prior);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('retains prior state when file bytes are invalid', async () => {
+    const filePath = join(testDir, 'bad.json');
+    writeFileSync(filePath, '{ invalid');
+
+    const result = await refreshKillSwitchFromPath(filePath, prior);
+
+    expect(result.status).toBe('failed');
+    expect(result.state.file?.flags.old_flag).toBe(true);
+  });
+});
 
 describe('refreshKillSwitchFromUrl', () => {
   const prior: KillSwitchRefreshState = {
@@ -48,7 +124,12 @@ describe('refreshKillSwitchFromUrl', () => {
     expect(result.status).toBe('updated');
     expect(result.state.file?.flags.new_dashboard).toBe(false);
     expect(result.state.etag).toBe('"new"');
-    expect(mockedLoad).toHaveBeenCalledWith('https://example.com/kill.json', '"old"', undefined, undefined);
+    expect(mockedLoad).toHaveBeenCalledWith(
+      'https://example.com/kill.json',
+      '"old"',
+      undefined,
+      undefined
+    );
   });
 
   it('retains prior state on 304 not modified', async () => {
@@ -137,6 +218,28 @@ describe('KillSwitchRefreshCoordinator', () => {
     });
     coordinator.reset();
     expect(coordinator.getState().file).toBeNull();
+  });
+
+  it('refreshFromPath only commits state on successful file read', async () => {
+    let testDir: string;
+    testDir = join(
+      tmpdir(),
+      'cp-ks-coord-path',
+      `${Date.now()}-${Math.random().toString(36).substring(7)}`
+    );
+    mkdirSync(testDir, { recursive: true });
+    const filePath = join(testDir, 'kill.json');
+    writeFileSync(filePath, JSON.stringify({ version: '2.0', flags: { kept: true } }));
+
+    const coordinator = new KillSwitchRefreshCoordinator({
+      file: { version: '2.0', flags: { prior: true } },
+    });
+
+    const result = await coordinator.refreshFromPath(filePath);
+    expect(result.status).toBe('updated');
+    expect(coordinator.getState().file?.flags.kept).toBe(true);
+
+    rmSync(testDir, { recursive: true, force: true });
   });
 });
 

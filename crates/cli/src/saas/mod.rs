@@ -3,13 +3,17 @@
 pub mod ast;
 pub mod ast_cache;
 pub mod client;
+pub mod endpoints;
 pub mod fake;
+pub mod http;
 pub mod report;
 pub mod sync;
 
 pub use ast::remote_ast_options_from_catalog;
 pub use ast_cache::FilesystemAstCache;
+pub use endpoints::resolve_saas_endpoints;
 pub use fake::FakeSaasClient;
+pub use http::HttpSaasClient;
 pub use report::{
     build_flag_rot_report, fetch_saas_telemetry, print_flag_rot_report, warn_on_rot_findings,
 };

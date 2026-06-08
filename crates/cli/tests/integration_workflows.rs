@@ -107,6 +107,27 @@ environments:
 }
 
 #[test]
+fn test_deploy_success_message_describes_hot_swap_not_restart() {
+    let project = TestProject::with_deployment(
+        &simple_flag_definition("my_flag"),
+        "production",
+        &simple_deployment("production", "my_flag", true),
+    );
+
+    let output = project.run_command(&["deploy", "--env", "production"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Deployment ready"));
+    assert!(stdout.contains("artifact URL or artifact path"));
+    assert!(stdout.contains("kill switch URL or kill switch path"));
+    assert!(stdout.contains("no application restart required"));
+    assert!(
+        !stdout.contains("Restart your application"),
+        "deploy must not instruct restart for refresh targets: {stdout}"
+    );
+}
+
+#[test]
 fn test_deploy_workflow() {
     let project = TestProject::with_deployment(
         &simple_flag_definition("my_flag"),
@@ -1308,4 +1329,63 @@ environments:
     assert!(project.file_exists(".controlpath/production.kill-switches.json"));
 
     project.run_command_success(&["ci", "--env", "production", "--no-sdk"]);
+}
+
+#[test]
+fn test_kill_switch_path_refresh_without_restart() {
+    let project = TestProject::new();
+    let kill_switch_path = project
+        .path("volume/production.kill-switches.json")
+        .to_string_lossy()
+        .into_owned();
+
+    project.write_file(
+        "control-path.yaml",
+        &format!(
+            r"catalog:
+  id: checkout
+  namespace: acme
+mode: local
+flags:
+  new_dashboard:
+    default: false
+    kind: kill_switch
+environments:
+  production:
+    rules:
+      new_dashboard:
+        - serve: true
+kill_switches:
+  production:
+    path: {kill_switch_path}
+"
+        ),
+    );
+
+    project.run_command_success(&["validate"]);
+    project.run_command_success(&["compile", "--env", "production"]);
+    project.run_command_success(&["generate-sdk", "--lang", "typescript"]);
+    project.run_command_success(&["deploy", "--env", "production"]);
+    project.assert_ast_compiled("production");
+
+    if let Some(parent) = project
+        .path("volume/production.kill-switches.json")
+        .parent()
+    {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(
+        project.path("volume/production.kill-switches.json"),
+        r#"{"version":"2.0","flags":{"new_dashboard":false}}"#,
+    )
+    .unwrap();
+
+    project.assert_generated_boolean_flag(
+        "new_dashboard",
+        "production",
+        r#"{"id": "test_user"}"#,
+        false,
+        &kill_switch_path,
+        false,
+    );
 }

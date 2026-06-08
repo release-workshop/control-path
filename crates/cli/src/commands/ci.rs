@@ -7,8 +7,8 @@ use crate::ops::generate_sdk as ops_generate_sdk;
 use crate::ops::generate_sdk::GenerateOptions;
 use crate::saas::{
     build_flag_rot_report, fetch_saas_telemetry, load_saas_catalog_for_ci,
-    remote_ast_options_from_catalog, sync_saas_catalog_with_catalog, warn_on_rot_findings,
-    FakeSaasClient,
+    remote_ast_options_from_catalog, resolve_saas_endpoints, sync_saas_catalog_with_catalog,
+    warn_on_rot_findings, FakeSaasClient, HttpSaasClient,
 };
 use crate::utils::language;
 use crate::utils::runtime;
@@ -164,14 +164,42 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
         println!("  ✓ Catalog is valid");
         println!("Syncing catalog to SaaS...");
     }
-    let mut client = FakeSaasClient::open(&base_dir)?;
-    let outcome = sync_saas_catalog_with_catalog(
-        &base_dir,
-        &bundle.catalog,
-        bundle.workspace.as_ref(),
-        &mut client,
-        &ast_options,
-    )?;
+    let endpoints = resolve_saas_endpoints(&bundle.catalog, bundle.workspace.as_ref())?;
+    let mut http_client = None;
+    let mut fake_client = None;
+    if let Some(api_url) = endpoints.api_url.as_deref() {
+        let token = env::var("CONTROL_PATH_SYNC_TOKEN").map_err(|_| {
+            CliError::Message(
+                "CONTROL_PATH_SYNC_TOKEN is required when saas.api_url is configured".to_string(),
+            )
+        })?;
+        http_client = Some(HttpSaasClient::new(
+            api_url,
+            token,
+            endpoints.cdn_url.clone(),
+            endpoints.catalog_scope.clone(),
+        ));
+    } else {
+        fake_client = Some(FakeSaasClient::open(&base_dir)?);
+    }
+
+    let outcome = if let Some(ref mut client) = http_client {
+        sync_saas_catalog_with_catalog(
+            &base_dir,
+            &bundle.catalog,
+            bundle.workspace.as_ref(),
+            client,
+            &ast_options,
+        )?
+    } else {
+        sync_saas_catalog_with_catalog(
+            &base_dir,
+            &bundle.catalog,
+            bundle.workspace.as_ref(),
+            fake_client.as_mut().expect("fake client initialized"),
+            &ast_options,
+        )?
+    };
     if !runtime::is_json_output() {
         if outcome.catalog_sync.upserted_flags.is_empty()
             && outcome.catalog_sync.retired_flags.is_empty()
@@ -213,7 +241,15 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
                     "SaaS mode requires saas.project in control-path.yaml".to_string(),
                 )
             })?;
-        let telemetry = fetch_saas_telemetry(&client, &catalog_id, project)?;
+        let telemetry = if let Some(ref client) = http_client {
+            fetch_saas_telemetry(client, &catalog_id, project)?
+        } else {
+            fetch_saas_telemetry(
+                fake_client.as_ref().expect("fake client initialized"),
+                &catalog_id,
+                project,
+            )?
+        };
         let entries = build_flag_rot_report(sdk_catalog, &telemetry);
         warn_on_rot_findings(&entries);
     }

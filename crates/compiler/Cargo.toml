@@ -28,7 +28,7 @@ rmp-serde = "1.1"
 # JSON Schema validation (WASM-compatible)
 # NOTE: jsonschema has a transitive dependency on getrandom which needs WASM configuration
 # For WASM targets, getrandom will use the "js" feature automatically via target-specific deps
-jsonschema = "0.17"
+jsonschema = { version = "0.17", default-features = false }
 
 # Error handling (WASM-compatible)
 anyhow = "1.0"

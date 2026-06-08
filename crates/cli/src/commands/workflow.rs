@@ -552,8 +552,15 @@ pub fn run_deploy(options: &DeployOptions) -> i32 {
                 }
                 println!();
                 println!("Next steps:");
-                println!("  • Copy AST files to your deployment location");
-                println!("  • Restart your application to load new flags");
+                println!(
+                    "  • Publish `.controlpath/<env>.ast` to each environment's artifact URL or artifact path"
+                );
+                println!(
+                    "  • Publish `.controlpath/<env>.kill-switches.json` to each kill switch URL or kill switch path"
+                );
+                println!(
+                    "  • Running SDKs pick up URL/path changes on poll intervals — no application restart required"
+                );
             }
             0
         }

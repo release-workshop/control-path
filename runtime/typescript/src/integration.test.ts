@@ -57,15 +57,11 @@ environments:
 
   await writeFile(join(catalogDir, 'control-path.yaml'), catalog);
 
-  const result = spawnSync(
-    rustCli,
-    ['compile', '--env', 'production', '--output', astFile],
-    {
-      encoding: 'utf-8',
-      stdio: 'pipe',
-      cwd: catalogDir,
-    }
-  );
+  const result = spawnSync(rustCli, ['compile', '--env', 'production', '--output', astFile], {
+    encoding: 'utf-8',
+    stdio: 'pipe',
+    cwd: catalogDir,
+  });
 
   if (result.status !== 0) {
     const errorMsg = result.stderr?.toString() || result.stdout?.toString() || 'Unknown error';

@@ -8,12 +8,18 @@
  * Shared kill switch refresh and polling helpers (used by the generated SDK).
  */
 
-import { loadKillSwitchFromURL, KillSwitchFileNotModifiedError } from './kill-switch-loader';
+import { refreshFromFile, type FileFingerprint } from './file-refresh';
+import {
+  loadKillSwitchFromFile,
+  loadKillSwitchFromURL,
+  KillSwitchFileNotModifiedError,
+} from './kill-switch-loader';
 import type { KillSwitchFile, Logger } from './types';
 
 export interface KillSwitchRefreshState {
   file: KillSwitchFile | null;
   etag?: string;
+  fileFingerprint?: FileFingerprint;
 }
 
 export type KillSwitchRefreshResult =
@@ -54,6 +60,37 @@ export async function refreshKillSwitchFromUrl(
 }
 
 /**
+ * Refresh kill switch JSON from a filesystem path (mtime/size skip, last-good on failure).
+ */
+export async function refreshKillSwitchFromPath(
+  path: string,
+  prior: KillSwitchRefreshState,
+  logger?: Logger
+): Promise<KillSwitchRefreshResult> {
+  const result = await refreshFromFile(
+    path,
+    prior.fileFingerprint,
+    loadKillSwitchFromFile,
+    logger,
+    prior.file ?? undefined
+  );
+
+  if (result.status === 'not-modified') {
+    return { status: 'not-modified', state: prior };
+  }
+
+  if (result.status === 'failed') {
+    return { status: 'failed', state: prior };
+  }
+
+  const state: KillSwitchRefreshState = {
+    file: result.value,
+    fileFingerprint: result.fingerprint,
+  };
+  return { status: 'updated', state };
+}
+
+/**
  * Serializes kill switch URL refreshes and only commits state on successful updates.
  */
 export class KillSwitchRefreshCoordinator {
@@ -82,6 +119,29 @@ export class KillSwitchRefreshCoordinator {
       () => undefined
     );
     return job;
+  }
+
+  refreshFromPath(path: string, logger?: Logger): Promise<KillSwitchRefreshResult> {
+    const job = this.tail.then(() => this.runRefreshFromPath(path, logger));
+    this.tail = job.then(
+      () => undefined,
+      () => undefined
+    );
+    return job;
+  }
+
+  private async runRefreshFromPath(
+    path: string,
+    logger?: Logger
+  ): Promise<KillSwitchRefreshResult> {
+    const result = await refreshKillSwitchFromPath(path, this.state, logger);
+    if (result.status === 'updated') {
+      this.state = result.state;
+    }
+    return {
+      status: result.status,
+      state: this.state,
+    };
   }
 
   private async runRefresh(

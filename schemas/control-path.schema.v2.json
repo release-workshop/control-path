@@ -119,6 +119,12 @@
           "description": "Catalog identifier within the namespace (e.g. checkout-service).",
           "minLength": 1,
           "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["org", "service"],
+          "default": "service",
+          "description": "SaaS navigation routing: 'service' (default) appears under Domain → Service in topology; 'org' surfaces only on kind-appropriate top-level views and must not define kind: release flags."
         }
       },
       "additionalProperties": false
@@ -313,26 +319,62 @@
     },
     "killSwitchTarget": {
       "type": "object",
-      "description": "Where the SDK loads the kill switch file for this environment.",
-      "required": ["url"],
+      "description": "Where the SDK refreshes the kill switch file for this environment (URL or POSIX path, mutually exclusive).",
       "properties": {
         "url": {
           "type": "string",
           "description": "HTTP(S) URL to the kill switch JSON file (e.g. S3 or CDN)."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "POSIX absolute path to the kill switch JSON file (e.g. volume mount)."
         }
       },
+      "oneOf": [
+        {
+          "required": ["url"],
+          "properties": {
+            "path": false
+          }
+        },
+        {
+          "required": ["path"],
+          "properties": {
+            "url": false
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "artifactTarget": {
       "type": "object",
-      "description": "Where the SDK polls the compiled artifact for this environment.",
-      "required": ["url"],
+      "description": "Where the SDK refreshes the compiled artifact for this environment (URL or POSIX path, mutually exclusive).",
       "properties": {
         "url": {
           "type": "string",
           "description": "HTTP(S) URL to the compiled artifact (MessagePack binary, e.g. S3 or CDN)."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "POSIX absolute path to the compiled artifact (e.g. volume mount)."
         }
       },
+      "oneOf": [
+        {
+          "required": ["url"],
+          "properties": {
+            "path": false
+          }
+        },
+        {
+          "required": ["path"],
+          "properties": {
+            "url": false
+          }
+        }
+      ],
       "additionalProperties": false
     }
   }

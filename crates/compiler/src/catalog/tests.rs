@@ -7,8 +7,8 @@
 use crate::catalog::{
     effective_catalog_id, load_and_validate_catalog, load_and_validate_workspace, parse_catalog,
     parse_workspace, validate_catalog, validate_catalog_value, AttributeScalarType,
-    CatalogDocument, CatalogMode, CatalogValidationContext, FlagLifecycle, ValidationMode,
-    WorkspaceDocument,
+    CatalogDocument, CatalogMode, CatalogValidationContext, CatalogValidationResult, FlagLifecycle,
+    ValidationMode, WorkspaceDocument,
 };
 use std::collections::BTreeMap;
 
@@ -227,10 +227,53 @@ environments:
         ValidationMode::Compile,
     );
     assert!(!result.valid);
+}
+
+#[test]
+fn org_catalog_scope_rejects_release_flags() {
+    let content = r#"
+catalog:
+  id: platform
+  scope: org
+mode: saas
+saas:
+  project: acme/platform
+flags:
+  emergency_kill_switch:
+    default: false
+    kind: kill_switch
+  new_dashboard:
+    default: false
+    kind: release
+"#;
+    let value = crate::catalog::parse_catalog_value(content, Some("bad.yaml")).unwrap();
+    let result = validate_catalog_value(
+        "bad.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Authoring,
+    );
+    assert!(!result.valid);
     assert!(result
         .errors
         .iter()
-        .any(|e| e.message.contains("environments")));
+        .any(|e| e.message.contains("catalog.scope is 'org'")));
+}
+
+#[test]
+fn workspace_saas_block_parses_and_validates() {
+    let content = r#"
+namespace: acme
+saas:
+  cdn_url: https://cdn.example.com
+  api_url: https://api.example.com
+"#;
+    let (doc, result) =
+        load_and_validate_workspace(content, "control-path.workspace.yaml").expect("parse");
+    assert!(result.valid, "{:?}", result.errors);
+    let saas = doc.saas.expect("saas block");
+    assert_eq!(saas.cdn_url.as_deref(), Some("https://cdn.example.com"));
+    assert_eq!(saas.api_url.as_deref(), Some("https://api.example.com"));
 }
 
 #[test]
@@ -1445,6 +1488,131 @@ environments:
         result.errors.iter().any(|e| {
             e.path.as_deref() == Some("segments.gold_orgs.when") && e.message.contains("tier")
         }),
+        "{:?}",
+        result.errors
+    );
+}
+
+fn validate_catalog_yaml(content: &str) -> CatalogValidationResult {
+    let value = crate::catalog::parse_catalog_value(content, Some("catalog.yaml")).unwrap();
+    validate_catalog_value(
+        "catalog.yaml",
+        &value,
+        &CatalogValidationContext::default(),
+        ValidationMode::Compile,
+    )
+}
+
+#[test]
+fn volume_mount_example_catalog_validates() {
+    const VOLUME_MOUNT: &str =
+        include_str!("../../../../schemas/examples/volume-mount.control-path.yaml");
+    let result = validate_catalog_yaml(VOLUME_MOUNT);
+    assert!(result.valid, "{:?}", result.errors);
+}
+
+#[test]
+fn kill_switch_path_absolute_is_valid_in_local_mode() {
+    let result = validate_catalog_yaml(
+        r#"
+catalog:
+  id: svc
+flags:
+  f:
+    default: false
+    kind: kill_switch
+kill_switches:
+  production:
+    path: /mnt/flags/production.kill-switches.json
+"#,
+    );
+    assert!(result.valid, "{:?}", result.errors);
+}
+
+#[test]
+fn kill_switch_rejects_path_and_url_together() {
+    let result = validate_catalog_yaml(
+        r#"
+catalog:
+  id: svc
+flags:
+  f:
+    default: false
+    kind: kill_switch
+kill_switches:
+  production:
+    url: https://example.com/kill.json
+    path: /mnt/flags/production.kill-switches.json
+"#,
+    );
+    assert!(!result.valid);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.path.as_deref() == Some("kill_switches.production")),
+        "{:?}",
+        result.errors
+    );
+}
+
+#[test]
+fn kill_switch_rejects_relative_and_windows_paths() {
+    for (path, label) in [
+        ("flags/kill.json", "relative"),
+        (r"C:\kill.json", "windows_drive"),
+        (r"/mnt/flags\kill.json", "backslash"),
+    ] {
+        let content = format!(
+            r#"
+catalog:
+  id: svc
+flags:
+  f:
+    default: false
+    kind: kill_switch
+kill_switches:
+  production:
+    path: {path}
+"#
+        );
+        let result = validate_catalog_yaml(&content);
+        assert!(!result.valid, "expected {label} path to be rejected");
+        assert!(
+            result.errors.iter().any(|e| {
+                e.path
+                    .as_deref()
+                    .is_some_and(|p| p.starts_with("kill_switches.production"))
+            }),
+            "{label}: {:?}",
+            result.errors
+        );
+    }
+}
+
+#[test]
+fn saas_mode_rejects_kill_switches_with_path() {
+    let content = r#"
+catalog:
+  id: svc
+mode: saas
+saas:
+  project: acme/svc
+flags:
+  f:
+    default: false
+    kind: release
+kill_switches:
+  production:
+    path: /mnt/flags/production.kill-switches.json
+"#;
+    let result = validate_catalog_yaml(content);
+    assert!(!result.valid);
+    assert!(
+        result
+            .errors
+            .iter()
+            .any(|e| e.message.contains("kill_switches")),
         "{:?}",
         result.errors
     );

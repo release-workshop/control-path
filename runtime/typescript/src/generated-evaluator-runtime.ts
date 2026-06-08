@@ -40,6 +40,7 @@ export const DEFAULT_GENERATED_ARTIFACT_POLL_JITTER_MS = 15_000;
 
 export interface GeneratedEvaluatorRuntimeConfig {
   killSwitchUrls: Readonly<Record<string, string>>;
+  killSwitchPaths?: Readonly<Record<string, string>>;
   artifactUrls: Readonly<Record<string, string>>;
   sdkQualifiedFlagNames: ReadonlySet<string>;
   killSwitchPollMs?: number;
@@ -100,6 +101,7 @@ export class GeneratedEvaluatorRuntime {
 
   constructor(config: GeneratedEvaluatorRuntimeConfig) {
     this.config = {
+      killSwitchPaths: {},
       killSwitchPollMs: DEFAULT_GENERATED_KILL_SWITCH_POLL_MS,
       killSwitchInitJitterMs: DEFAULT_GENERATED_KILL_SWITCH_INIT_JITTER_MS,
       killSwitchPollJitterMs: DEFAULT_GENERATED_KILL_SWITCH_POLL_JITTER_MS,
@@ -224,6 +226,12 @@ export class GeneratedEvaluatorRuntime {
     if (!env) {
       return;
     }
+    const path = this.config.killSwitchPaths?.[env];
+    if (path) {
+      await this.killSwitchCoordinator.refreshFromPath(path, this.killSwitchLogger);
+      return;
+    }
+
     const url = this.config.killSwitchUrls[env];
     if (!url) {
       return;

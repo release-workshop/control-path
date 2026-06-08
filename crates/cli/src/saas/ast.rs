@@ -343,6 +343,7 @@ mod tests {
             catalog: CatalogIdentity {
                 id: "svc".to_string(),
                 namespace: None,
+                scope: Default::default(),
             },
             mode: CatalogMode::Saas,
             saas: Some(SaasConfig {

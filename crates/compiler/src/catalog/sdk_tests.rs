@@ -78,6 +78,36 @@ fn build_sdk_catalog_includes_imported_flags_under_namespace() {
 }
 
 #[test]
+fn build_sdk_catalog_splits_kill_switch_url_and_path_by_env() {
+    let content = r#"
+catalog:
+  id: svc
+flags:
+  f:
+    default: false
+    kind: kill_switch
+kill_switches:
+  production:
+    url: https://flags.example.com/production/kill-switches.json
+  staging:
+    path: /mnt/flags/staging.kill-switches.json
+"#;
+    let catalog = parse_catalog(content, Some("svc.yaml")).unwrap();
+    let sdk = build_sdk_catalog(&catalog, &BTreeMap::new()).unwrap();
+
+    assert_eq!(
+        sdk.kill_switch_urls.get("production").map(String::as_str),
+        Some("https://flags.example.com/production/kill-switches.json")
+    );
+    assert_eq!(
+        sdk.kill_switch_paths.get("staging").map(String::as_str),
+        Some("/mnt/flags/staging.kill-switches.json")
+    );
+    assert!(!sdk.kill_switch_urls.contains_key("staging"));
+    assert!(!sdk.kill_switch_paths.contains_key("production"));
+}
+
+#[test]
 fn build_sdk_catalog_includes_artifact_urls() {
     let content = r#"
 catalog:

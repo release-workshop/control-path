@@ -57,6 +57,12 @@ struct TemplateKillSwitchUrl {
 }
 
 #[derive(Debug, Serialize)]
+struct TemplateKillSwitchPath {
+    env: String,
+    path_json: String,
+}
+
+#[derive(Debug, Serialize)]
 struct TemplateArtifactUrl {
     env: String,
     url_json: String,
@@ -233,6 +239,17 @@ impl TypeScriptGenerator {
             .collect()
     }
 
+    fn template_kill_switch_paths(catalog: &SdkCatalog) -> Vec<TemplateKillSwitchPath> {
+        catalog
+            .kill_switch_paths
+            .iter()
+            .map(|(env, path)| TemplateKillSwitchPath {
+                env: env.clone(),
+                path_json: to_ts_string_literal(path),
+            })
+            .collect()
+    }
+
     fn template_artifact_urls(catalog: &SdkCatalog) -> Vec<TemplateArtifactUrl> {
         catalog
             .artifact_urls
@@ -251,12 +268,14 @@ impl TypeScriptGenerator {
             .map(|flag| format!("'{}'", flag.camel_name))
             .collect();
         let kill_switch_urls = Self::template_kill_switch_urls(catalog);
+        let kill_switch_paths = Self::template_kill_switch_paths(catalog);
         let artifact_urls = Self::template_artifact_urls(catalog);
 
         let mut tera_context = Context::new();
         tera_context.insert("flags", &flags);
         tera_context.insert("flag_names", &flag_names);
         tera_context.insert("kill_switch_urls", &kill_switch_urls);
+        tera_context.insert("kill_switch_paths", &kill_switch_paths);
         tera_context.insert("artifact_urls", &artifact_urls);
         if let Some(schema) = catalog.attribute_schema.as_ref() {
             tera_context.insert("attribute_schema", &Self::template_attribute_schema(schema));

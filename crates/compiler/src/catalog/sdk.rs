@@ -49,6 +49,8 @@ pub struct SdkCatalog {
     pub flags: Vec<SdkFlag>,
     /// Per-environment kill switch file URLs (`kill_switches.<env>.url` in local mode).
     pub kill_switch_urls: BTreeMap<String, String>,
+    /// Per-environment kill switch file paths (`kill_switches.<env>.path` in local mode).
+    pub kill_switch_paths: BTreeMap<String, String>,
     /// Per-environment compiled artifact URLs (`artifacts.<env>.url` in local mode).
     pub artifact_urls: BTreeMap<String, String>,
     /// Present when the service catalog opts in to `attributes:` (closed SDK typing).
@@ -92,13 +94,19 @@ pub fn build_sdk_catalog(
     let kill_switch_urls = catalog
         .kill_switches
         .iter()
-        .map(|(env, target)| (env.clone(), target.url.clone()))
+        .filter_map(|(env, target)| target.url.as_ref().map(|url| (env.clone(), url.clone())))
+        .collect();
+
+    let kill_switch_paths = catalog
+        .kill_switches
+        .iter()
+        .filter_map(|(env, target)| target.path.as_ref().map(|path| (env.clone(), path.clone())))
         .collect();
 
     let artifact_urls = catalog
         .artifacts
         .iter()
-        .map(|(env, target)| (env.clone(), target.url.clone()))
+        .filter_map(|(env, target)| target.url.as_ref().map(|url| (env.clone(), url.clone())))
         .collect();
 
     let attribute_schema = build_attribute_schema(catalog, imports);
@@ -106,6 +114,7 @@ pub fn build_sdk_catalog(
     Ok(SdkCatalog {
         flags,
         kill_switch_urls,
+        kill_switch_paths,
         artifact_urls,
         attribute_schema,
     })

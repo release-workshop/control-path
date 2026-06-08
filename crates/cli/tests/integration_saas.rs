@@ -407,6 +407,7 @@ fn saas_generate_sdk_embeds_cdn_urls_for_sync_cached_environments() {
         &CatalogIdentity {
             id: "checkout-service".to_string(),
             namespace: Some("acme".to_string()),
+            scope: Default::default(),
         },
         None,
     );
@@ -493,6 +494,7 @@ fn saas_generate_sdk_uses_custom_cdn_url() {
         &CatalogIdentity {
             id: "checkout-service".to_string(),
             namespace: Some("acme".to_string()),
+            scope: Default::default(),
         },
         None,
     );

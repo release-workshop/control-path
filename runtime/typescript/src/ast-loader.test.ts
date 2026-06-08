@@ -239,7 +239,10 @@ describe('AST Loader', () => {
   describe('loadFromFile', () => {
     it('should load AST from file', async () => {
       // Use a unique file name to avoid conflicts with concurrent tests
-      const uniqueTestFile = join(testDir, `test-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
+      const uniqueTestFile = join(
+        testDir,
+        `test-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`
+      );
       const artifact: Artifact = {
         v: '1.0',
         env: 'test',
@@ -253,7 +256,7 @@ describe('AST Loader', () => {
       mkdirSync(testDir, { recursive: true });
       // Use writeFileSync for immediate, synchronous write (more reliable in tests)
       writeFileSync(uniqueTestFile, buffer);
-      
+
       // Verify file exists before reading (handles race conditions with afterEach cleanup)
       let retries = 5;
       while (retries > 0) {
@@ -295,7 +298,7 @@ describe('AST Loader', () => {
       // Write completely invalid binary data (use writeFileSync for synchronous write)
       const invalidData = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04]);
       writeFileSync(invalidTestFile, invalidData);
-      
+
       // Verify file was written correctly by reading it back
       const writtenContent = await readFile(invalidTestFile);
       if (writtenContent.length !== invalidData.length || !writtenContent.equals(invalidData)) {
@@ -321,7 +324,10 @@ describe('AST Loader', () => {
 
     it('should normalize valid relative paths', async () => {
       // Use a unique file name to avoid conflicts with concurrent tests
-      const uniqueTestFile = join(testDir, `test-normalize-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
+      const uniqueTestFile = join(
+        testDir,
+        `test-normalize-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`
+      );
       const artifact: Artifact = {
         v: '1.0',
         env: 'test',
@@ -347,7 +353,10 @@ describe('AST Loader', () => {
     describe('allowedDirectory option', () => {
       it('should allow files within allowed directory', async () => {
         // Use a unique file name to avoid conflicts with concurrent tests
-        const uniqueTestFile = join(testDir, `test-allowed-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
+        const uniqueTestFile = join(
+          testDir,
+          `test-allowed-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`
+        );
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
@@ -369,7 +378,10 @@ describe('AST Loader', () => {
 
       it('should reject files outside allowed directory', async () => {
         // Use a unique file name to avoid conflicts with concurrent tests
-        const uniqueTestFile = join(testDir, `test-reject-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
+        const uniqueTestFile = join(
+          testDir,
+          `test-reject-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`
+        );
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
@@ -391,9 +403,9 @@ describe('AST Loader', () => {
 
         try {
           // Should reject file outside allowed directory
-          await expect(loadFromFile(uniqueTestFile, { allowedDirectory: otherDir })).rejects.toThrow(
-            'File path outside allowed directory'
-          );
+          await expect(
+            loadFromFile(uniqueTestFile, { allowedDirectory: otherDir })
+          ).rejects.toThrow('File path outside allowed directory');
         } finally {
           await rm(otherDir, { recursive: true, force: true });
         }
@@ -401,7 +413,10 @@ describe('AST Loader', () => {
 
       it('should use process.env.AST_DIRECTORY if allowedDirectory not provided', async () => {
         // Use a unique file name to avoid conflicts with concurrent tests
-        const uniqueTestFile = join(testDir, `test-env-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`);
+        const uniqueTestFile = join(
+          testDir,
+          `test-env-${Date.now()}-${Math.random().toString(36).substring(7)}.ast`
+        );
         const artifact: Artifact = {
           v: '1.0',
           env: 'test',
@@ -1135,9 +1150,7 @@ describe('AST Loader', () => {
 
       const buffer = Buffer.from(pack(invalidData));
 
-      await expect(loadFromBuffer(buffer)).rejects.toThrow(
-        'flagNames length'
-      );
+      await expect(loadFromBuffer(buffer)).rejects.toThrow('flagNames length');
     });
 
     it('should throw error when flagNames contains invalid string table indices', async () => {

@@ -5,7 +5,14 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { Artifact, Rule, Expression, Attributes, AttributesInput, BaseAttributes } from './types';
+import type {
+  Artifact,
+  Rule,
+  Expression,
+  Attributes,
+  AttributesInput,
+  BaseAttributes,
+} from './types';
 import {
   RuleType,
   ExpressionType,

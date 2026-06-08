@@ -76,7 +76,7 @@ Common options:
 
 ### `deploy`
 
-Validate and compile artifacts for one or more environments.
+Validate and compile artifacts for one or more environments. Writes `.controlpath/<env>.ast` and `.controlpath/<env>.kill-switches.json`. Success output reminds you to publish those files to each environment’s **artifact URL**, **artifact path**, **kill switch URL**, or **kill switch path** — running SDKs refresh on poll intervals without an application restart.
 
 Common options:
 

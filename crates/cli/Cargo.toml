@@ -41,6 +41,7 @@ strsim = "0.11"
 jsonschema = "0.17"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 base64 = "0.22"
+ureq = { version = "2.10", features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3.8"

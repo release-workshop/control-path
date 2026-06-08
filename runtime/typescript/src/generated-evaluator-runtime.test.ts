@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { pack } from 'msgpackr';
 import { writeFile, mkdtemp, rm } from 'fs/promises';
+import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -209,9 +210,7 @@ describe('GeneratedEvaluatorRuntime', () => {
       expect(mockedKillSwitchInitDelayMs).toHaveBeenCalledWith(
         DEFAULT_GENERATED_KILL_SWITCH_INIT_JITTER_MS
       );
-      expect(mockedPollInitDelayMs).toHaveBeenCalledWith(
-        DEFAULT_GENERATED_ARTIFACT_INIT_JITTER_MS
-      );
+      expect(mockedPollInitDelayMs).toHaveBeenCalledWith(DEFAULT_GENERATED_ARTIFACT_INIT_JITTER_MS);
     } finally {
       await rm(join(artifactPath, '..'), { recursive: true, force: true });
     }
@@ -307,7 +306,9 @@ describe('GeneratedEvaluatorRuntime', () => {
         })
       ).toBe(false);
 
-      await expect(runtime.init({ artifact: join(tmpdir(), 'missing-rules.ast') })).rejects.toThrow();
+      await expect(
+        runtime.init({ artifact: join(tmpdir(), 'missing-rules.ast') })
+      ).rejects.toThrow();
 
       expect(runtime.getArtifact()).toEqual(artifact);
       expect(
@@ -361,6 +362,124 @@ describe('GeneratedEvaluatorRuntime', () => {
       expect(mockedLoadKillSwitchFromURL).not.toHaveBeenCalled();
     } finally {
       await rm(join(artifactPath, '..'), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('GeneratedEvaluatorRuntime kill switch path refresh', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedStartKillSwitchPoll.mockReturnValue(vi.fn());
+    mockedStartJitteredPoll.mockReturnValue(vi.fn());
+    mockedKillSwitchInitDelayMs.mockReturnValue(0);
+    mockedPollInitDelayMs.mockReturnValue(0);
+  });
+
+  async function writeKillSwitchFile(dir: string, flags: Record<string, boolean>): Promise<string> {
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'production.kill-switches.json');
+    writeFileSync(path, JSON.stringify({ version: '2.0', flags }));
+    return path;
+  }
+
+  it('applies kill switch override from configured path on refresh', async () => {
+    const artifact = sampleArtifact();
+    const artifactPath = await writeArtifactFile(artifact);
+    const killDir = join(tmpdir(), `cp-gen-eval-ks-${Date.now()}`);
+    const killSwitchPath = await writeKillSwitchFile(killDir, { new_dashboard: false });
+
+    const runtime = new GeneratedEvaluatorRuntime({
+      killSwitchUrls: {},
+      killSwitchPaths: { production: killSwitchPath },
+      artifactUrls: {},
+      sdkQualifiedFlagNames: new Set(['new_dashboard']),
+    });
+
+    try {
+      await runtime.init({ artifact: artifactPath });
+      expect(
+        runtime.evaluateBooleanFlag({
+          qualifiedName: 'new_dashboard',
+          catalogDefault: false,
+          attributes: { id: 'user-1' },
+        })
+      ).toBe(true);
+
+      await runtime.refreshKillSwitch();
+      expect(
+        runtime.evaluateBooleanFlag({
+          qualifiedName: 'new_dashboard',
+          catalogDefault: false,
+          attributes: { id: 'user-1' },
+        })
+      ).toBe(false);
+    } finally {
+      runtime.stopKillSwitchPolling();
+      await rm(join(artifactPath, '..'), { recursive: true, force: true });
+      await rm(killDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps last-good kill switch state when path file disappears', async () => {
+    const artifact = sampleArtifact();
+    const artifactPath = await writeArtifactFile(artifact);
+    const killDir = join(tmpdir(), `cp-gen-eval-ks-miss-${Date.now()}`);
+    const killSwitchPath = await writeKillSwitchFile(killDir, { new_dashboard: false });
+
+    const runtime = new GeneratedEvaluatorRuntime({
+      killSwitchUrls: {},
+      killSwitchPaths: { production: killSwitchPath },
+      artifactUrls: {},
+      sdkQualifiedFlagNames: new Set(['new_dashboard']),
+    });
+
+    try {
+      await runtime.init({ artifact: artifactPath });
+      await runtime.refreshKillSwitch();
+      await rm(killSwitchPath, { force: true });
+      await runtime.refreshKillSwitch();
+      expect(
+        runtime.evaluateBooleanFlag({
+          qualifiedName: 'new_dashboard',
+          catalogDefault: false,
+          attributes: { id: 'user-1' },
+        })
+      ).toBe(false);
+    } finally {
+      runtime.stopKillSwitchPolling();
+      await rm(join(artifactPath, '..'), { recursive: true, force: true });
+      await rm(killDir, { recursive: true, force: true });
+    }
+  });
+
+  it('skips reload when path file mtime and size are unchanged', async () => {
+    const artifact = sampleArtifact();
+    const artifactPath = await writeArtifactFile(artifact);
+    const killDir = join(tmpdir(), `cp-gen-eval-ks-skip-${Date.now()}`);
+    const killSwitchPath = await writeKillSwitchFile(killDir, { new_dashboard: false });
+
+    const runtime = new GeneratedEvaluatorRuntime({
+      killSwitchUrls: {},
+      killSwitchPaths: { production: killSwitchPath },
+      artifactUrls: {},
+      sdkQualifiedFlagNames: new Set(['new_dashboard']),
+    });
+
+    try {
+      await runtime.init({ artifact: artifactPath });
+      await runtime.refreshKillSwitch();
+      await runtime.refreshKillSwitch();
+      expect(
+        runtime.evaluateBooleanFlag({
+          qualifiedName: 'new_dashboard',
+          catalogDefault: false,
+          attributes: { id: 'user-1' },
+        })
+      ).toBe(false);
+    } finally {
+      runtime.stopKillSwitchPolling();
+      await rm(join(artifactPath, '..'), { recursive: true, force: true });
+      await rm(killDir, { recursive: true, force: true });
     }
   });
 });

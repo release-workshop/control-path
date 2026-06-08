@@ -6,7 +6,7 @@
  * `controlpath compile` when the service catalog declares imports.
  *
  * Call `evaluator.init({ artifact: '<path-or-url>' })` to load the compiled AST.
- * Kill switch polling uses `KILL_SWITCH_URLS` for the artifact environment.
+ * Kill switch polling uses `KILL_SWITCH_URLS` or `KILL_SWITCH_PATHS` for the artifact environment.
  * Artifact polling uses `ARTIFACT_URLS` (slower interval than kill switches).
  * Without `init({ artifact })`, methods return catalog defaults.
  *
@@ -35,6 +35,13 @@ export const KILL_SWITCH_URLS: Record<string, string> = {
 {% endfor %}
 };
 
+/** Kill switch refresh paths (local: `kill_switches.<env>.path`; refresh-only). */
+export const KILL_SWITCH_PATHS: Record<string, string> = {
+{% for entry in kill_switch_paths %}
+  '{{ entry.env }}': {{ entry.path_json }},
+{% endfor %}
+};
+
 /** Compiled artifact poll URLs (local: `artifacts.<env>.url`; SaaS: platform CDN contract). */
 export const ARTIFACT_URLS: Record<string, string> = {
 {% for entry in artifact_urls %}
@@ -51,6 +58,7 @@ const SDK_QUALIFIED_FLAG_NAMES = new Set<string>([
 export class Evaluator {
   private readonly runtime = new GeneratedEvaluatorRuntime({
     killSwitchUrls: KILL_SWITCH_URLS,
+    killSwitchPaths: KILL_SWITCH_PATHS,
     artifactUrls: ARTIFACT_URLS,
     sdkQualifiedFlagNames: SDK_QUALIFIED_FLAG_NAMES,
     killSwitchPollMs: DEFAULT_GENERATED_KILL_SWITCH_POLL_MS,
