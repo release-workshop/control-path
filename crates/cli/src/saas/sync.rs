@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use controlpath_compiler::catalog::{CatalogDocument, CatalogMode};
+use controlpath_compiler::ValidationMode;
 use controlpath_compiler::{effective_catalog_id, WorkspaceDocument};
 
 use crate::error::{CliError, CliResult};
@@ -12,7 +13,10 @@ use crate::saas::client::{
     CatalogSyncOutcome, CatalogSyncPayload, DownloadCompiledAstsRequest, ListActiveFlagsRequest,
     RetireFlagsRequest, SaasClient,
 };
-use crate::utils::catalog::{discover_workspace, load_for_explain, CatalogBundle, CATALOG_FILE};
+use crate::utils::catalog::{
+    discover_workspace, load_for_explain, load_validated_catalog_bundle_with_mode, CatalogBundle,
+    CATALOG_FILE,
+};
 
 /// Parse a SaaS-mode catalog document without schema/semantic validation.
 ///
@@ -45,6 +49,20 @@ pub fn load_saas_catalog_for_ci(base_dir: &Path) -> CliResult<CatalogBundle> {
     let bundle = load_for_explain(base_dir)?;
     if bundle.catalog.mode != CatalogMode::Saas {
         return Err(CliError::Message("Expected SaaS mode catalog".to_string()));
+    }
+    Ok(bundle)
+}
+
+/// Load a SaaS catalog for one-time OSS migration sync with transitional environment rules.
+pub fn load_saas_catalog_for_bootstrap_sync(base_dir: &Path) -> CliResult<CatalogBundle> {
+    let bundle = load_validated_catalog_bundle_with_mode(base_dir, ValidationMode::BootstrapSync)?;
+    if bundle.catalog.mode != CatalogMode::Saas {
+        return Err(CliError::Message("Expected SaaS mode catalog".to_string()));
+    }
+    if bundle.catalog.environments.is_empty() {
+        return Err(CliError::Message(
+            "Bootstrap sync requires a transitional environments block".to_string(),
+        ));
     }
     Ok(bundle)
 }
@@ -147,6 +165,7 @@ mod tests {
     use super::*;
     use crate::saas::fake::FakeSaasClient;
     use controlpath_compiler::catalog::FlagKind;
+    use controlpath_compiler::effective_catalog_id;
     use controlpath_compiler::serialize;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -278,6 +297,37 @@ flags:
         assert!(client.is_retired("acme/checkout", "remove_me"));
         assert!(client.synced_flag("acme/checkout", "remove_me").is_none());
         assert!(client.synced_flag("acme/checkout", "keep_me").is_some());
+    }
+
+    #[test]
+    fn bootstrap_sync_includes_transitional_environments_in_payload() {
+        let temp_dir = TempDir::new().unwrap();
+        let content = r"catalog:
+  id: checkout-service
+mode: saas
+saas:
+  project: acme/checkout
+flags:
+  feature_a:
+    kind: release
+    default: false
+    owner: team-a
+environments:
+  staging:
+    rules:
+      feature_a:
+        - serve: true
+";
+        fs::write(temp_dir.path().join(CATALOG_FILE), content).unwrap();
+
+        let bundle = load_saas_catalog_for_bootstrap_sync(temp_dir.path()).unwrap();
+        let payload = CatalogSyncPayload::from_catalog(
+            &bundle.catalog,
+            effective_catalog_id(&bundle.catalog.catalog, bundle.workspace.as_ref()),
+        )
+        .unwrap();
+
+        assert!(payload.environments.contains_key("staging"));
     }
 
     #[test]

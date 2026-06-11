@@ -580,6 +580,45 @@ fn saas_sync_prunes_stale_ast_before_generate_sdk() {
     assert!(!index.contains("staging"));
 }
 
+fn saas_catalog_with_bootstrap_environments() -> String {
+    minimal_saas_catalog("  feature_a:\n    kind: release\n    default: false\n    owner: team-a\n")
+        + "environments:\n  staging:\n    rules:\n      feature_a:\n        - serve: true\n"
+}
+
+#[test]
+fn saas_ci_imports_bootstrap_rules_on_first_sync() {
+    let project = TestProject::new();
+    project.write_file(
+        "control-path.yaml",
+        &saas_catalog_with_bootstrap_environments(),
+    );
+
+    project.run_command_success(&["ci", "--no-sdk"]);
+    assert!(project.path(".controlpath/staging.ast").exists());
+}
+
+#[test]
+fn saas_ci_ignores_bootstrap_rules_on_subsequent_sync() {
+    let project = TestProject::new();
+    project.write_file(
+        "control-path.yaml",
+        &saas_catalog_with_bootstrap_environments(),
+    );
+    project.run_command_success(&["ci", "--no-sdk"]);
+
+    let mut catalog = saas_catalog_with_bootstrap_environments();
+    catalog = catalog.replace("serve: true", "serve: false");
+    project.write_file("control-path.yaml", &catalog);
+    project.run_command_success(&["ci", "--no-sdk"]);
+
+    let state_path = project.path(".controlpath/saas-fake-state.json");
+    let state: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(state_path).unwrap()).unwrap();
+    let rules = &state["projects"]["acme/checkout"]["environment_rules"]["staging"]["feature_a"][0]
+        ["serve"];
+    assert_eq!(rules, true);
+}
+
 #[test]
 fn saas_mode_rejects_local_environments_via_validate() {
     let project = TestProject::new();

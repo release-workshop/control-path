@@ -9,8 +9,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use controlpath_compiler::catalog::FlagDefinition;
+use controlpath_compiler::catalog::{
+    CatalogDocument, CatalogIdentity, CatalogMode, Environment, FlagDefinition, Rule,
+};
 use controlpath_compiler::EffectiveCatalogId;
+use controlpath_compiler::{compile_catalog, serialize};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
@@ -27,6 +30,8 @@ struct ProjectState {
     catalog_id: Option<String>,
     synced_flags: BTreeMap<String, FlagDefinition>,
     retired_flags: BTreeSet<String>,
+    #[serde(default)]
+    environment_rules: BTreeMap<String, BTreeMap<String, Vec<Rule>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -103,6 +108,41 @@ impl FakeSaasClient {
         self.state.projects.entry(project.to_string()).or_default()
     }
 
+    fn compile_bootstrap_artifact(
+        flags: &BTreeMap<String, FlagDefinition>,
+        environment: &str,
+        rules: &BTreeMap<String, Vec<Rule>>,
+    ) -> CliResult<Vec<u8>> {
+        let catalog = CatalogDocument {
+            catalog: CatalogIdentity {
+                id: "bootstrap".to_string(),
+                namespace: None,
+                scope: Default::default(),
+            },
+            mode: CatalogMode::Local,
+            saas: None,
+            imports: Default::default(),
+            attributes: None,
+            flags: flags.clone(),
+            environments: BTreeMap::from([(
+                environment.to_string(),
+                Environment {
+                    description: None,
+                    rules: rules.clone(),
+                },
+            )]),
+            segments: Default::default(),
+            kill_switches: Default::default(),
+            artifacts: Default::default(),
+        };
+
+        let artifact = compile_catalog(&catalog, environment).map_err(|e| {
+            CliError::Message(format!("Failed to compile bootstrap environment: {e}"))
+        })?;
+        serialize(&artifact)
+            .map_err(|e| CliError::Message(format!("Failed to serialize bootstrap artifact: {e}")))
+    }
+
     fn ensure_project(&mut self, project: &str, catalog_id: &EffectiveCatalogId) -> CliResult<()> {
         let entry = self.project_state_mut(project);
         let catalog_id_str = catalog_id.as_str();
@@ -137,17 +177,52 @@ impl SaasClient for FakeSaasClient {
         self.ensure_project(&payload.project, &payload.catalog_id)?;
 
         let mut upserted = Vec::new();
-        let project_state = self.project_state_mut(&payload.project);
-        for (key, flag) in &payload.flags {
-            let changed = match project_state.synced_flags.get(key) {
-                Some(existing) => existing != flag,
-                None => true,
-            };
-            if changed {
-                upserted.push(key.clone());
+        {
+            let project_state = self.project_state_mut(&payload.project);
+            for (key, flag) in &payload.flags {
+                let changed = match project_state.synced_flags.get(key) {
+                    Some(existing) => existing != flag,
+                    None => true,
+                };
+                if changed {
+                    upserted.push(key.clone());
+                }
+                project_state.synced_flags.insert(key.clone(), flag.clone());
+                project_state.retired_flags.remove(key);
             }
-            project_state.synced_flags.insert(key.clone(), flag.clone());
-            project_state.retired_flags.remove(key);
+        }
+
+        let bootstrap_environments = if !payload.environments.is_empty() {
+            self.project_state(&payload.project)
+                .is_some_and(|state| state.environment_rules.is_empty())
+                .then(|| payload.environments.clone())
+        } else {
+            None
+        };
+        let flags_snapshot = self
+            .project_state(&payload.project)
+            .map(|state| state.synced_flags.clone())
+            .unwrap_or_default();
+
+        if let Some(environments) = bootstrap_environments {
+            let mut compiled_asts = Vec::new();
+            {
+                let project_state = self.project_state_mut(&payload.project);
+                for (env_name, env_def) in &environments {
+                    project_state
+                        .environment_rules
+                        .insert(env_name.clone(), env_def.rules.clone());
+                    let bytes = Self::compile_bootstrap_artifact(
+                        &flags_snapshot,
+                        env_name,
+                        &env_def.rules,
+                    )?;
+                    compiled_asts.push((env_name.clone(), bytes));
+                }
+            }
+            for (env_name, bytes) in compiled_asts {
+                self.state.remote_asts.insert(env_name, bytes);
+            }
         }
 
         self.save()?;
@@ -240,6 +315,16 @@ impl FakeSaasClient {
         self.project_state(project)
             .and_then(|state| state.synced_flags.get(flag_key))
     }
+
+    #[must_use]
+    pub fn environment_rules(
+        &self,
+        project: &str,
+        environment: &str,
+    ) -> Option<&BTreeMap<String, Vec<Rule>>> {
+        self.project_state(project)
+            .and_then(|state| state.environment_rules.get(environment))
+    }
 }
 
 #[cfg(test)]
@@ -281,6 +366,7 @@ mod tests {
             ),
             project: PROJECT.to_string(),
             flags: flag_map,
+            environments: BTreeMap::new(),
         }
     }
 
@@ -342,6 +428,53 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_sync_imports_environment_rules_once() {
+        let mut client = FakeSaasClient::new();
+        let mut payload = sample_payload(&[("feature", false)]);
+        payload.environments.insert(
+            "staging".to_string(),
+            Environment {
+                description: None,
+                rules: BTreeMap::from([(
+                    "feature".to_string(),
+                    vec![Rule {
+                        when: None,
+                        serve: Some(true),
+                        rollout: None,
+                        reason: None,
+                    }],
+                )]),
+            },
+        );
+        client.sync_catalog(&payload).unwrap();
+
+        let mut changed = payload.clone();
+        changed.environments.insert(
+            "staging".to_string(),
+            Environment {
+                description: None,
+                rules: BTreeMap::from([(
+                    "feature".to_string(),
+                    vec![Rule {
+                        when: None,
+                        serve: Some(false),
+                        rollout: None,
+                        reason: None,
+                    }],
+                )]),
+            },
+        );
+        client.sync_catalog(&changed).unwrap();
+
+        let rules = client.environment_rules(PROJECT, "staging").unwrap();
+        assert_eq!(
+            rules.get("feature").and_then(|r| r.first()?.serve),
+            Some(true)
+        );
+        assert!(client.state.remote_asts.contains_key("staging"));
+    }
+
+    #[test]
     fn open_rejects_mismatched_catalog_id_for_project() {
         let temp_dir = TempDir::new().unwrap();
         let mut client = FakeSaasClient::open(temp_dir.path()).unwrap();
@@ -362,6 +495,7 @@ mod tests {
                 catalog_id: other_catalog,
                 project: PROJECT.to_string(),
                 flags: sample_payload(&[("keep", true)]).flags,
+                environments: BTreeMap::new(),
             })
             .unwrap_err();
 

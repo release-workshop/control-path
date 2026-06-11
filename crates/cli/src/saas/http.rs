@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use controlpath_compiler::catalog::FlagDefinition;
+use controlpath_compiler::catalog::{Environment, FlagDefinition};
 use controlpath_compiler::EffectiveCatalogId;
 use serde::{Deserialize, Serialize};
 use ureq::Agent;
@@ -142,6 +142,8 @@ struct HttpCatalogSyncBody<'a> {
     project: &'a str,
     flags: &'a BTreeMap<String, FlagDefinition>,
     catalog_scope: &'a str,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    environments: &'a BTreeMap<String, Environment>,
 }
 
 #[derive(Debug, Serialize)]
@@ -185,6 +187,7 @@ impl SaasClient for HttpSaasClient {
             project: &payload.project,
             flags: &payload.flags,
             catalog_scope: &self.catalog_scope,
+            environments: &payload.environments,
         };
         let response_body = self.send_json("POST", &path, &body, true)?;
         let parsed: SyncCatalogResponse = serde_json::from_str(&response_body)

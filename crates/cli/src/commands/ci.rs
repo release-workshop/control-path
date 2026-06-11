@@ -6,9 +6,10 @@ use crate::ops::compile::CompileOptions;
 use crate::ops::generate_sdk as ops_generate_sdk;
 use crate::ops::generate_sdk::GenerateOptions;
 use crate::saas::{
-    build_flag_rot_report, fetch_saas_telemetry, load_saas_catalog_for_ci,
-    remote_ast_options_from_catalog, resolve_saas_endpoints, sync_saas_catalog_with_catalog,
-    warn_on_rot_findings, FakeSaasClient, HttpSaasClient,
+    build_flag_rot_report, fetch_saas_telemetry, load_saas_catalog_for_bootstrap_sync,
+    load_saas_catalog_for_ci, parse_saas_catalog_document, remote_ast_options_from_catalog,
+    resolve_saas_endpoints, sync_saas_catalog_with_catalog, warn_on_rot_findings, FakeSaasClient,
+    HttpSaasClient,
 };
 use crate::utils::language;
 use crate::utils::runtime;
@@ -158,7 +159,17 @@ fn run_saas_inner(options: &Options) -> CliResult<()> {
     if !runtime::is_json_output() {
         println!("Validating catalog...");
     }
-    let bundle = load_saas_catalog_for_ci(&base_dir)?;
+    let (catalog, _) = parse_saas_catalog_document(&base_dir)?;
+    let bundle = if catalog.environments.is_empty() {
+        load_saas_catalog_for_ci(&base_dir)?
+    } else {
+        if !runtime::is_json_output() {
+            eprintln!(
+                "⚠ Transitional environments block detected — remove it from control-path.yaml after bootstrap sync succeeds; `controlpath validate` rejects it in steady-state SaaS mode."
+            );
+        }
+        load_saas_catalog_for_bootstrap_sync(&base_dir)?
+    };
     let ast_options = remote_ast_options_from_catalog(&bundle.catalog)?;
     if !runtime::is_json_output() {
         println!("  ✓ Catalog is valid");

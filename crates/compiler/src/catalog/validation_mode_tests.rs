@@ -127,6 +127,21 @@ fn sdk_generate_mode_rejects_schema_semantic_and_import_failures() {
 }
 
 #[test]
+fn bootstrap_sync_mode_allows_saas_environments_block() {
+    let semantic_value = parse_fixture(SEMANTIC_VIOLATION_SAAS);
+    let result = validate_catalog_value(
+        "fixture.yaml",
+        &semantic_value,
+        &CatalogValidationContext::default(),
+        ValidationMode::BootstrapSync,
+    );
+    assert!(
+        result.is_ok(),
+        "bootstrap sync permits transitional environments in SaaS mode"
+    );
+}
+
+#[test]
 fn authoring_mode_rejects_schema_and_semantic_but_not_import_rules() {
     let schema_value = parse_fixture(SCHEMA_VIOLATION);
     let schema_result = validate_catalog_value(

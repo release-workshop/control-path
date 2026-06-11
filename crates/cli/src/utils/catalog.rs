@@ -68,6 +68,11 @@ fn load_validated_catalog_bundle(
     })?;
 
     let workspace = discover_workspace(base_dir)?;
+    let initial_validation_mode = if import_validation_mode == ValidationMode::BootstrapSync {
+        ValidationMode::BootstrapSync
+    } else {
+        ValidationMode::Authoring
+    };
     let (catalog, initial_validation) = load_and_validate_catalog(
         &content,
         catalog_path.to_string_lossy().as_ref(),
@@ -75,7 +80,7 @@ fn load_validated_catalog_bundle(
             workspace: workspace.clone(),
             ..Default::default()
         },
-        ValidationMode::Authoring,
+        initial_validation_mode,
     )
     .map_err(|e| CliError::Message(format!("Failed to parse {}: {e}", catalog_path.display())))?;
 
@@ -150,6 +155,14 @@ fn build_validated_bundle(
 /// Post-import validation uses [`ValidationMode::SdkGenerate`].
 pub fn load_for_explain(base_dir: &Path) -> CliResult<CatalogBundle> {
     load_validated_catalog_bundle(base_dir, ValidationMode::SdkGenerate)
+}
+
+/// Like [`load_for_explain`] but uses the given post-import validation mode.
+pub fn load_validated_catalog_bundle_with_mode(
+    base_dir: &Path,
+    import_validation_mode: ValidationMode,
+) -> CliResult<CatalogBundle> {
+    load_validated_catalog_bundle(base_dir, import_validation_mode)
 }
 
 /// Like [`load_for_explain`] but uses an already-loaded service catalog (e.g. after

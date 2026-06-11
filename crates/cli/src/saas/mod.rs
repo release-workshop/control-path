@@ -18,7 +18,8 @@ pub use report::{
     build_flag_rot_report, fetch_saas_telemetry, print_flag_rot_report, warn_on_rot_findings,
 };
 pub use sync::{
-    load_saas_catalog_for_ci, parse_saas_catalog_document, sync_saas_catalog_with_catalog,
+    load_saas_catalog_for_bootstrap_sync, load_saas_catalog_for_ci, parse_saas_catalog_document,
+    sync_saas_catalog_with_catalog,
 };
 
 // Public API for callers that load + sync in one step (used by unit tests).

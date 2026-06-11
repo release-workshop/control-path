@@ -98,6 +98,9 @@ pub fn imported_flag_keys_from_imports(
 /// - [`ValidationMode::Compile`] — full validation for compilation. Today runs the same phases as
 ///   [`ValidationMode::SdkGenerate`]; reserved so issue 06+ can add compile-only checks without
 ///   changing SDK callers.
+/// - [`ValidationMode::BootstrapSync`] — OSS-to-SaaS migration: like [`ValidationMode::SdkGenerate`]
+///   but permits a transitional `environments` block in SaaS mode for one-time catalog sync only.
+///   `validate` and steady-state CI continue to use [`ValidationMode::SdkGenerate`].
 ///
 /// User-facing compile paths must pass [`ValidationMode::Compile`] on the post-import pass;
 /// SDK paths use [`ValidationMode::SdkGenerate`].
@@ -111,6 +114,7 @@ pub enum ValidationMode {
     #[default]
     SdkGenerate,
     Compile,
+    BootstrapSync,
 }
 
 impl ValidationMode {
@@ -118,8 +122,14 @@ impl ValidationMode {
         match self {
             ValidationMode::Authoring => false,
             // Identical today; keep separate variants for future compile-only rules.
-            ValidationMode::SdkGenerate | ValidationMode::Compile => true,
+            ValidationMode::SdkGenerate
+            | ValidationMode::Compile
+            | ValidationMode::BootstrapSync => true,
         }
+    }
+
+    fn allows_saas_bootstrap_environments(self) -> bool {
+        self == ValidationMode::BootstrapSync
     }
 }
 
@@ -323,7 +333,7 @@ fn semantic_errors(
     let catalog_mode = obj.get("mode").and_then(|m| m.as_str()).unwrap_or("local");
 
     if catalog_mode == "saas" {
-        for forbidden in ["environments", "segments", "kill_switches", "artifacts"] {
+        for forbidden in ["segments", "kill_switches", "artifacts"] {
             if obj.contains_key(forbidden) {
                 errors.push(validation_error(
                     file_path,
@@ -332,6 +342,15 @@ fn semantic_errors(
                     Some("Remove local-only blocks in SaaS mode".to_string()),
                 ));
             }
+        }
+
+        if !mode.allows_saas_bootstrap_environments() && obj.contains_key("environments") {
+            errors.push(validation_error(
+                file_path,
+                "'environments' is not allowed when mode is 'saas'".to_string(),
+                Some("environments".to_string()),
+                Some("Remove local-only blocks in SaaS mode".to_string()),
+            ));
         }
 
         if let Some(saas) = obj.get("saas").and_then(|s| s.as_object()) {

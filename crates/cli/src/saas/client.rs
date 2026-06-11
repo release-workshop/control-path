@@ -1,6 +1,6 @@
 //! SaaS API boundary types and client trait.
 
-use controlpath_compiler::catalog::{CatalogDocument, FlagDefinition};
+use controlpath_compiler::catalog::{CatalogDocument, Environment, FlagDefinition};
 use controlpath_compiler::EffectiveCatalogId;
 use std::collections::BTreeMap;
 
@@ -12,6 +12,8 @@ pub struct CatalogSyncPayload {
     pub catalog_id: EffectiveCatalogId,
     pub project: String,
     pub flags: BTreeMap<String, FlagDefinition>,
+    /// Transitional Git environment rules for OSS-to-SaaS bootstrap sync only.
+    pub environments: BTreeMap<String, Environment>,
 }
 
 impl CatalogSyncPayload {
@@ -33,6 +35,7 @@ impl CatalogSyncPayload {
             catalog_id,
             project,
             flags: catalog.flags.clone(),
+            environments: catalog.environments.clone(),
         })
     }
 }
