@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/release-workshop/control-path/compare/control-path-v0.7.0...control-path-v0.8.0) (2026-06-11)
+
+
+### Features
+
+* add initial catalog sync bootstrap for oss-to-saas cutover ([0180686](https://github.com/release-workshop/control-path/commit/0180686570b562e00a9554ea6938dde41d5758eb))
+
 ## [0.7.0](https://github.com/release-workshop/control-path/compare/control-path-v0.6.0...control-path-v0.7.0) (2026-06-08)
 
 
